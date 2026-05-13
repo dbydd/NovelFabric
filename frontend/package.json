@@ -1,8 +1,9 @@
 {
-  "name": "frontend",
-  "version": "0.0.0",
+  "name": "novelfabric-frontend",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "electron/main.mjs",
   "scripts": {
     "dev": "vite",
     "build": "run-p type-check \"build-only {@}\" --",
@@ -10,7 +11,11 @@
     "test:unit": "vitest",
     "test:e2e": "playwright test",
     "build-only": "vite build",
-    "type-check": "vue-tsc --build"
+    "type-check": "vue-tsc --build",
+    "electron:dev": "electron .",
+    "backend:release": "cargo build --manifest-path ../backend/Cargo.toml --release",
+    "electron:pack": "npm run backend:release && npm run build && electron-builder --dir",
+    "electron:dist": "npm run backend:release && npm run build && electron-builder"
   },
   "dependencies": {
     "pinia": "^3.0.4",
@@ -25,6 +30,8 @@
     "@vitejs/plugin-vue": "^6.0.6",
     "@vue/test-utils": "^2.4.6",
     "@vue/tsconfig": "^0.9.1",
+    "electron": "^37.7.1",
+    "electron-builder": "^26.0.12",
     "jsdom": "^29.0.2",
     "npm-run-all2": "^8.0.4",
     "typescript": "~6.0.0",
@@ -35,5 +42,29 @@
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
+  },
+  "build": {
+    "appId": "local.novelfabric.desktop",
+    "productName": "NovelFabric",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json",
+      { "from": "../backend/target/release", "to": "backend", "filter": ["novelfabric-backend", "novelfabric-backend.exe"] },
+      { "from": "build", "to": "build", "filter": ["backend.default.toml"] }
+    ],
+    "directories": {
+      "buildResources": "build"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Office"
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "mac": {
+      "target": ["dmg"]
+    }
   }
 }

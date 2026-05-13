@@ -65,3 +65,28 @@ npm run test:e2e -- tests/example.spec.ts
 # Runs the tests in debug mode
 npm run test:e2e -- --debug
 ```
+
+
+## Desktop packaging
+
+NovelFabric can be wrapped as an Electron desktop app.
+
+- Config dir:
+  - Linux/macOS: `~/.config/novelfabric/`
+  - Windows: `%APPDATA%\novelfabric\`
+- Desktop config file: `desktop.json`
+- Backend CLI default config file: `config.toml` in the backend platform config dir
+- Electron-managed backend config file: `backend.toml` in the desktop config dir
+
+Useful commands:
+
+```sh
+npm run electron:dev --prefix frontend
+npm run electron:pack --prefix frontend
+npm run electron:dist --prefix frontend
+```
+
+Packaging notes:
+- `electron:pack` and `electron:dist` first build the Rust backend in release mode.
+- Packaged apps look for the backend binary in bundled resources under `backend/`.
+- Dev mode still falls back to `../backend/target/debug/` unless `desktop.json` overrides `backendBinary`.

@@ -2,10 +2,12 @@
 
 pub mod agents;
 pub mod cards;
+pub mod config;
 pub mod import;
 pub mod llm;
 pub mod memory;
 pub mod project;
+pub mod runtime;
 pub mod simulation;
 pub mod storage;
 pub mod timeline;
@@ -41,6 +43,10 @@ use crate::{
         UpdateMemoryEntryRequest,
     },
     project::{CreateProjectRequest, ProjectRecord, ProjectService},
+    runtime::{
+        AgentRuntimeExecuteRequest, AgentRuntimeExecution, AgentRuntimeGlobRequest,
+        AgentRuntimePatchRequest, AgentRuntimeReadRequest, AgentRuntimeService,
+    },
     simulation::{
         AdvanceRoundRequest, CharacterAction, CreateCharacterRequest, CreateSessionRequest,
         PossessCharacterRequest, SimulationRole, SimulationService, SimulationSession,
@@ -56,32 +62,13 @@ use crate::{
     },
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ApplicationConfig {
     pub server: ServerConfig,
     pub data_dir: PathBuf,
 }
 
-impl ApplicationConfig {
-    #[must_use]
-    pub fn from_env() -> Self {
-        let bind_address = std::env::var("NOVELFABRIC_BACKEND_BIND_ADDRESS")
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or_else(|| ServerConfig::default().bind_address);
-
-        let data_dir = std::env::var("NOVELFABRIC_DATA_DIR")
-            .ok()
-            .map_or_else(|| PathBuf::from("data"), PathBuf::from);
-
-        Self {
-            server: ServerConfig { bind_address },
-            data_dir,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ServerConfig {
     pub bind_address: SocketAddr,
 }
@@ -106,6 +93,7 @@ pub struct AppState {
     pub timeline: TimelineService,
     pub simulation: SimulationService,
     pub writing: WritingService,
+    pub runtime: AgentRuntimeService,
 }
 
 impl AppState {
@@ -120,6 +108,7 @@ impl AppState {
         let timeline = TimelineService::new(Arc::clone(&storage));
         let simulation = SimulationService::new(Arc::clone(&storage));
         let writing = WritingService::new(Arc::clone(&storage));
+        let runtime = AgentRuntimeService::new(Arc::clone(&storage));
         Self {
             config,
             storage,
@@ -131,6 +120,7 @@ impl AppState {
             timeline,
             simulation,
             writing,
+            runtime,
         }
     }
 }
@@ -141,6 +131,7 @@ pub struct HealthPayload {
     pub service: String,
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn app(config: ApplicationConfig) -> Router {
     let state = AppState::new(config);
 
@@ -205,6 +196,22 @@ pub fn app(config: ApplicationConfig) -> Router {
         .route(
             "/api/projects/{slug}/writing/branches",
             post(create_writing_branch_handler),
+        )
+        .route(
+            "/api/projects/{slug}/runtime/read",
+            post(runtime_read_handler),
+        )
+        .route(
+            "/api/projects/{slug}/runtime/glob",
+            post(runtime_glob_handler),
+        )
+        .route(
+            "/api/projects/{slug}/runtime/patch",
+            post(runtime_patch_handler),
+        )
+        .route(
+            "/api/projects/{slug}/runtime/execute",
+            post(runtime_execute_handler),
         )
         .route(
             "/api/projects/{slug}/simulation/active-session",
@@ -917,6 +924,38 @@ async fn create_writing_branch_handler(
     Ok(Json(record))
 }
 
+async fn runtime_read_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+    Json(request): Json<AgentRuntimeReadRequest>,
+) -> Result<Json<runtime::ReadOutput>, AppError> {
+    Ok(Json(state.runtime.read(&slug, request).await?))
+}
+
+async fn runtime_glob_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+    Json(request): Json<AgentRuntimeGlobRequest>,
+) -> Result<Json<runtime::GlobOutput>, AppError> {
+    Ok(Json(state.runtime.glob(&slug, request).await?))
+}
+
+async fn runtime_patch_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+    Json(request): Json<AgentRuntimePatchRequest>,
+) -> Result<Json<runtime::PatchOutput>, AppError> {
+    Ok(Json(state.runtime.patch(&slug, request).await?))
+}
+
+async fn runtime_execute_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+    Json(request): Json<AgentRuntimeExecuteRequest>,
+) -> Result<Json<AgentRuntimeExecution>, AppError> {
+    Ok(Json(state.runtime.execute(&slug, request).await?))
+}
+
 async fn get_active_simulation_session_handler(
     State(state): State<AppState>,
     AxumPath(slug): AxumPath<String>,
@@ -1169,6 +1208,7 @@ fn map_writing_error(error: crate::writing::WritingError) -> AppError {
             id,
         )) => AppError::Conflict(format!("timeline artifact already exists: {id}")),
         crate::writing::WritingError::Timeline(error) => map_timeline_error(error),
+        crate::writing::WritingError::Runtime(error) => AppError::from(error),
         crate::writing::WritingError::Storage(_) => AppError::Internal,
     }
 }
@@ -1289,6 +1329,26 @@ pub struct ErrorBody {
     pub message: String,
 }
 
+impl From<runtime::AgentRuntimeError> for AppError {
+    fn from(value: runtime::AgentRuntimeError) -> Self {
+        match value {
+            runtime::AgentRuntimeError::ProjectNotFound(_)
+            | runtime::AgentRuntimeError::NotFound(_) => Self::NotFound,
+            runtime::AgentRuntimeError::InvalidProjectSlug(_)
+            | runtime::AgentRuntimeError::InvalidAgentId(_)
+            | runtime::AgentRuntimeError::InvalidPath(_)
+            | runtime::AgentRuntimeError::PathNotAllowed(_)
+            | runtime::AgentRuntimeError::FileTooLarge(_)
+            | runtime::AgentRuntimeError::UnsupportedPattern(_)
+            | runtime::AgentRuntimeError::ReplaceTargetMissing(_)
+            | runtime::AgentRuntimeError::CriticalAssetWouldBeEmpty(_) => {
+                Self::BadRequest(value.to_string())
+            }
+            runtime::AgentRuntimeError::Storage(_) => Self::Internal,
+        }
+    }
+}
+
 impl fmt::Display for HealthPayload {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}:{}", self.service, self.status)
@@ -1301,6 +1361,7 @@ mod tests {
         body::{Body, to_bytes},
         http::{Method, Request, StatusCode},
     };
+    use tempfile::tempdir;
     use tower::ServiceExt as _;
 
     use super::{ApplicationConfig, ErrorBody, ErrorPayload, HealthPayload, app};
@@ -1360,6 +1421,87 @@ mod tests {
         assert!(
             body.is_empty(),
             "default 404 body should be empty at bootstrap"
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_routes_read_and_patch_within_project_scope() {
+        let temp = tempdir().expect("tempdir should exist");
+        tokio::fs::create_dir_all(temp.path().join("projects/http-project/writing/chapters"))
+            .await
+            .expect("project chapter dir should exist");
+        tokio::fs::create_dir_all(
+            temp.path()
+                .join("projects/http-project/agents/project-auditor"),
+        )
+        .await
+        .expect("agent dir should exist");
+        tokio::fs::write(
+            temp.path().join("projects/http-project/project.json"),
+            r#"{"slug":"http-project","title":"HTTP Project","description":"runtime api"}"#,
+        )
+        .await
+        .expect("project metadata should exist");
+        tokio::fs::write(
+            temp.path()
+                .join("projects/http-project/writing/chapters/chapter-1.md"),
+            "# Chapter 1
+
+Original
+",
+        )
+        .await
+        .expect("chapter seed should exist");
+
+        let router = app(ApplicationConfig {
+            server: super::ServerConfig::default(),
+            data_dir: temp.path().to_path_buf(),
+        });
+
+        let read_response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/projects/http-project/runtime/read")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"path":"writing/chapters/chapter-1.md"}"#))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        assert_eq!(read_response.status(), StatusCode::OK);
+
+        let patch_response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/projects/http-project/runtime/patch")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"agent_id":"project-auditor","operations":[{"type":"replace","path":"writing/chapters/chapter-1.md","old":"Original","new":"Revised"}]}"#,
+                    ))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        assert_eq!(patch_response.status(), StatusCode::OK);
+
+        let updated = tokio::fs::read_to_string(
+            temp.path()
+                .join("projects/http-project/writing/chapters/chapter-1.md"),
+        )
+        .await
+        .expect("updated chapter should exist");
+        assert!(updated.contains("Revised"));
+        assert!(
+            tokio::fs::try_exists(
+                temp.path().join(
+                    "projects/http-project/agents/project-auditor/audit/runtime-patch-log.md"
+                )
+            )
+            .await
+            .expect("audit existence should resolve")
         );
     }
 

@@ -6,6 +6,9 @@ rust-version = "1.85"
 publish = false
 
 [dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+directories = "6"
+toml = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 axum = { version = "0.8", features = ["macros", "multipart"] }
 serde = { version = "1", features = ["derive"] }

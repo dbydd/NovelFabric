@@ -1,3 +1,5 @@
+import { desktopApiBase } from './desktop'
+
 export type CardKind = 'character' | 'rule' | 'world'
 export type MemoryScopeKind = 'global' | 'chapter' | 'agent' | 'branch'
 
@@ -178,7 +180,9 @@ interface BackendSimulationSession {
 }
 
 const STORAGE_KEY = 'novelfabric.projects.v1'
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://127.0.0.1:50000'
+function apiBase(): string {
+  return desktopApiBase() ?? ((import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://127.0.0.1:50000')
+}
 
 export function slugify(value: string): string {
   const slug = value
@@ -228,7 +232,7 @@ function defaultProject(title: string, description: string, slug: string): Novel
 }
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, init)
+  const response = await fetch(`${apiBase()}${path}`, init)
   if (!response.ok) {
     throw new Error(`request failed: ${response.status}`)
   }
@@ -508,7 +512,7 @@ export async function importNovelText(project: NovelProject, sourceName: string,
     const form = new FormData()
     form.append('sourceName', sourceName)
     form.append('file', new Blob([text], { type: 'text/plain' }), sourceName)
-    await fetch(`${API_BASE}/api/projects/${encodeURIComponent(project.slug)}/import`, {
+    await fetch(`${apiBase()}/api/projects/${encodeURIComponent(project.slug)}/import`, {
       method: 'POST',
       body: form,
     })

@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
+    runtime::{
+        AgentRuntimeError, AgentRuntimePatchOperation, AgentRuntimePatchRequest,
+        AgentRuntimeService,
+    },
     storage::{Storage, StorageError, validate_segment},
     timeline::{CreateBranchRequest, TimelineError, TimelineService},
 };
@@ -111,6 +115,8 @@ pub enum WritingError {
     HistoricalEditRejected(String),
     #[error("invalid chapter document: {0}")]
     InvalidChapterDocument(String),
+    #[error(transparent)]
+    Runtime(#[from] AgentRuntimeError),
     #[error(transparent)]
     Timeline(#[from] TimelineError),
     #[error(transparent)]
@@ -300,13 +306,14 @@ impl WritingService {
         let _chapter = self.get_chapter(project_slug, chapter_id).await?;
         validate_reviewer(&request.reviewer)?;
 
+        let reviewer = request.reviewer;
         let note = ReviewNote {
-            reviewer: request.reviewer,
+            reviewer: reviewer.clone(),
             body: request.body,
         };
         let mut notes = self.load_review_notes(project_slug, chapter_id).await?;
         notes.push(note);
-        self.write_review_notes(project_slug, chapter_id, &notes)
+        self.write_review_notes_via_runtime(project_slug, chapter_id, &reviewer, &notes)
             .await?;
         Ok(notes)
     }
@@ -393,14 +400,26 @@ impl WritingService {
         Ok(notes)
     }
 
-    async fn write_review_notes(
+    async fn write_review_notes_via_runtime(
         &self,
         project_slug: &str,
         chapter_id: &str,
+        reviewer: &str,
         notes: &[ReviewNote],
     ) -> Result<(), WritingError> {
-        self.storage
-            .write_json(&review_notes_path(project_slug, chapter_id), &notes)
+        let runtime = AgentRuntimeService::new(Arc::clone(&self.storage));
+        let serialized = serde_json::to_string_pretty(notes)?;
+        runtime
+            .patch(
+                project_slug,
+                AgentRuntimePatchRequest {
+                    agent_id: reviewer.to_string(),
+                    operations: vec![AgentRuntimePatchOperation::Write {
+                        path: format!("writing/review-notes/{chapter_id}.json"),
+                        content: serialized,
+                    }],
+                },
+            )
             .await?;
         Ok(())
     }
@@ -653,6 +672,13 @@ mod tests {
         assert_eq!(reloaded.body, "Draft two");
         assert_eq!(reloaded.review_notes.len(), 1);
         assert_eq!(reloaded.review_notes[0].reviewer, "reviewer-1");
+        let runtime_audit = storage
+            .read_text(Path::new(
+                "projects/alpha-project/agents/reviewer-1/audit/runtime-patch-log.md",
+            ))
+            .await
+            .expect("runtime review-note audit should exist");
+        assert!(runtime_audit.contains("writing/review-notes/chapter-01.json"));
         assert_eq!(
             storage
                 .read_text(Path::new(
