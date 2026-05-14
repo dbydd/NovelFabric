@@ -181,7 +181,7 @@ interface BackendSimulationSession {
 
 const STORAGE_KEY = 'novelfabric.projects.v1'
 function apiBase(): string {
-  return desktopApiBase() ?? ((import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://127.0.0.1:50000')
+  return desktopApiBase() ?? ((import.meta.env.VITE_API_BASE as string | undefined) ?? '/novelfabric')
 }
 
 export function slugify(value: string): string {

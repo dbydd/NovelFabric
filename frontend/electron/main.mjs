@@ -26,7 +26,8 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.mjs'),
       additionalArguments: [`--novelfabric-api-base=${config.apiBaseUrl}`]
     },
-    title: 'NovelFabric'
+    title: 'NovelFabric',
+    icon: path.join(__dirname, '..', 'build', 'icons', 'icon-app.svg')
   })
 
   await window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))

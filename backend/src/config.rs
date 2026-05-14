@@ -94,10 +94,10 @@ impl Default for ApplicationConfig {
 }
 
 fn apply_partial_config(config: &mut ApplicationConfig, partial: PartialApplicationConfig) {
-    if let Some(server) = partial.server
-        && let Some(bind_address) = server.bind_address
-    {
-        config.server.bind_address = bind_address;
+    if let Some(server) = partial.server {
+        if let Some(bind_address) = server.bind_address {
+            config.server.bind_address = bind_address;
+        }
     }
     if let Some(data_dir) = partial.data_dir {
         config.data_dir = data_dir;
@@ -105,10 +105,10 @@ fn apply_partial_config(config: &mut ApplicationConfig, partial: PartialApplicat
 }
 
 fn apply_env(config: &mut ApplicationConfig) {
-    if let Ok(value) = std::env::var("NOVELFABRIC_BACKEND_BIND_ADDRESS")
-        && let Ok(bind_address) = value.parse()
-    {
-        config.server.bind_address = bind_address;
+    if let Ok(value) = std::env::var("NOVELFABRIC_BACKEND_BIND_ADDRESS") {
+        if let Ok(bind_address) = value.parse() {
+            config.server.bind_address = bind_address;
+        }
     }
     if let Ok(value) = std::env::var("NOVELFABRIC_DATA_DIR") {
         config.data_dir = PathBuf::from(value);

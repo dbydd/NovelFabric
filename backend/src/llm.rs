@@ -272,10 +272,10 @@ fn extract_responses_text(response: &ResponsesApiResponse) -> Option<String> {
                 .get("type")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("");
-            if (content_type == "output_text" || content_type == "text")
-                && let Some(value) = content.get("text").and_then(serde_json::Value::as_str)
-            {
-                text.push_str(value);
+            if content_type == "output_text" || content_type == "text" {
+                if let Some(value) = content.get("text").and_then(serde_json::Value::as_str) {
+                    text.push_str(value);
+                }
             }
         }
     }
