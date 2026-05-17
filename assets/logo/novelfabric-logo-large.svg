@@ -1,0 +1,23 @@
+<svg width="640" height="640" viewBox="0 0 640 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="640" height="640" fill="#081131"/>
+  <rect x="120" y="76" width="400" height="28" fill="#8A5A31"/>
+  <rect x="132" y="88" width="16" height="232" fill="#8A5A31"/>
+  <rect x="492" y="88" width="16" height="232" fill="#8A5A31"/>
+  <rect x="170" y="116" width="8" height="180" fill="#0E89DA"/>
+  <rect x="194" y="116" width="8" height="180" fill="#0E89DA"/>
+  <rect x="218" y="116" width="8" height="180" fill="#0E89DA"/>
+  <rect x="242" y="116" width="8" height="180" fill="#0E89DA"/>
+  <rect x="266" y="116" width="8" height="180" fill="#0E89DA"/>
+  <rect x="362" y="116" width="8" height="180" fill="#0E89DA"/>
+  <rect x="386" y="116" width="8" height="180" fill="#0E89DA"/>
+  <rect x="410" y="116" width="8" height="180" fill="#0E89DA"/>
+  <rect x="434" y="116" width="8" height="180" fill="#0E89DA"/>
+  <rect x="458" y="116" width="8" height="180" fill="#0E89DA"/>
+  <path d="M192 356L320 300L448 356V432L320 388L192 432V356Z" fill="#F3E9D2"/>
+  <path d="M320 300L448 356V432L320 388V300Z" fill="#E4D7B5"/>
+  <path d="M304 240H336L362 336L320 360L278 336L304 240Z" fill="#F7C75D"/>
+  <rect x="314" y="260" width="12" height="62" fill="#081131"/>
+  <rect x="306" y="220" width="28" height="12" fill="#FFF6DE"/>
+  <rect x="266" y="470" width="112" height="16" fill="#0E89DA"/>
+  <text x="320" y="540" text-anchor="middle" font-family="monospace" font-size="72" font-weight="700" fill="#F3E9D2">Novel<tspan fill="#0E89DA">Fabric</tspan></text>
+</svg>
