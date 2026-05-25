@@ -5,6 +5,13 @@ NovelFabric v1 is a web-based LLM-assisted literary creation platform built with
 
 ## Product source of truth
 - Primary specification: `PRODUCT_SPEC.md`
+- v2 runtime constraint: `PRODUCT_SPEC_2.md`
+- Project handoff state: `CODEX_INFO.md`
+- Project-level agent injection context: `AGENTS.md`
+- MiroFish fusion architecture: `docs/architecture/mirofish-fusion-plan.md`
+- StoryGraph / StoryRAG constraints: `docs/architecture/story-graph-rag.md`
+- StorySwarm / ReportAgent constraints: `docs/architecture/story-swarm-runtime.md`
+- Story systems implementation roadmap: `docs/architecture/implementation-roadmap-story-systems.md`
 - Canonical fixture for import and browser acceptance: `test_novel.txt`
 
 ## Locked architectural decisions

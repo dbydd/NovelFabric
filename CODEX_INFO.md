@@ -51,6 +51,15 @@ NovelFabric 已经不再是纯原型壳，已经具备：
 ### v2 方向收束文档
 - `/Users/dbydd/vibe-agent-working-dir/git-projects/NovelFabric/PRODUCT_SPEC_2.md`
 
+### 项目级自动注入约束文档
+- `/Users/dbydd/vibe-agent-working-dir/git-projects/NovelFabric/AGENTS.md`
+
+### MiroFish 融合架构文档
+- `/Users/dbydd/vibe-agent-working-dir/git-projects/NovelFabric/docs/architecture/mirofish-fusion-plan.md`
+- `/Users/dbydd/vibe-agent-working-dir/git-projects/NovelFabric/docs/architecture/story-graph-rag.md`
+- `/Users/dbydd/vibe-agent-working-dir/git-projects/NovelFabric/docs/architecture/story-swarm-runtime.md`
+- `/Users/dbydd/vibe-agent-working-dir/git-projects/NovelFabric/docs/architecture/implementation-roadmap-story-systems.md`
+
 `PRODUCT_SPEC_2.md` 已明确：
 - v2 不必重度复用 Codex 作为完整 agent 后端
 - 正确方向是轻量、文件优先、skill-first 的 agent runtime

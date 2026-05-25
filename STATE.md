@@ -14,10 +14,13 @@ research → plan → execute → validate
 - Frontend stack selected: Vue 3 + Vite + TypeScript + Router + Pinia + Vitest + Playwright.
 
 ## Current implementation status
-- Research complete.
-- Architecture plan complete.
-- State artifacts being initialized.
-- Backend implementation not started yet.
+- Core backend and frontend foundation already exist; this file may be stale for historical items.
+- Project-level injected context now lives in `AGENTS.md`.
+- MiroFish fusion constraints now live in:
+  - `docs/architecture/mirofish-fusion-plan.md`
+  - `docs/architecture/story-graph-rag.md`
+  - `docs/architecture/story-swarm-runtime.md`
+- Future agent work on graph/rag/swarm/report should treat those docs as mandatory context.
 
 ## Global quality gates
 - No `unsafe` in application code.
