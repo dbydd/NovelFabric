@@ -98,8 +98,7 @@ async function handleImport(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file || !project.value) return
-  const text = await file.text()
-  const updated = await importNovelText(project.value, file.name, text)
+  const updated = await importNovelText(project.value, file.name, file)
   project.value = updated
   importStatus.value = `已导入 ${file.name}，拆分 ${updated.importReport?.chapterCount ?? 0} 个章节。`
 }

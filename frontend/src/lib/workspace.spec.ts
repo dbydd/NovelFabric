@@ -124,20 +124,47 @@ describe('workspace library', () => {
     expect(loadProjects()).toHaveLength(1)
   })
 
-  it('importNovelText creates import report, chapters, memory, and cards', async () => {
-    fetchMock.mockResolvedValue(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }))
+  it('uploads the original File blob so non-UTF8 novels reach backend decoder intact', async () => {
+    const base = {
+      slug: 'gbk-project',
+      title: 'GBK Project',
+      description: 'preserve bytes',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      cards: [],
+      memory: [],
+      chapters: [],
+      simulation: { sessionId: '', round: 0, possessedCharacterId: '', logs: [] },
+      branches: [],
+    } satisfies NovelProject
+    saveProjects([base])
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/api/projects/gbk-project/import')) {
+        expect(init?.body).toBeInstanceOf(FormData)
+        const form = init?.body as FormData
+        const uploaded = form.get('file') as File
+        expect(uploaded).toBeInstanceOf(File)
+        expect(uploaded.name).toBe('test_novel.txt')
+        expect(uploaded.type).toBe('text/plain')
+        return new Response(JSON.stringify({
+          source_name: 'test_novel.txt',
+          chapter_count: 10,
+          report_file: 'test-novel.md',
+          card_ids: ['ye-xiao-wei'],
+          memory_keys: ['import-test-novel-summary'],
+          timepoint_ids: ['tp-001'],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (url.endsWith('/api/projects/gbk-project')) {
+        return new Response(JSON.stringify({ slug: 'gbk-project', title: 'GBK Project', description: 'preserve bytes' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } })
+    })
 
-    const base = await createProject('Import Project', 'for import tests')
-    const updated = await importNovelText(
-      base,
-      'test_novel.txt',
-      '第一章 雾原\n剧情开始。\n\n第二章 北境\n剧情继续。',
-    )
+    const file = new File([new Uint8Array([0xb5, 0xda, 0x31, 0xd5, 0xc2])], 'test_novel.txt', { type: 'text/plain' })
+    const updated = await importNovelText(base, 'test_novel.txt', file)
 
-    expect(updated.importReport?.sourceName).toBe('test_novel.txt')
-    expect(updated.importReport?.chapterCount).toBe(2)
-    expect(updated.chapters.some((chapter) => chapter.id === 'import-001')).toBe(true)
-    expect(updated.memory.some((entry) => entry.scope === 'chapter')).toBe(true)
-    expect(updated.cards.some((card) => card.title.includes('导入概览'))).toBe(true)
+    expect(updated.importReport?.chapterCount).toBe(10)
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/projects/gbk-project/import'), expect.objectContaining({ method: 'POST' }))
   })
 })

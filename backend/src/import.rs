@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt::Write as _,
     path::{Path, PathBuf},
     sync::Arc,
@@ -666,31 +667,83 @@ fn extract_semantic_assets(text: &str, chapters: &[SplitChapter]) -> SemanticAss
         id: "imported-narrative-rules".to_string(),
         kind: CardKind::Rule,
         title: "导入叙事规则".to_string(),
-        body: build_rule_card_body(text),
+        body: build_rule_card_body(),
     });
     SemanticAssets { cards }
 }
 
 fn ranked_character_names(text: &str) -> Vec<String> {
-    let candidates = [
-        "叶小伟",
-        "科长老张",
-        "老张",
-        "舅舅",
-        "周青峰",
-        "杨处长",
-        "张岚",
-        "孙团长",
-    ];
-    let mut ranked = candidates
-        .iter()
-        .filter_map(|name| {
-            let count = text.matches(name).count();
-            (count > 0).then(|| ((*name).to_string(), count))
-        })
+    let mut ranked = discover_name_candidates(text)
+        .into_iter()
         .collect::<Vec<_>>();
-    ranked.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    ranked.sort_by(|left, right| {
+        right
+            .1
+            .cmp(&left.1)
+            .then_with(|| right.0.chars().count().cmp(&left.0.chars().count()))
+            .then_with(|| left.0.cmp(&right.0))
+    });
     ranked.into_iter().map(|(name, _)| name).collect()
+}
+
+fn discover_name_candidates(text: &str) -> HashMap<String, usize> {
+    let mut candidates = HashMap::new();
+    let mut current = String::new();
+    for character in text.chars() {
+        if is_cjk_character(character) {
+            current.push(character);
+        } else {
+            collect_name_candidates(&mut candidates, &current);
+            current.clear();
+        }
+    }
+    collect_name_candidates(&mut candidates, &current);
+    candidates
+}
+
+fn collect_name_candidates(candidates: &mut HashMap<String, usize>, run: &str) {
+    let chars = run.chars().collect::<Vec<_>>();
+    for len in 2..=3 {
+        if chars.len() < len {
+            continue;
+        }
+        for window in chars.windows(len) {
+            let candidate = window.iter().collect::<String>();
+            if is_plausible_name_candidate(&candidate) {
+                candidates
+                    .entry(candidate)
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
+            }
+        }
+    }
+}
+
+fn is_plausible_name_candidate(candidate: &str) -> bool {
+    let chars = candidate.chars().collect::<Vec<_>>();
+    let Some(first) = chars.first() else {
+        return false;
+    };
+    if COMMON_NON_NAME_PREFIXES.contains(first) {
+        return false;
+    }
+    !COMMON_NON_NAME_WORDS.contains(&candidate)
+}
+
+const COMMON_NON_NAME_PREFIXES: &[char] = &[
+    '这', '那', '他', '她', '它', '你', '我', '们', '的', '了', '在', '和', '与', '是', '有', '不',
+    '就', '都', '又', '再', '很', '也', '被', '把', '从', '到', '对', '为', '以', '但', '而', '或',
+];
+
+const COMMON_NON_NAME_WORDS: &[&str] = &[
+    "第一", "第二", "第三", "第四", "第五", "第六", "第七", "第八", "第九", "第十", "一个", "这个",
+    "那个", "自己", "什么", "没有", "不是", "可以", "已经", "因为", "所以", "时候", "地方", "事情",
+    "东西", "声音", "眼前", "起来", "知道", "看着", "说道", "突然", "开始", "继续", "世界", "系统",
+    "章节",
+];
+
+fn is_cjk_character(character: char) -> bool {
+    ('\u{4e00}'..='\u{9fff}').contains(&character)
 }
 
 fn build_character_card_body(name: &str, text: &str, chapters: &[SplitChapter]) -> String {
@@ -707,17 +760,8 @@ fn build_character_card_body(name: &str, text: &str, chapters: &[SplitChapter]) 
         .take(8)
         .collect::<Vec<_>>()
         .join("\n");
-    let identity = if name == "叶小伟" || name == "小叶" {
-        "公安局系统内部职工，装备科临时工，故事开端携带警用装备并遭遇穿越/异地醒来。"
-    } else if name.contains("老张") {
-        "装备科科长，与叶小伟存在借枪打靶等工作关系。"
-    } else if name == "舅舅" {
-        "公安局一把手，与叶小伟有亲属与工作调动关系。"
-    } else {
-        "从导入章节中识别出的角色，具体身份以引用章节为准。"
-    };
     format!(
-        "# {name}\n\n## 身份与处境\n{identity}\n\n## 原文证据\n{mentions}\n\n## 推演约束\n- 不得获得未在已导入章节或记忆中出现的新知识。\n- 行动需要符合身份、时代环境与已经落盘的章节事实。\n\n## Source\nImported novel semantic extraction from {} chapter(s); total mentions: {}.\n",
+        "# {name}\n\n## 身份与处境\n从导入章节中识别出的角色，具体身份、动机与处境以原文证据为准。\n\n## 原文证据\n{mentions}\n\n## 推演约束\n- 不得获得未在已导入章节或记忆中出现的新知识。\n- 行动需要符合身份、时代环境与已经落盘的章节事实。\n\n## Source\nImported novel semantic extraction from {} chapter(s); total mentions: {}.\n",
         chapters.len(),
         text.matches(name).count(),
     )
@@ -741,21 +785,30 @@ fn build_worldview_card_body(chapters: &[SplitChapter]) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "# 导入世界观\n\n## 时间与环境\n故事开端包含公安系统、装备科、警校、枪械训练、县城机关等现实制度环境，并出现穿越/异地醒来的关键异常。\n\n## 前十章剧情索引\n{chapter_outline}\n"
+        "# 导入世界观\n\n## 时间与环境\n从导入章节、记忆与后续 LLM 抽取中持续维护世界观设定。\n\n## 剧情索引\n{chapter_outline}\n"
     )
 }
 
-fn build_rule_card_body(_text: &str) -> String {
+fn build_rule_card_body() -> String {
     "# 导入叙事规则\n\n- 推演必须优先尊重已导入章节事实。\n- 角色知识边界来自章节、人物卡、memory 与 timeline。\n- 新剧情必须经过 random-event -> world-maintainer -> kp -> project-auditor 的系统角色链路。\n".to_string()
 }
 
 fn stable_entity_id(name: &str) -> String {
-    match name {
-        "叶小伟" | "小叶" => "ye-xiao-wei".to_string(),
-        "老张" | "科长老张" => "lao-zhang".to_string(),
-        "舅舅" => "jiu-jiu".to_string(),
-        _ => slugify(name),
+    let slug = slugify(name);
+    if slug == "entity" {
+        format!("entity-{:016x}", stable_hash(name))
+    } else {
+        slug
     }
+}
+
+fn stable_hash(value: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 fn normalize_text(input: &str) -> String {
@@ -1003,7 +1056,10 @@ fn slugify(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, sync::Arc};
+    use std::{
+        path::{Path, PathBuf},
+        sync::Arc,
+    };
 
     use tempfile::tempdir;
 
@@ -1012,6 +1068,39 @@ mod tests {
         project::{CreateProjectRequest, ProjectService},
         storage::Storage,
     };
+
+    async fn read_text_file_containing(root: &Path, needle: &str) -> String {
+        for path in collect_files(root) {
+            if let Ok(content) = tokio::fs::read_to_string(&path).await {
+                if content.contains(needle) {
+                    return content;
+                }
+            }
+        }
+        panic!("no text file under {} contained {needle}", root.display());
+    }
+
+    fn count_files_named(root: &Path, file_name: &str) -> usize {
+        collect_files(root)
+            .into_iter()
+            .filter(|path| path.file_name().is_some_and(|name| name == file_name))
+            .count()
+    }
+
+    fn collect_files(root: &Path) -> Vec<PathBuf> {
+        let mut files = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    files.extend(collect_files(&path));
+                } else {
+                    files.push(path);
+                }
+            }
+        }
+        files
+    }
 
     #[test]
     fn chapter_split_falls_back_to_single_chapter_without_headings() {
@@ -1165,30 +1254,27 @@ mod tests {
         assert!(normalized.contains("第1章 这是哪里"));
         assert!(!normalized.contains('�'));
 
-        let character_card = tokio::fs::read_to_string(
-            temp.path()
-                .join("projects/semantic-import/cards/characters/ye-xiao-wei.md"),
+        let character_card = read_text_file_containing(
+            &temp
+                .path()
+                .join("projects/semantic-import/cards/characters"),
+            "叶小伟",
         )
-        .await
-        .expect("semantic character card should exist");
+        .await;
         assert!(character_card.contains("叶小伟"));
-        assert!(character_card.contains("公安局"));
         assert!(!character_card.contains("Heuristic type"));
 
-        let soul = tokio::fs::read_to_string(
-            temp.path()
-                .join("projects/semantic-import/agents/ye-xiao-wei/soul.md"),
+        let soul = read_text_file_containing(
+            &temp.path().join("projects/semantic-import/agents"),
+            "叶小伟",
         )
-        .await
-        .expect("character soul should exist");
+        .await;
         assert!(soul.contains("叶小伟"));
-        let skill = tokio::fs::read_to_string(
-            temp.path()
-                .join("projects/semantic-import/agents/ye-xiao-wei/skills/character-decision.md"),
-        )
-        .await
-        .expect("character decision skill should exist");
-        assert!(skill.contains("character-decision"));
+        let skill_count = count_files_named(
+            &temp.path().join("projects/semantic-import/agents"),
+            "character-decision.md",
+        );
+        assert!(skill_count > 0, "character decision skill should exist");
     }
 
     #[tokio::test]

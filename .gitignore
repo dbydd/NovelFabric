@@ -1,0 +1,10 @@
+**/target/**
+**/node_modules/
+.DS_Store
+.uv-cache/
+.cache/
+.mplconfig/
+.omx
+.playwright-cli
+test*
+.alma-snapshots

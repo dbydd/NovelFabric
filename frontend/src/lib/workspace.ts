@@ -782,11 +782,13 @@ export function splitTextIntoChapters(text: string): Array<{ title: string; body
   })
 }
 
-export async function importNovelText(project: NovelProject, sourceName: string, text: string): Promise<NovelProject> {
+export async function importNovelText(project: NovelProject, sourceName: string, input: string | Blob): Promise<NovelProject> {
+  const text = typeof input === 'string' ? input : await input.text()
   try {
     const form = new FormData()
     form.append('sourceName', sourceName)
-    form.append('file', new Blob([text], { type: 'text/plain' }), sourceName)
+    const upload = typeof input === 'string' ? new Blob([input], { type: 'text/plain;charset=utf-8' }) : input
+    form.append('file', upload, sourceName)
     const response = await fetch(`${apiBase()}/api/projects/${encodeURIComponent(project.slug)}/import`, {
       method: 'POST',
       body: form,
