@@ -98,6 +98,10 @@ async function handleImport(event: Event) {
     </main>
     <aside class="agents-pane nf-panel" data-testid="agent-overview">
       <div class="nf-panel-header">Agent 资产</div>
+      <div class="nf-panel-body">
+        <p class="nf-help" data-testid="agent-assets-help">这里是 Simulation 页 tuning entrypoint 指向的主要编辑区：先选 Agent，优先检查 skills，再按需要回看 soul / memory。</p>
+        <p class="nf-help" data-testid="agent-assets-priority">Priority: skills first. If target / mode still feels wrong, then review soul and memory.</p>
+      </div>
       <div class="agent-layout">
         <div class="agent-list">
           <button v-for="agent in agents" :key="agent.agentId" type="button" class="agent-card" :class="{ active: selectedAgentId === agent.agentId }" @click="selectAgent(agent.agentId)" data-testid="agent-card"><strong>{{ agent.agentId }}</strong><span class="nf-badge">{{ agent.skillCount }} skills</span><small>{{ agent.soulTitle }}</small></button>

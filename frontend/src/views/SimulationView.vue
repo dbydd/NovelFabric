@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { advanceSimulation, createSimulationSession, ensureProject, possessCharacter, type NovelProject, type SimulationCharacter } from '../lib/workspace'
+import { advanceSimulation, createSimulationSession, ensureProject, formatSwarmActionLabel, getSwarmRound, possessCharacter, type NovelProject, type SimulationCharacter, type SwarmTurnRecord } from '../lib/workspace'
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug))
@@ -9,6 +9,7 @@ const project = ref<NovelProject | undefined>(undefined)
 const selectedCharacter = ref('')
 const worldState = ref('各角色处境稳定，世界观等待下一轮推演变化。')
 const userAction = ref('')
+const swarmRound = ref<SwarmTurnRecord | undefined>(undefined)
 
 onMounted(async () => {
   project.value = await ensureProject(slug.value)
@@ -37,10 +38,12 @@ async function advanceRound() {
     projectAuditorDirective: '项目审核确认剧情未偏离当前大纲。',
   })
   project.value = { ...project.value, simulation }
+  swarmRound.value = await getSwarmRound(project.value.slug, simulation.sessionId, simulation.round)
   userAction.value = ''
 }
 const characters = computed(() => project.value?.cards.filter((card) => card.kind === 'character') ?? [])
 const systemAgents = ['random-event', 'project-auditor', 'world-maintainer', 'kp']
+const systemUpdateItems = computed(() => (swarmRound.value?.outputs ?? []).flatMap((output) => output.actions.filter((action) => action.path && !action.path.includes('/memory.md') && !action.path.includes('/audit/')).map((action) => { const because = output.reasoningSummary.includes('skills=') || output.reasoningSummary.includes('scope=') ? output.reasoningSummary.split('|').slice(-2).map((part) => part.trim()).join(' | ') : ''; const explainConsistency = output.consistencyChecks.rules !== 'PASS' ? 'consistency emphasis: rules' : ''; const recommendedFile = `agents/${output.agentId}/skills/*.md`; const recommendedKeys = [because ? 'target/mode/scope' : '', explainConsistency ? 'consistency' : ''].filter(Boolean).join(', '); const currentValues = [because, explainConsistency].filter(Boolean).join(' | '); return ({ path: action.path as string, mode: action.type, role: output.role, intent: output.intent, summary: action.content?.trim().split('\n').find((line) => line.trim()) ?? '', section: (action.marker ?? action.old)?.trim() ?? '', diffHint: action.old ? `before: ${action.old.trim()}` : action.marker ? `append-after: ${action.marker.trim()}` : '', because, explainTarget: `target selected by ${output.role}/${output.intent}`, explainMode: `mode selected by ${action.type}`, explainConsistency, recommendedFile, recommendedKeys, currentValues }); })))
 </script>
 
 <template>
@@ -61,6 +64,60 @@ const systemAgents = ['random-event', 'project-auditor', 'world-maintainer', 'kp
         <div class="nf-panel-header">当前世界状态</div>
         <div class="nf-panel-body">
           <textarea v-model="worldState" class="nf-textarea" aria-label="World state" data-testid="world-state-input"></textarea>
+        </div>
+      </div>
+      <div class="nf-panel swarm-panel" v-if="swarmRound" data-testid="swarm-round-panel">
+        <div class="nf-panel-header">StorySwarm 审计 <span class="nf-badge">Round {{ swarmRound.round }}</span></div>
+        <div class="timeline-list">
+          <article v-for="context in swarmRound.contexts" :key="context.agentId" class="log-card" data-testid="swarm-context-card">
+            <strong>{{ context.agentId }}</strong>
+            <span class="nf-badge">{{ context.intent }}</span>
+            <p>{{ context.reasoningSummary }}</p>
+            <small>OOC={{ context.consistencyChecks.ooc }} · WORLD={{ context.consistencyChecks.world }} · TIMELINE={{ context.consistencyChecks.timeline }} · RULES={{ context.consistencyChecks.rules }}</small>
+          </article>
+        </div>
+      </div>
+      <div class="nf-panel runtime-plan-panel" v-if="swarmRound?.outputs?.length" data-testid="runtime-plan-panel">
+        <div class="nf-panel-header">Planned Runtime Actions</div>
+        <div class="timeline-list">
+          <article v-for="output in swarmRound.outputs" :key="`${output.agentId}-${output.intent}`" class="log-card" data-testid="runtime-plan-card">
+            <strong>{{ output.agentId }}</strong>
+            <span class="nf-badge">{{ output.intent }}</span>
+            <p>{{ output.reasoningSummary }}</p>
+            <ul class="runtime-action-list">
+              <li v-for="(action, index) in output.actions" :key="index" data-testid="runtime-action-item">
+                <code>{{ formatSwarmActionLabel(action) }}</code>
+              </li>
+            </ul>
+          </article>
+        </div>
+      </div>
+      <div class="nf-panel system-updates-panel" v-if="systemUpdateItems.length" data-testid="system-updates-panel">
+        <div class="nf-panel-header">Observed File Updates</div>
+        <div class="timeline-list">
+          <article v-for="item in systemUpdateItems" :key="`${item.path}-${item.summary}`" class="log-card" data-testid="system-update-card">
+            <strong>{{ item.path }}</strong>
+            <small>{{ item.role }} · {{ item.intent }} · {{ item.mode }}<span v-if="item.section"> · {{ item.section }}</span></small>
+            <p v-if="item.summary">{{ item.summary }}</p>
+            <details class="decision-card" data-testid="decision-card">
+              <summary>planner decision explanation</summary>
+              <div class="decision-lines">
+                <small v-if="item.diffHint">{{ item.diffHint }}</small>
+                <small>{{ item.explainTarget }}</small>
+                <small>{{ item.explainMode }}</small>
+                <small v-if="item.explainConsistency">{{ item.explainConsistency }}</small>
+                <small v-if="item.because">because: {{ item.because }}</small>
+              </div>
+            </details>
+            <div v-if="item.recommendedFile || item.recommendedKeys || item.currentValues" class="tuning-checklist" data-testid="tuning-checklist">
+              <strong>tuning entrypoint for {{ item.role }}</strong>
+              <ul>
+                <li v-if="item.recommendedFile">step 1: go to 项目设定 → Agent 资产, select {{ item.role }}, then open {{ item.recommendedFile }}</li>
+                <li v-if="item.recommendedKeys">step 2: review keys {{ item.recommendedKeys }}</li>
+                <li v-if="item.currentValues">step 3: compare current inferred values {{ item.currentValues }}</li>
+              </ul>
+            </div>
+          </article>
         </div>
       </div>
     </section>
@@ -89,6 +146,10 @@ const systemAgents = ['random-event', 'project-auditor', 'world-maintainer', 'kp
 .timeline-pane, .roles-pane, .stage-pane { min-height: 0; overflow: auto; }
 .timeline-list, .role-list { display: grid; gap: var(--nf-space-2); padding: var(--nf-space-3); }
 .log-card, .role-card { display: grid; gap: 6px; padding: var(--nf-space-3); border: 1px solid var(--nf-border); border-radius: 6px; background: #fff; }
+.runtime-action-list { margin: 0; padding-left: 18px; color: var(--nf-muted); }
+.decision-card { display: grid; gap: 6px; }
+.decision-lines { display: grid; gap: 4px; color: var(--nf-muted); }
+.tuning-checklist ul { margin: 0; padding-left: 18px; }
 .log-card p { margin: 0; color: var(--nf-muted); }
 .control-pane { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--nf-space-3); align-items: end; padding: var(--nf-space-3); background: var(--nf-panel); border: 1px solid var(--nf-border); border-radius: var(--nf-radius); }
 .suggestions { display: flex; flex-wrap: wrap; gap: var(--nf-space-2); }

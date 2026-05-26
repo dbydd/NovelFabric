@@ -59,5 +59,7 @@ describe('SettingsView', () => {
 
     expect(wrapper.text()).toContain('已导入 test_novel.txt，拆分 2 个章节。')
     expect(wrapper.text()).toContain('Import Report')
+    expect(wrapper.text()).toContain('Simulation 页 tuning entrypoint 指向的主要编辑区：先选 Agent，优先检查 skills，再按需要回看 soul / memory。')
+    expect(wrapper.text()).toContain('Priority: skills first. If target / mode still feels wrong, then review soul and memory.')
   })
 })

@@ -19,6 +19,8 @@ const inProject = computed(() => Boolean(projectSlug.value))
         <RouterLink class="nf-tab" :to="`/project/${projectSlug}/writing`" data-testid="tab-writing">创作</RouterLink>
         <RouterLink class="nf-tab" :to="`/project/${projectSlug}/settings`" data-testid="tab-settings">项目设定</RouterLink>
         <RouterLink class="nf-tab" :to="`/project/${projectSlug}/memory`" data-testid="tab-memory">记忆管理</RouterLink>
+        <RouterLink class="nf-tab" :to="`/project/${projectSlug}/knowledge`" data-testid="tab-knowledge">知识层</RouterLink>
+        <RouterLink class="nf-tab" :to="`/project/${projectSlug}/reports`" data-testid="tab-reports">报告中心</RouterLink>
       </nav>
     </header>
     <main class="app-main" data-testid="main-content">

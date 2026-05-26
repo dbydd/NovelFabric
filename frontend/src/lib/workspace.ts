@@ -99,6 +99,258 @@ export interface ReviewNote {
   body: string
 }
 
+export interface StoryGraphRebuildOutput {
+  nodeCount: number
+  edgeCount: number
+  episodeCount: number
+  chunkCount: number
+}
+
+export interface StoryGraphNode {
+  id: string
+  name: string
+  labels: string[]
+  summary: string
+  sourcePaths: string[]
+}
+
+export interface StoryGraphEdge {
+  id: string
+  source: string
+  target: string
+  relation: string
+  fact: string
+  validAt?: string | null
+  invalidAt?: string | null
+  sourcePath: string
+}
+
+export interface StoryGraphEpisode {
+  id: string
+  timeline: string
+  timepoint: string
+  sourcePath: string
+  summary: string
+}
+
+export interface StoryRagHit {
+  fact: string
+  sourcePath: string
+  timeline?: string | null
+  timepoint?: string | null
+  score: number
+}
+
+export interface QuickSearchOutput {
+  query: string
+  hits: StoryRagHit[]
+}
+
+export interface PanoramaSearchOutput {
+  query: string
+  activeFacts: StoryRagHit[]
+  historicalFacts: StoryRagHit[]
+  nodes: StoryGraphNode[]
+  edges: StoryGraphEdge[]
+}
+
+export interface InsightForgeOutput {
+  query: string
+  subQueries: string[]
+  facts: StoryRagHit[]
+  relationshipChains: string[]
+  riskNotes: string[]
+}
+
+export interface SwarmConsistencyChecks {
+  ooc: string
+  world: string
+  timeline: string
+  rules: string
+}
+
+export interface SwarmAgentTurnContext {
+  agentId: string
+  role: string
+  intent: string
+  reasoningSummary: string
+  evidence: string[]
+  consistencyChecks: SwarmConsistencyChecks
+  ragHits: StoryRagHit[]
+}
+
+export interface SwarmOutputAction {
+  type: string
+  path?: string
+  marker?: string
+  old?: string
+  new?: string
+  content?: string
+}
+
+export interface SwarmOutputRecord {
+  agentId: string
+  role: string
+  intent: string
+  reasoningSummary: string
+  evidence: string[]
+  actions: SwarmOutputAction[]
+  consistencyChecks: SwarmConsistencyChecks
+}
+
+export interface SwarmTurnRecord {
+  sessionId: string
+  round: number
+  timepointId: string
+  contexts: SwarmAgentTurnContext[]
+  outputs: SwarmOutputRecord[]
+}
+
+export type ReportKind = 'simulation' | 'consistency' | 'branch-impact' | 'writing'
+
+export interface ReportSummary {
+  id: string
+  kind: ReportKind
+  title: string
+  path: string
+}
+
+export interface ReportRecord extends ReportSummary {
+  body: string
+}
+
+export interface InterviewRecord {
+  id: string
+  sessionId: string
+  path: string
+  body: string
+}
+
+interface BackendStoryGraphRebuildOutput {
+  node_count: number
+  edge_count: number
+  episode_count: number
+  chunk_count: number
+}
+
+interface BackendStoryGraphNode {
+  id: string
+  name: string
+  labels: string[]
+  summary: string
+  source_paths: string[]
+}
+
+interface BackendStoryGraphEdge {
+  id: string
+  source: string
+  target: string
+  relation: string
+  fact: string
+  valid_at: string | null
+  invalid_at: string | null
+  source_path: string
+}
+
+interface BackendStoryGraphEpisode {
+  id: string
+  timeline: string
+  timepoint: string
+  source_path: string
+  summary: string
+}
+
+interface BackendStoryRagHit {
+  fact: string
+  source_path: string
+  timeline: string | null
+  timepoint: string | null
+  score: number
+}
+
+interface BackendQuickSearchOutput {
+  query: string
+  hits: BackendStoryRagHit[]
+}
+
+interface BackendPanoramaSearchOutput {
+  query: string
+  active_facts: BackendStoryRagHit[]
+  historical_facts: BackendStoryRagHit[]
+  nodes: BackendStoryGraphNode[]
+  edges: BackendStoryGraphEdge[]
+}
+
+interface BackendInsightForgeOutput {
+  query: string
+  sub_queries: string[]
+  facts: BackendStoryRagHit[]
+  relationship_chains: string[]
+  risk_notes: string[]
+}
+
+interface BackendSwarmConsistencyChecks {
+  ooc: string
+  world: string
+  timeline: string
+  rules: string
+}
+
+interface BackendSwarmAgentTurnContext {
+  agent_id: string
+  role: string
+  intent: string
+  reasoning_summary: string
+  evidence: string[]
+  consistency_checks: BackendSwarmConsistencyChecks
+  rag_hits: BackendStoryRagHit[]
+}
+
+interface BackendSwarmAction {
+  type: string
+  path?: string
+  marker?: string
+  old?: string
+  new?: string
+  content?: string
+}
+
+interface BackendSwarmOutputRecord {
+  agent_id: string
+  role: string
+  intent: string
+  reasoning_summary: string
+  evidence: string[]
+  actions: BackendSwarmAction[]
+  consistency_checks: BackendSwarmConsistencyChecks
+}
+
+interface BackendSwarmTurnRecord {
+  session_id: string
+  round: number
+  timepoint_id: string
+  contexts: BackendSwarmAgentTurnContext[]
+  outputs: BackendSwarmOutputRecord[]
+}
+
+interface BackendReportSummary {
+  id: string
+  kind: ReportKind
+  title: string
+  path: string
+}
+
+interface BackendReportRecord extends BackendReportSummary {
+  body: string
+}
+
+interface BackendInterviewRecord {
+  id: string
+  session_id: string
+  path: string
+  body: string
+}
+
 interface ProjectMeta {
   slug: string
   title: string
@@ -714,4 +966,160 @@ export async function addReviewNote(projectSlug: string, chapterId: string, note
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(note),
   })
+}
+
+function toStoryGraphNode(node: BackendStoryGraphNode): StoryGraphNode {
+  return { id: node.id, name: node.name, labels: node.labels, summary: node.summary, sourcePaths: node.source_paths }
+}
+
+function toStoryGraphEdge(edge: BackendStoryGraphEdge): StoryGraphEdge {
+  return { id: edge.id, source: edge.source, target: edge.target, relation: edge.relation, fact: edge.fact, validAt: edge.valid_at, invalidAt: edge.invalid_at, sourcePath: edge.source_path }
+}
+
+function toStoryGraphEpisode(episode: BackendStoryGraphEpisode): StoryGraphEpisode {
+  return { id: episode.id, timeline: episode.timeline, timepoint: episode.timepoint, sourcePath: episode.source_path, summary: episode.summary }
+}
+
+function toStoryRagHit(hit: BackendStoryRagHit): StoryRagHit {
+  return { fact: hit.fact, sourcePath: hit.source_path, timeline: hit.timeline, timepoint: hit.timepoint, score: hit.score }
+}
+
+export async function rebuildStoryGraph(projectSlug: string): Promise<StoryGraphRebuildOutput> {
+  const output = await fetchJson<BackendStoryGraphRebuildOutput>(`/api/projects/${encodeURIComponent(projectSlug)}/knowledge/rebuild`, { method: 'POST' })
+  return { nodeCount: output.node_count, edgeCount: output.edge_count, episodeCount: output.episode_count, chunkCount: output.chunk_count }
+}
+
+export async function listStoryGraphNodes(projectSlug: string): Promise<StoryGraphNode[]> {
+  const nodes = await fetchJson<BackendStoryGraphNode[]>(`/api/projects/${encodeURIComponent(projectSlug)}/knowledge/graph/nodes`)
+  return nodes.map(toStoryGraphNode)
+}
+
+export async function listStoryGraphEpisodes(projectSlug: string): Promise<StoryGraphEpisode[]> {
+  const episodes = await fetchJson<BackendStoryGraphEpisode[]>(`/api/projects/${encodeURIComponent(projectSlug)}/knowledge/graph/episodes`)
+  return episodes.map(toStoryGraphEpisode)
+}
+
+export async function quickStoryRag(projectSlug: string, query: string): Promise<QuickSearchOutput> {
+  const output = await fetchJson<BackendQuickSearchOutput>(`/api/projects/${encodeURIComponent(projectSlug)}/rag/quick?query=${encodeURIComponent(query)}`)
+  return { query: output.query, hits: output.hits.map(toStoryRagHit) }
+}
+
+export async function panoramaStoryRag(projectSlug: string, query: string): Promise<PanoramaSearchOutput> {
+  const output = await fetchJson<BackendPanoramaSearchOutput>(`/api/projects/${encodeURIComponent(projectSlug)}/rag/panorama?query=${encodeURIComponent(query)}`)
+  return { query: output.query, activeFacts: output.active_facts.map(toStoryRagHit), historicalFacts: output.historical_facts.map(toStoryRagHit), nodes: output.nodes.map(toStoryGraphNode), edges: output.edges.map(toStoryGraphEdge) }
+}
+
+export async function insightForge(projectSlug: string, query: string): Promise<InsightForgeOutput> {
+  const output = await fetchJson<BackendInsightForgeOutput>(`/api/projects/${encodeURIComponent(projectSlug)}/rag/insight?query=${encodeURIComponent(query)}`)
+  return { query: output.query, subQueries: output.sub_queries, facts: output.facts.map(toStoryRagHit), relationshipChains: output.relationship_chains, riskNotes: output.risk_notes }
+}
+
+function toSwarmTurnRecord(record: BackendSwarmTurnRecord): SwarmTurnRecord {
+  return {
+    sessionId: record.session_id,
+    round: record.round,
+    timepointId: record.timepoint_id,
+    contexts: record.contexts.map((context) => ({
+      agentId: context.agent_id,
+      role: context.role,
+      intent: context.intent,
+      reasoningSummary: context.reasoning_summary,
+      evidence: context.evidence,
+      consistencyChecks: context.consistency_checks,
+      ragHits: context.rag_hits.map(toStoryRagHit),
+    })),
+    outputs: record.outputs.map((output) => ({
+      agentId: output.agent_id,
+      role: output.role,
+      intent: output.intent,
+      reasoningSummary: output.reasoning_summary,
+      evidence: output.evidence,
+      actions: output.actions,
+      consistencyChecks: output.consistency_checks,
+    })),
+  }
+}
+
+export async function getSwarmRound(projectSlug: string, sessionId: string, round: number): Promise<SwarmTurnRecord | undefined> {
+  const record = await fetchJson<BackendSwarmTurnRecord | null>(`/api/projects/${encodeURIComponent(projectSlug)}/simulation/sessions/${encodeURIComponent(sessionId)}/swarm/${round}`)
+  return record ? toSwarmTurnRecord(record) : undefined
+}
+
+function toReportRecord(record: BackendReportRecord): ReportRecord {
+  return { id: record.id, kind: record.kind, title: record.title, path: record.path, body: record.body }
+}
+
+export async function createSimulationReport(projectSlug: string, payload: { sessionId: string; round: number; query?: string }): Promise<ReportRecord> {
+  const report = await fetchJson<BackendReportRecord>(`/api/projects/${encodeURIComponent(projectSlug)}/reports/simulation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: payload.sessionId, round: payload.round, query: payload.query }),
+  })
+  return toReportRecord(report)
+}
+
+export async function listReports(projectSlug: string): Promise<ReportSummary[]> {
+  return fetchJson<BackendReportSummary[]>(`/api/projects/${encodeURIComponent(projectSlug)}/reports`)
+}
+
+export async function getReport(projectSlug: string, kind: ReportKind, id: string): Promise<ReportRecord> {
+  const report = await fetchJson<BackendReportRecord>(`/api/projects/${encodeURIComponent(projectSlug)}/reports/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`)
+  return toReportRecord(report)
+}
+
+function toInterviewRecord(record: BackendInterviewRecord): InterviewRecord {
+  return { id: record.id, sessionId: record.session_id, path: record.path, body: record.body }
+}
+
+export async function createInterview(projectSlug: string, sessionId: string, payload: { agentIds: string[]; questions: string[] }): Promise<InterviewRecord> {
+  const interview = await fetchJson<BackendInterviewRecord>(`/api/projects/${encodeURIComponent(projectSlug)}/simulation/sessions/${encodeURIComponent(sessionId)}/interview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agent_ids: payload.agentIds, questions: payload.questions }),
+  })
+  return toInterviewRecord(interview)
+}
+
+export async function createConsistencyReport(projectSlug: string, payload: { sessionId: string; round: number }): Promise<ReportRecord> {
+  const report = await fetchJson<BackendReportRecord>(`/api/projects/${encodeURIComponent(projectSlug)}/reports/consistency`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: payload.sessionId, round: payload.round }),
+  })
+  return toReportRecord(report)
+}
+
+export async function createBranchImpactReport(projectSlug: string, payload: { branchId: string; query?: string }): Promise<ReportRecord> {
+  const report = await fetchJson<BackendReportRecord>(`/api/projects/${encodeURIComponent(projectSlug)}/reports/branch-impact`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ branch_id: payload.branchId, query: payload.query }),
+  })
+  return toReportRecord(report)
+}
+
+export async function createWritingPrewriteReport(projectSlug: string, payload: { chapterId: string; query?: string }): Promise<ReportRecord> {
+  const report = await fetchJson<BackendReportRecord>(`/api/projects/${encodeURIComponent(projectSlug)}/reports/writing-prewrite`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chapter_id: payload.chapterId, query: payload.query }),
+  })
+  return toReportRecord(report)
+}
+
+export function formatSwarmActionLabel(action: SwarmOutputAction): string {
+  switch (action.type) {
+    case 'append_audit':
+      return `append_audit -> ${action.path ?? ''}`
+    case 'append_memory':
+      return `append_memory -> ${action.path ?? ''}`
+    case 'append_project_text':
+      return `append_project_text -> ${action.path ?? ''}`
+    case 'replace_project_section':
+      return `replace_section -> ${action.path ?? ''}${action.old ? ` [${action.old.trim()}]` : ''}`
+    case 'append_project_section':
+      return `append_section -> ${action.path ?? ''}${action.marker ? ` [${action.marker.trim()}]` : ''}`
+    default:
+      return `${action.type}${action.path ? ` -> ${action.path}` : ''}`
+  }
 }

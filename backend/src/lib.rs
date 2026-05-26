@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod agent_output;
 pub mod agents;
 pub mod cards;
 pub mod config;
@@ -7,9 +8,13 @@ pub mod import;
 pub mod llm;
 pub mod memory;
 pub mod project;
+pub mod report;
 pub mod runtime;
 pub mod simulation;
 pub mod storage;
+pub mod story_graph;
+pub mod story_rag;
+pub mod swarm;
 pub mod timeline;
 pub mod writing;
 
@@ -43,6 +48,11 @@ use crate::{
         UpdateMemoryEntryRequest,
     },
     project::{CreateProjectRequest, ProjectRecord, ProjectService},
+    report::{
+        CreateBranchImpactReportRequest, CreateConsistencyReportRequest, CreateInterviewRequest,
+        CreateSimulationReportRequest, CreateWritingPrewriteReportRequest, InterviewRecord,
+        ReportKind, ReportRecord, ReportService, ReportSummary,
+    },
     runtime::{
         AgentRuntimeExecuteRequest, AgentRuntimeExecution, AgentRuntimeGlobRequest,
         AgentRuntimePatchRequest, AgentRuntimeReadRequest, AgentRuntimeService,
@@ -52,6 +62,12 @@ use crate::{
         PossessCharacterRequest, SimulationRole, SimulationService, SimulationSession,
     },
     storage::Storage,
+    story_graph::{
+        StoryGraphEdge, StoryGraphEpisode, StoryGraphNode, StoryGraphRebuildOutput,
+        StoryGraphService,
+    },
+    story_rag::{InsightForgeOutput, PanoramaSearchOutput, QuickSearchOutput, StoryRagService},
+    swarm::SwarmTurnRecord,
     timeline::{
         BranchRecord, CreateBranchRequest, CreateTimepointRequest, TimelineService,
         TimepointRecord, UpdateBranchRequest,
@@ -87,6 +103,7 @@ pub struct AppState {
     pub storage: Arc<Storage>,
     pub projects: ProjectService,
     pub imports: ImportService,
+    pub reports: ReportService,
     pub agents: AgentAssetService,
     pub cards: CardService,
     pub memory: MemoryService,
@@ -94,6 +111,8 @@ pub struct AppState {
     pub simulation: SimulationService,
     pub writing: WritingService,
     pub runtime: AgentRuntimeService,
+    pub story_graph: StoryGraphService,
+    pub story_rag: StoryRagService,
 }
 
 impl AppState {
@@ -102,6 +121,7 @@ impl AppState {
         let storage = Arc::new(Storage::new(config.data_dir.clone()));
         let projects = ProjectService::new(Arc::clone(&storage));
         let imports = ImportService::new(Arc::clone(&storage));
+        let reports = ReportService::new(Arc::clone(&storage));
         let agents = AgentAssetService::new(Arc::clone(&storage));
         let cards = CardService::new(Arc::clone(&storage));
         let memory = MemoryService::new(Arc::clone(&storage));
@@ -109,11 +129,14 @@ impl AppState {
         let simulation = SimulationService::new(Arc::clone(&storage));
         let writing = WritingService::new(Arc::clone(&storage));
         let runtime = AgentRuntimeService::new(Arc::clone(&storage));
+        let story_graph = StoryGraphService::new(Arc::clone(&storage));
+        let story_rag = StoryRagService::new(Arc::clone(&storage));
         Self {
             config,
             storage,
             projects,
             imports,
+            reports,
             agents,
             cards,
             memory,
@@ -121,6 +144,8 @@ impl AppState {
             simulation,
             writing,
             runtime,
+            story_graph,
+            story_rag,
         }
     }
 }
@@ -214,6 +239,34 @@ pub fn app(config: ApplicationConfig) -> Router {
             post(runtime_execute_handler),
         )
         .route(
+            "/api/projects/{slug}/knowledge/rebuild",
+            post(rebuild_story_graph_handler),
+        )
+        .route(
+            "/api/projects/{slug}/knowledge/graph/nodes",
+            get(list_story_graph_nodes_handler),
+        )
+        .route(
+            "/api/projects/{slug}/knowledge/graph/edges",
+            get(list_story_graph_edges_handler),
+        )
+        .route(
+            "/api/projects/{slug}/knowledge/graph/episodes",
+            get(list_story_graph_episodes_handler),
+        )
+        .route(
+            "/api/projects/{slug}/rag/quick",
+            get(quick_story_rag_handler),
+        )
+        .route(
+            "/api/projects/{slug}/rag/panorama",
+            get(panorama_story_rag_handler),
+        )
+        .route(
+            "/api/projects/{slug}/rag/insight",
+            get(insight_story_rag_handler),
+        )
+        .route(
             "/api/projects/{slug}/simulation/active-session",
             get(get_active_simulation_session_handler),
         )
@@ -226,12 +279,41 @@ pub fn app(config: ApplicationConfig) -> Router {
             get(get_simulation_session_handler),
         )
         .route(
+            "/api/projects/{slug}/simulation/sessions/{session_id}/swarm/{round}",
+            get(get_simulation_swarm_round_handler),
+        )
+        .route(
             "/api/projects/{slug}/simulation/sessions/{session_id}/advance",
             post(advance_simulation_session_handler),
         )
         .route(
             "/api/projects/{slug}/simulation/sessions/{session_id}/possess",
             post(possess_character_handler),
+        )
+        .route(
+            "/api/projects/{slug}/simulation/sessions/{session_id}/interview",
+            post(create_interview_handler),
+        )
+        .route("/api/projects/{slug}/reports", get(list_reports_handler))
+        .route(
+            "/api/projects/{slug}/reports/simulation",
+            post(create_simulation_report_handler),
+        )
+        .route(
+            "/api/projects/{slug}/reports/consistency",
+            post(create_consistency_report_handler),
+        )
+        .route(
+            "/api/projects/{slug}/reports/branch-impact",
+            post(create_branch_impact_report_handler),
+        )
+        .route(
+            "/api/projects/{slug}/reports/writing-prewrite",
+            post(create_writing_prewrite_report_handler),
+        )
+        .route(
+            "/api/projects/{slug}/reports/{kind}/{id}",
+            get(get_report_handler),
         )
         .layer(cors)
         .with_state(state)
@@ -561,6 +643,37 @@ pub struct AdvanceSimulationBody {
 pub struct PossessBody {
     pub character_id: String,
     pub user_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimulationReportBody {
+    pub session_id: String,
+    pub round: u32,
+    pub query: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InterviewBody {
+    pub agent_ids: Vec<String>,
+    pub questions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsistencyReportBody {
+    pub session_id: String,
+    pub round: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BranchImpactReportBody {
+    pub branch_id: String,
+    pub query: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WritingPrewriteReportBody {
+    pub chapter_id: String,
+    pub query: Option<String>,
 }
 
 async fn list_cards_handler(
@@ -956,6 +1069,98 @@ async fn runtime_execute_handler(
     Ok(Json(state.runtime.execute(&slug, request).await?))
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagQuery {
+    pub query: String,
+}
+
+async fn rebuild_story_graph_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+) -> Result<Json<StoryGraphRebuildOutput>, AppError> {
+    let output = state
+        .story_graph
+        .rebuild(&slug)
+        .await
+        .map_err(|error| map_story_graph_error(&error))?;
+    Ok(Json(output))
+}
+
+async fn list_story_graph_nodes_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+) -> Result<Json<Vec<StoryGraphNode>>, AppError> {
+    let nodes = state
+        .story_graph
+        .load_nodes(&slug)
+        .await
+        .map_err(|error| map_story_graph_error(&error))?;
+    Ok(Json(nodes))
+}
+
+async fn list_story_graph_edges_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+) -> Result<Json<Vec<StoryGraphEdge>>, AppError> {
+    let edges = state
+        .story_graph
+        .load_edges(&slug)
+        .await
+        .map_err(|error| map_story_graph_error(&error))?;
+    Ok(Json(edges))
+}
+
+async fn list_story_graph_episodes_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+) -> Result<Json<Vec<StoryGraphEpisode>>, AppError> {
+    let episodes = state
+        .story_graph
+        .load_episodes(&slug)
+        .await
+        .map_err(|error| map_story_graph_error(&error))?;
+    Ok(Json(episodes))
+}
+
+async fn quick_story_rag_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+    axum::extract::Query(query): axum::extract::Query<RagQuery>,
+) -> Result<Json<QuickSearchOutput>, AppError> {
+    let output = state
+        .story_rag
+        .quick_search(&slug, &query.query)
+        .await
+        .map_err(map_story_rag_error)?;
+    Ok(Json(output))
+}
+
+async fn panorama_story_rag_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+    axum::extract::Query(query): axum::extract::Query<RagQuery>,
+) -> Result<Json<PanoramaSearchOutput>, AppError> {
+    let output = state
+        .story_rag
+        .panorama_search(&slug, &query.query)
+        .await
+        .map_err(map_story_rag_error)?;
+    Ok(Json(output))
+}
+
+async fn insight_story_rag_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+    axum::extract::Query(query): axum::extract::Query<RagQuery>,
+) -> Result<Json<InsightForgeOutput>, AppError> {
+    let output = state
+        .story_rag
+        .insight_forge(&slug, &query.query)
+        .await
+        .map_err(map_story_rag_error)?;
+    Ok(Json(output))
+}
+
 async fn get_active_simulation_session_handler(
     State(state): State<AppState>,
     AxumPath(slug): AxumPath<String>,
@@ -1008,6 +1213,18 @@ async fn get_simulation_session_handler(
     Ok(Json(record))
 }
 
+async fn get_simulation_swarm_round_handler(
+    State(state): State<AppState>,
+    AxumPath((slug, session_id, round)): AxumPath<(String, String, u32)>,
+) -> Result<Json<Option<SwarmTurnRecord>>, AppError> {
+    let record = state
+        .simulation
+        .get_swarm_round(&slug, &session_id, round)
+        .await
+        .map_err(map_simulation_error)?;
+    Ok(Json(record))
+}
+
 async fn advance_simulation_session_handler(
     State(state): State<AppState>,
     AxumPath((slug, session_id)): AxumPath<(String, String)>,
@@ -1047,6 +1264,127 @@ async fn advance_simulation_session_handler(
         .await
         .map_err(map_simulation_error)?;
     Ok(Json(record))
+}
+
+async fn create_simulation_report_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+    Json(body): Json<SimulationReportBody>,
+) -> Result<Json<ReportRecord>, AppError> {
+    let report = state
+        .reports
+        .create_simulation_report(
+            &slug,
+            CreateSimulationReportRequest {
+                session_id: body.session_id,
+                round: body.round,
+                query: body.query,
+            },
+        )
+        .await
+        .map_err(map_report_error)?;
+    Ok(Json(report))
+}
+
+async fn create_consistency_report_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+    Json(body): Json<ConsistencyReportBody>,
+) -> Result<Json<ReportRecord>, AppError> {
+    let report = state
+        .reports
+        .create_consistency_report(
+            &slug,
+            CreateConsistencyReportRequest {
+                session_id: body.session_id,
+                round: body.round,
+            },
+        )
+        .await
+        .map_err(map_report_error)?;
+    Ok(Json(report))
+}
+
+async fn create_branch_impact_report_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+    Json(body): Json<BranchImpactReportBody>,
+) -> Result<Json<ReportRecord>, AppError> {
+    let report = state
+        .reports
+        .create_branch_impact_report(
+            &slug,
+            CreateBranchImpactReportRequest {
+                branch_id: body.branch_id,
+                query: body.query,
+            },
+        )
+        .await
+        .map_err(map_report_error)?;
+    Ok(Json(report))
+}
+
+async fn create_writing_prewrite_report_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+    Json(body): Json<WritingPrewriteReportBody>,
+) -> Result<Json<ReportRecord>, AppError> {
+    let report = state
+        .reports
+        .create_writing_prewrite_report(
+            &slug,
+            CreateWritingPrewriteReportRequest {
+                chapter_id: body.chapter_id,
+                query: body.query,
+            },
+        )
+        .await
+        .map_err(map_report_error)?;
+    Ok(Json(report))
+}
+
+async fn list_reports_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+) -> Result<Json<Vec<ReportSummary>>, AppError> {
+    let reports = state
+        .reports
+        .list_reports(&slug)
+        .await
+        .map_err(map_report_error)?;
+    Ok(Json(reports))
+}
+
+async fn get_report_handler(
+    State(state): State<AppState>,
+    AxumPath((slug, kind, id)): AxumPath<(String, String, String)>,
+) -> Result<Json<ReportRecord>, AppError> {
+    let report = state
+        .reports
+        .get_report(&slug, parse_report_kind(&kind)?, &id)
+        .await
+        .map_err(map_report_error)?;
+    Ok(Json(report))
+}
+
+async fn create_interview_handler(
+    State(state): State<AppState>,
+    AxumPath((slug, session_id)): AxumPath<(String, String)>,
+    Json(body): Json<InterviewBody>,
+) -> Result<Json<InterviewRecord>, AppError> {
+    let interview = state
+        .reports
+        .create_interview(
+            &slug,
+            &session_id,
+            CreateInterviewRequest {
+                agent_ids: body.agent_ids,
+                questions: body.questions,
+            },
+        )
+        .await
+        .map_err(map_report_error)?;
+    Ok(Json(interview))
 }
 
 async fn possess_character_handler(
@@ -1120,6 +1458,46 @@ fn parse_memory_scope_path(scope_kind: &str, scope_id: &str) -> Result<MemorySco
         other => Err(AppError::BadRequest(format!(
             "invalid memory scope: {other}"
         ))),
+    }
+}
+
+fn parse_report_kind(value: &str) -> Result<ReportKind, AppError> {
+    match value {
+        "simulation" => Ok(ReportKind::Simulation),
+        "consistency" => Ok(ReportKind::Consistency),
+        "branch-impact" => Ok(ReportKind::BranchImpact),
+        "writing" => Ok(ReportKind::Writing),
+        _ => Err(AppError::BadRequest(format!(
+            "invalid report kind: {value}"
+        ))),
+    }
+}
+
+fn map_report_error(error: crate::report::ReportError) -> AppError {
+    match error {
+        crate::report::ReportError::ProjectNotFound(_)
+        | crate::report::ReportError::NotFound(_) => AppError::NotFound,
+        crate::report::ReportError::InvalidProjectSlug(value)
+        | crate::report::ReportError::InvalidReportId(value) => AppError::BadRequest(value),
+        crate::report::ReportError::Storage(_)
+        | crate::report::ReportError::Rag(_)
+        | crate::report::ReportError::Simulation(_)
+        | crate::report::ReportError::Swarm(_)
+        | crate::report::ReportError::Agents(_) => AppError::Internal,
+    }
+}
+
+const fn map_story_graph_error(error: &crate::story_graph::StoryGraphError) -> AppError {
+    match error {
+        crate::story_graph::StoryGraphError::ProjectNotFound(_) => AppError::NotFound,
+        crate::story_graph::StoryGraphError::Storage(_) => AppError::Internal,
+    }
+}
+
+fn map_story_rag_error(error: crate::story_rag::StoryRagError) -> AppError {
+    match error {
+        crate::story_rag::StoryRagError::Graph(graph_error) => map_story_graph_error(&graph_error),
+        crate::story_rag::StoryRagError::Storage(_) => AppError::Internal,
     }
 }
 
@@ -1241,7 +1619,14 @@ fn map_simulation_error(error: crate::simulation::SimulationError) -> AppError {
             AppError::BadRequest(format!("invalid directive role: {role:?}"))
         }
         crate::simulation::SimulationError::Memory(error) => map_memory_error(error),
-        crate::simulation::SimulationError::Storage(_) => AppError::Internal,
+        crate::simulation::SimulationError::Swarm(error) => match error {
+            crate::swarm::SwarmError::ProjectNotFound(_) => AppError::NotFound,
+            crate::swarm::SwarmError::Storage(_) | crate::swarm::SwarmError::Rag(_) => {
+                AppError::Internal
+            }
+        },
+        crate::simulation::SimulationError::Runtime(_)
+        | crate::simulation::SimulationError::Storage(_) => AppError::Internal,
     }
 }
 
@@ -1502,6 +1887,98 @@ Original
             )
             .await
             .expect("audit existence should resolve")
+        );
+    }
+
+    #[tokio::test]
+    async fn knowledge_and_rag_routes_rebuild_and_search_project_text() {
+        let temp = tempdir().expect("tempdir should exist");
+        tokio::fs::create_dir_all(
+            temp.path()
+                .join("projects/knowledge-project/cards/characters"),
+        )
+        .await
+        .expect("character dir should exist");
+        tokio::fs::create_dir_all(
+            temp.path()
+                .join("projects/knowledge-project/writing/chapters"),
+        )
+        .await
+        .expect("chapter dir should exist");
+        tokio::fs::create_dir_all(
+            temp.path()
+                .join("projects/knowledge-project/memory/global/main/tp-0001/entries"),
+        )
+        .await
+        .expect("memory dir should exist");
+        tokio::fs::write(
+            temp.path().join("projects/knowledge-project/project.json"),
+            r#"{"slug":"knowledge-project","title":"Knowledge Project","description":"story graph api"}"#,
+        )
+        .await
+        .expect("project metadata should exist");
+        tokio::fs::write(
+            temp.path()
+                .join("projects/knowledge-project/cards/characters/aria.md"),
+            "# Aria\n\nAria guards the moon vault.\n",
+        )
+        .await
+        .expect("character card should exist");
+        tokio::fs::write(
+            temp.path()
+                .join("projects/knowledge-project/writing/chapters/chapter-1.md"),
+            "# Chapter 1\n\nThe moon vault opens under starlight.\n",
+        )
+        .await
+        .expect("chapter should exist");
+        tokio::fs::write(
+            temp.path()
+                .join("projects/knowledge-project/memory/global/main/tp-0001/entries/vault.md"),
+            "# Vault memory\n\nAria remembers the moon vault oath.\n",
+        )
+        .await
+        .expect("memory should exist");
+
+        let router = app(ApplicationConfig {
+            server: super::ServerConfig::default(),
+            data_dir: temp.path().to_path_buf(),
+        });
+
+        let rebuild_response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/projects/knowledge-project/knowledge/rebuild")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        assert_eq!(rebuild_response.status(), StatusCode::OK);
+
+        let quick_response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/projects/knowledge-project/rag/quick?query=vault")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        assert_eq!(quick_response.status(), StatusCode::OK);
+        let body = to_bytes(quick_response.into_body(), usize::MAX)
+            .await
+            .expect("body should collect");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("quick payload should deserialize");
+        assert_eq!(payload["query"], "vault");
+        assert!(
+            payload["hits"]
+                .as_array()
+                .is_some_and(|hits| !hits.is_empty()),
+            "quick search should return text-backed hits"
         );
     }
 

@@ -110,6 +110,32 @@ impl Storage {
         Ok(files)
     }
 
+    pub async fn list_recursive_files(
+        &self,
+        relative: &Path,
+    ) -> Result<Vec<PathBuf>, StorageError> {
+        let root = self.resolve(relative)?;
+        if !fs::try_exists(&root).await? {
+            return Ok(Vec::new());
+        }
+
+        let mut pending = vec![root];
+        let mut files = Vec::new();
+        while let Some(directory) = pending.pop() {
+            let mut reader = fs::read_dir(directory).await?;
+            while let Some(entry) = reader.next_entry().await? {
+                let file_type = entry.file_type().await?;
+                if file_type.is_dir() {
+                    pending.push(entry.path());
+                } else if file_type.is_file() {
+                    files.push(entry.path());
+                }
+            }
+        }
+        files.sort();
+        Ok(files)
+    }
+
     pub fn resolve(&self, relative: &Path) -> Result<PathBuf, StorageError> {
         let mut resolved = self.root.clone();
         for component in relative.components() {

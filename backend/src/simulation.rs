@@ -9,8 +9,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
+    agent_output::AgentRoundAction,
     memory::{CreateMemoryEntryRequest, MemoryError, MemoryScope, MemoryService},
+    runtime::{AgentRuntimePatchOperation, AgentRuntimePatchRequest, AgentRuntimeService},
     storage::{Storage, StorageError, validate_segment},
+    swarm::{SwarmError, SwarmService, SwarmTurnRecord},
 };
 
 const PROJECTS_DIR: &str = "projects";
@@ -138,6 +141,8 @@ pub struct PossessCharacterRequest {
 pub struct SimulationService {
     storage: Arc<Storage>,
     memory: MemoryService,
+    swarm: SwarmService,
+    runtime: AgentRuntimeService,
 }
 
 #[derive(Debug, Error)]
@@ -175,6 +180,10 @@ pub enum SimulationError {
     #[error(transparent)]
     Memory(#[from] MemoryError),
     #[error(transparent)]
+    Swarm(#[from] SwarmError),
+    #[error(transparent)]
+    Runtime(#[from] crate::runtime::AgentRuntimeError),
+    #[error(transparent)]
     Storage(#[from] StorageError),
 }
 
@@ -182,12 +191,26 @@ impl SimulationService {
     #[must_use]
     pub fn new(storage: Arc<Storage>) -> Self {
         let memory = MemoryService::new(Arc::clone(&storage));
-        Self { storage, memory }
+        let swarm = SwarmService::new(Arc::clone(&storage));
+        let runtime = AgentRuntimeService::new(Arc::clone(&storage));
+        Self {
+            storage,
+            memory,
+            swarm,
+            runtime,
+        }
     }
 
     #[must_use]
-    pub const fn with_memory(storage: Arc<Storage>, memory: MemoryService) -> Self {
-        Self { storage, memory }
+    pub fn with_memory(storage: Arc<Storage>, memory: MemoryService) -> Self {
+        let swarm = SwarmService::new(Arc::clone(&storage));
+        let runtime = AgentRuntimeService::new(Arc::clone(&storage));
+        Self {
+            storage,
+            memory,
+            swarm,
+            runtime,
+        }
     }
 
     pub async fn create_session(
@@ -357,6 +380,11 @@ impl SimulationService {
         session = self
             .update_agent_states(project_slug, session, next_round)
             .await?;
+        let swarm_record = self.swarm.build_turn_record(&session).await?;
+        self.apply_swarm_outputs(project_slug, &swarm_record)
+            .await?;
+        self.persist_swarm_round(project_slug, &swarm_record)
+            .await?;
         self.persist_log(&session).await?;
         if session.is_complete {
             self.write_active_session(project_slug, "").await?;
@@ -395,6 +423,30 @@ impl SimulationService {
 
         self.persist_session(&session).await?;
         Ok(session)
+    }
+
+    pub async fn get_swarm_round(
+        &self,
+        project_slug: &str,
+        session_id: &str,
+        round: u32,
+    ) -> Result<Option<SwarmTurnRecord>, SimulationError> {
+        validate_project_slug(project_slug)?;
+        validate_session_id(session_id)?;
+        ensure_project_exists(self.storage.as_ref(), project_slug).await?;
+        Ok(self
+            .swarm
+            .get_turn_record(project_slug, session_id, round)
+            .await?)
+    }
+
+    async fn persist_swarm_round(
+        &self,
+        project_slug: &str,
+        record: &SwarmTurnRecord,
+    ) -> Result<(), SimulationError> {
+        self.swarm.persist_turn_record(project_slug, record).await?;
+        Ok(())
     }
 
     pub async fn release_character(
@@ -482,6 +534,54 @@ impl SimulationService {
         session.agents = updated_agents;
         self.persist_session(&session).await?;
         Ok(session)
+    }
+
+    async fn apply_swarm_outputs(
+        &self,
+        project_slug: &str,
+        record: &SwarmTurnRecord,
+    ) -> Result<(), SimulationError> {
+        for output in &record.outputs {
+            let operations = output
+                .actions
+                .iter()
+                .map(|action| match action {
+                    AgentRoundAction::AppendAudit { path, content }
+                    | AgentRoundAction::AppendMemory { path, content }
+                    | AgentRoundAction::AppendProjectText { path, content } => {
+                        AgentRuntimePatchOperation::Append {
+                            path: path.clone(),
+                            content: content.clone(),
+                        }
+                    }
+                    AgentRoundAction::ReplaceProjectSection { path, old, new } => {
+                        AgentRuntimePatchOperation::Replace {
+                            path: path.clone(),
+                            old: old.clone(),
+                            new: new.clone(),
+                        }
+                    }
+                    AgentRoundAction::AppendProjectSection {
+                        path,
+                        marker,
+                        content,
+                    } => AgentRuntimePatchOperation::Append {
+                        path: path.clone(),
+                        content: format!("\n{marker}{content}"),
+                    },
+                })
+                .collect();
+            self.runtime
+                .patch(
+                    project_slug,
+                    AgentRuntimePatchRequest {
+                        agent_id: output.agent_id.clone(),
+                        operations,
+                    },
+                )
+                .await?;
+        }
+        Ok(())
     }
 
     async fn persist_session(&self, session: &SimulationSession) -> Result<(), SimulationError> {
@@ -926,6 +1026,122 @@ mod tests {
         .await
         .expect("active session file should exist");
         assert!(active.is_empty());
+    }
+
+    #[allow(clippy::too_many_lines)]
+    #[tokio::test]
+    async fn apply_swarm_outputs_mutates_agent_memory_and_audit_files() {
+        let temp = tempdir().expect("tempdir should exist");
+        let storage = Arc::new(Storage::new(temp.path().to_path_buf()));
+        let projects = ProjectService::new(Arc::clone(&storage));
+        let service = SimulationService::new(Arc::clone(&storage));
+
+        projects
+            .create(CreateProjectRequest {
+                slug: "swarm-runtime-project".to_string(),
+                title: "Swarm Runtime".to_string(),
+                description: "Project".to_string(),
+            })
+            .await
+            .expect("project create should succeed");
+
+        tokio::fs::write(
+            temp.path()
+                .join("projects/swarm-runtime-project/cards/rules/runtime-kp-rulings.md"),
+            "# KP Rulings\n\n## Runtime Notes\n",
+        )
+        .await
+        .expect("seed rules file should exist");
+
+        service
+            .create_session(CreateSessionRequest {
+                project_slug: "swarm-runtime-project".to_string(),
+                session_id: "session-0001".to_string(),
+                timeline: "mainline".to_string(),
+                timepoint_id: "tp-0001".to_string(),
+                title: "Runtime Session".to_string(),
+                characters: vec![CreateCharacterRequest {
+                    character_id: "aria".to_string(),
+                    display_name: "Aria".to_string(),
+                    agenda: "Protect the vault".to_string(),
+                }],
+            })
+            .await
+            .expect("session create should succeed");
+
+        service
+            .advance_round(
+                "swarm-runtime-project",
+                "session-0001",
+                AdvanceRoundRequest {
+                    character_actions: vec![CharacterAction {
+                        character_id: "aria".to_string(),
+                        summary: "Aria protects the vault gate.".to_string(),
+                    }],
+                    system_directives: BTreeMap::new(),
+                    auditor_concludes_session: false,
+                },
+            )
+            .await
+            .expect("round advance should succeed");
+
+        let memory = tokio::fs::read_to_string(
+            temp.path()
+                .join("projects/swarm-runtime-project/agents/aria/memory.md"),
+        )
+        .await
+        .expect("agent memory should exist");
+        assert!(memory.contains("- round: 1"));
+        assert!(memory.contains("- role: character"));
+        assert!(memory.contains("- summary: character decision persisted"));
+
+        let audit = tokio::fs::read_to_string(
+            temp.path()
+                .join("projects/swarm-runtime-project/agents/aria/audit/runtime-round-log.md"),
+        )
+        .await
+        .expect("agent audit should exist");
+        assert!(audit.contains("round 1 session session-0001 :: character decision persisted"));
+
+        let world = tokio::fs::read_to_string(
+            temp.path()
+                .join("projects/swarm-runtime-project/cards/world/current-world-state.md"),
+        )
+        .await
+        .expect("world state file should exist");
+        assert!(world.contains("## World Updates"));
+        assert!(world.contains("- role: world-maintainer"));
+        assert!(world.contains("- summary: world maintenance note persisted"));
+
+        let rules = tokio::fs::read_to_string(
+            temp.path()
+                .join("projects/swarm-runtime-project/cards/rules/runtime-kp-rulings.md"),
+        )
+        .await
+        .expect("kp rulings file should exist");
+        assert!(rules.contains("## KP Rulings") || rules.contains("## Runtime Notes"));
+        assert!(rules.contains("- role: kp"));
+        assert!(rules.contains("- summary: kp ruling persisted"));
+
+        let audit_log = tokio::fs::read_to_string(
+            temp.path()
+                .join("projects/swarm-runtime-project/history/project-audit-log.md"),
+        )
+        .await
+        .expect("project audit log should exist");
+        assert!(audit_log.contains("## Audit Trail"));
+        assert!(audit_log.contains("- role: project-auditor"));
+        assert!(audit_log.contains("- summary: project audit note persisted"));
+
+        let random_events = tokio::fs::read_to_string(
+            temp.path()
+                .join("projects/swarm-runtime-project/simulation/random-events.md"),
+        )
+        .await
+        .expect("random events file should exist");
+        assert!(random_events.contains("## Random Events"));
+        assert!(random_events.contains("- role: random-event"));
+        assert!(random_events.contains("- summary: random event note persisted"));
     }
 
     #[tokio::test]
