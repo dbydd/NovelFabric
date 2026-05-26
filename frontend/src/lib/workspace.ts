@@ -94,6 +94,15 @@ export interface AgentAssetRecord extends AgentAssetSummary {
   skills: string[]
 }
 
+export type LlmApiStyle = 'OpenAiResponses' | 'OpenAiChatCompletions' | 'AnthropicMessages'
+export interface LlmSettings {
+  provider: string
+  base_url: string
+  api_key: string
+  model: string
+  api_style: LlmApiStyle
+}
+
 export interface ReviewNote {
   reviewer: string
   body: string
@@ -409,6 +418,15 @@ interface BackendAgentRecord {
   soul: string
   memory: string
   skills: string[]
+}
+
+interface BackendImportRecord {
+  source_name: string
+  chapter_count: number
+  report_file: string
+  card_ids: string[]
+  memory_keys: string[]
+  timepoint_ids: string[]
 }
 
 interface BackendSimulationSession {
@@ -744,6 +762,11 @@ export function updateProject(updated: NovelProject): void {
   saveProjects(projects)
 }
 
+export async function deleteProject(slug: string): Promise<void> {
+  await fetchJson(`/api/projects/${encodeURIComponent(slug)}`, { method: 'DELETE' })
+  saveProjects(loadProjects().filter((project) => project.slug !== slug))
+}
+
 export function splitTextIntoChapters(text: string): Array<{ title: string; body: string }> {
   const normalized = text.replace(/\r\n?/g, '\n').trim()
   const lines = normalized.split('\n')
@@ -764,12 +787,24 @@ export async function importNovelText(project: NovelProject, sourceName: string,
     const form = new FormData()
     form.append('sourceName', sourceName)
     form.append('file', new Blob([text], { type: 'text/plain' }), sourceName)
-    await fetch(`${apiBase()}/api/projects/${encodeURIComponent(project.slug)}/import`, {
+    const response = await fetch(`${apiBase()}/api/projects/${encodeURIComponent(project.slug)}/import`, {
       method: 'POST',
       body: form,
     })
+    if (!response.ok) throw new Error(`import failed: ${response.status}`)
+    const record = await response.json() as BackendImportRecord
     const refreshed = await ensureProject(project.slug)
-    if (refreshed) return refreshed
+    if (refreshed) {
+      return {
+        ...refreshed,
+        importReport: {
+          sourceName: record.source_name,
+          chapterCount: record.chapter_count,
+          importedAt: new Date().toISOString(),
+          preview: `cards=${record.card_ids.length}; memory=${record.memory_keys.length}; timepoints=${record.timepoint_ids.length}; report=${record.report_file}`,
+        },
+      }
+    }
   } catch {
     // fall back to local-only preview
   }
@@ -804,6 +839,67 @@ export async function importNovelText(project: NovelProject, sourceName: string,
   }
   updateProject(updated)
   return updated
+}
+
+export async function deleteCard(projectSlug: string, card: CardRecord): Promise<CardRecord> {
+  return fetchJson<BackendCardRecord>(`/api/projects/${encodeURIComponent(projectSlug)}/cards/${encodeURIComponent(card.kind)}/${encodeURIComponent(card.id)}`, { method: 'DELETE' })
+}
+
+export async function deleteMemoryEntry(projectSlug: string, entry: MemoryEntry): Promise<MemoryEntry> {
+  const scopeId = entry.scopeId ?? 'root'
+  const record = await fetchJson<BackendMemoryEntry>(`/api/projects/${encodeURIComponent(projectSlug)}/memory/${entry.scope}/${encodeURIComponent(scopeId)}/${encodeURIComponent(entry.timeline)}/${encodeURIComponent(entry.timepoint)}/${encodeURIComponent(entry.id)}`, { method: 'DELETE' })
+  return toMemoryEntry(record)
+}
+
+export async function saveAgentSkill(projectSlug: string, agentId: string, fileName: string, body: string): Promise<AgentAssetRecord> {
+  const agent = await fetchJson<BackendAgentRecord>(`/api/projects/${encodeURIComponent(projectSlug)}/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(fileName)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
+  })
+  return toAgentRecord(agent)
+}
+
+export async function deleteAgentSkill(projectSlug: string, agentId: string, fileName: string): Promise<AgentAssetRecord> {
+  const agent = await fetchJson<BackendAgentRecord>(`/api/projects/${encodeURIComponent(projectSlug)}/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(fileName)}`, { method: 'DELETE' })
+  return toAgentRecord(agent)
+}
+
+export async function getLlmSettings(): Promise<LlmSettings | undefined> {
+  try { return await fetchJson<LlmSettings>('/api/config/llm-settings') } catch { return undefined }
+}
+
+export async function saveLlmSettings(settings: LlmSettings): Promise<LlmSettings> {
+  return fetchJson<LlmSettings>('/api/config/llm-settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  })
+}
+
+export async function saveSimulationResult(project: NovelProject, fileName = 'testresult.txt'): Promise<void> {
+  const grouped = new Map<number, SimulationLog[]>()
+  for (const log of project.simulation.logs) {
+    grouped.set(log.round, [...(grouped.get(log.round) ?? []), log])
+  }
+  const chapterLines = Array.from(grouped.entries()).sort((left, right) => left[0] - right[0]).flatMap(([round, logs]) => [
+    '',
+    `## 第${round}章`,
+    ...logs.map((log) => `R${log.round} [${log.role}] ${log.actor}: ${log.summary}`),
+  ])
+  const lines = [
+    `# ${project.title} 推演结果`,
+    `Project: ${project.slug}`,
+    `Round: ${project.simulation.round}`,
+    ...chapterLines,
+  ]
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 export async function saveCard(projectSlug: string, card: CardRecord): Promise<CardRecord> {

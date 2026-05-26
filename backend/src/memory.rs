@@ -159,6 +159,22 @@ impl MemoryService {
         parse_entry_document(scope.clone(), key.to_string(), &text)
     }
 
+    pub async fn delete(
+        &self,
+        project_slug: &str,
+        scope: &MemoryScope,
+        timeline: &str,
+        timepoint: &str,
+        key: &str,
+    ) -> Result<MemoryEntry, MemoryError> {
+        let existing = self
+            .get(project_slug, scope, timeline, timepoint, key)
+            .await?;
+        let relative_path = entry_file_path(project_slug, scope, timeline, timepoint, key);
+        self.storage.remove_file(&relative_path).await?;
+        Ok(existing)
+    }
+
     pub async fn update(
         &self,
         project_slug: &str,

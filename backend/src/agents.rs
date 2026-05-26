@@ -36,6 +36,12 @@ pub struct UpdateAgentAssetRequest {
     pub memory: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpsertAgentSkillRequest {
+    pub file_name: String,
+    pub body: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentAssetService {
     storage: Arc<Storage>,
@@ -102,6 +108,57 @@ impl AgentAssetService {
             memory,
             skills,
         })
+    }
+
+    pub async fn upsert_skill(
+        &self,
+        project_slug: &str,
+        agent_id: &str,
+        request: UpsertAgentSkillRequest,
+    ) -> Result<AgentAssetRecord, AgentAssetError> {
+        validate_project_slug(project_slug)?;
+        validate_agent_id(agent_id)?;
+        validate_segment(&request.file_name)
+            .map_err(|_| AgentAssetError::InvalidAgentId(request.file_name.clone()))?;
+        if !Path::new(&request.file_name)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+        {
+            return Err(AgentAssetError::InvalidAgentId(request.file_name));
+        }
+        ensure_project_exists(self.storage.as_ref(), project_slug).await?;
+        self.ensure_agent(project_slug, agent_id).await?;
+        self.storage
+            .write_text(
+                &agent_root(project_slug, agent_id)
+                    .join(SKILLS_DIR)
+                    .join(&request.file_name),
+                &request.body,
+            )
+            .await?;
+        self.get(project_slug, agent_id).await
+    }
+
+    pub async fn delete_skill(
+        &self,
+        project_slug: &str,
+        agent_id: &str,
+        file_name: &str,
+    ) -> Result<AgentAssetRecord, AgentAssetError> {
+        validate_project_slug(project_slug)?;
+        validate_agent_id(agent_id)?;
+        validate_segment(file_name)
+            .map_err(|_| AgentAssetError::InvalidAgentId(file_name.to_string()))?;
+        ensure_project_exists(self.storage.as_ref(), project_slug).await?;
+        self.ensure_agent(project_slug, agent_id).await?;
+        self.storage
+            .remove_file(
+                &agent_root(project_slug, agent_id)
+                    .join(SKILLS_DIR)
+                    .join(file_name),
+            )
+            .await?;
+        self.get(project_slug, agent_id).await
     }
 
     pub async fn update(

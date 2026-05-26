@@ -1,0 +1,22 @@
+# Runtime patch audit
+
+- operation: `append` target: `agents/jiu-jiu/audit/runtime-round-log.md`
+- operation: `append` target: `agents/jiu-jiu/memory.md`
+- operation: `append` target: `agents/jiu-jiu/audit/runtime-round-log.md`
+- operation: `append` target: `agents/jiu-jiu/memory.md`
+- operation: `append` target: `agents/jiu-jiu/audit/runtime-round-log.md`
+- operation: `append` target: `agents/jiu-jiu/memory.md`
+- operation: `append` target: `agents/jiu-jiu/audit/runtime-round-log.md`
+- operation: `append` target: `agents/jiu-jiu/memory.md`
+- operation: `append` target: `agents/jiu-jiu/audit/runtime-round-log.md`
+- operation: `append` target: `agents/jiu-jiu/memory.md`
+- operation: `append` target: `agents/jiu-jiu/audit/runtime-round-log.md`
+- operation: `append` target: `agents/jiu-jiu/memory.md`
+- operation: `append` target: `agents/jiu-jiu/audit/runtime-round-log.md`
+- operation: `append` target: `agents/jiu-jiu/memory.md`
+- operation: `append` target: `agents/jiu-jiu/audit/runtime-round-log.md`
+- operation: `append` target: `agents/jiu-jiu/memory.md`
+- operation: `append` target: `agents/jiu-jiu/audit/runtime-round-log.md`
+- operation: `append` target: `agents/jiu-jiu/memory.md`
+- operation: `append` target: `agents/jiu-jiu/audit/runtime-round-log.md`
+- operation: `append` target: `agents/jiu-jiu/memory.md`

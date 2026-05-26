@@ -1,0 +1,22 @@
+# Runtime patch audit
+
+- operation: `append` target: `agents/world-maintainer/audit/runtime-round-log.md`
+- operation: `append` target: `cards/world/current-world-state.md`
+- operation: `append` target: `agents/world-maintainer/audit/runtime-round-log.md`
+- operation: `append` target: `cards/world/current-world-state.md`
+- operation: `append` target: `agents/world-maintainer/audit/runtime-round-log.md`
+- operation: `append` target: `cards/world/current-world-state.md`
+- operation: `append` target: `agents/world-maintainer/audit/runtime-round-log.md`
+- operation: `append` target: `cards/world/current-world-state.md`
+- operation: `append` target: `agents/world-maintainer/audit/runtime-round-log.md`
+- operation: `append` target: `cards/world/current-world-state.md`
+- operation: `append` target: `agents/world-maintainer/audit/runtime-round-log.md`
+- operation: `append` target: `cards/world/current-world-state.md`
+- operation: `append` target: `agents/world-maintainer/audit/runtime-round-log.md`
+- operation: `append` target: `cards/world/current-world-state.md`
+- operation: `append` target: `agents/world-maintainer/audit/runtime-round-log.md`
+- operation: `append` target: `cards/world/current-world-state.md`
+- operation: `append` target: `agents/world-maintainer/audit/runtime-round-log.md`
+- operation: `append` target: `cards/world/current-world-state.md`
+- operation: `append` target: `agents/world-maintainer/audit/runtime-round-log.md`
+- operation: `append` target: `cards/world/current-world-state.md`

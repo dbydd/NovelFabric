@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { advanceSimulation, createSimulationSession, ensureProject, formatSwarmActionLabel, getSwarmRound, possessCharacter, type NovelProject, type SimulationCharacter, type SwarmTurnRecord } from '../lib/workspace'
+import { advanceSimulation, createSimulationSession, ensureProject, formatSwarmActionLabel, getSwarmRound, possessCharacter, saveSimulationResult, type NovelProject, type SimulationCharacter, type SwarmTurnRecord } from '../lib/workspace'
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug))
@@ -23,6 +23,18 @@ async function ensureSession() {
   if (characters.length === 0) return
   const simulation = await createSimulationSession(project.value.slug, { sessionId: `session-${Date.now()}`, timeline: 'main', timepointId: '0001', title: `${project.value.title} 推演`, characters })
   project.value = { ...project.value, simulation }
+}
+
+async function advanceTenChapters() {
+  for (let index = project.value?.simulation.round ?? 0; index < 10; index += 1) {
+    worldState.value = `第${index + 1}章推演：基于已导入人物、剧情、世界观与知识图谱推进，不跳过角色动机与审计。`
+    await advanceRound()
+  }
+}
+
+async function downloadResult() {
+  if (!project.value) return
+  await saveSimulationResult(project.value, 'testresult.txt')
 }
 
 async function advanceRound() {
@@ -135,7 +147,7 @@ const systemUpdateItems = computed(() => (swarmRound.value?.outputs ?? []).flatM
       <div class="suggestions" data-testid="suggestions">
         <button v-for="option in ['调查周围', '与角色交谈', '谨慎前进', '改变计划']" :key="option" class="nf-button secondary" type="button" @click="userAction = option">{{ option }}</button>
       </div>
-      <button class="nf-button accent" type="button" @click="advanceRound" data-testid="advance-round-button">开始 / 推进自动推演</button>
+      <div class="sim-action-stack"><button class="nf-button accent" type="button" @click="advanceRound" data-testid="advance-round-button">开始 / 推进自动推演</button><button class="nf-button secondary" type="button" @click="advanceTenChapters" data-testid="advance-ten-button">推演至少10章</button><button class="nf-button secondary" type="button" @click="downloadResult" data-testid="download-result-button">下载 testresult.txt</button></div>
     </footer>
   </section>
   <p v-else class="nf-empty">项目不存在</p>
@@ -153,5 +165,6 @@ const systemUpdateItems = computed(() => (swarmRound.value?.outputs ?? []).flatM
 .log-card p { margin: 0; color: var(--nf-muted); }
 .control-pane { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--nf-space-3); align-items: end; padding: var(--nf-space-3); background: var(--nf-panel); border: 1px solid var(--nf-border); border-radius: var(--nf-radius); }
 .suggestions { display: flex; flex-wrap: wrap; gap: var(--nf-space-2); }
+.sim-action-stack { display: grid; gap: var(--nf-space-2); }
 @media (max-width: 1100px) { .simulation-view { grid-template-columns: 1fr; height: auto; } .control-pane { grid-template-columns: 1fr; } }
 </style>

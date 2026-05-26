@@ -72,6 +72,24 @@ impl Storage {
         Ok(fs::try_exists(resolved).await?)
     }
 
+    pub async fn remove_file(&self, relative: &Path) -> Result<(), StorageError> {
+        let resolved = self.resolve(relative)?;
+        match fs::remove_file(resolved).await {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(StorageError::Io(error)),
+        }
+    }
+
+    pub async fn remove_dir_all(&self, relative: &Path) -> Result<(), StorageError> {
+        let resolved = self.resolve(relative)?;
+        match fs::remove_dir_all(resolved).await {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(StorageError::Io(error)),
+        }
+    }
+
     pub async fn list_dirs(&self, relative: &Path) -> Result<Vec<PathBuf>, StorageError> {
         let resolved = self.resolve(relative)?;
         let mut reader = match fs::read_dir(resolved).await {

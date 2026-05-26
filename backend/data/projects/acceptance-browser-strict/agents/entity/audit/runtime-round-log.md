@@ -1,0 +1,10 @@
+- round 1 session session-acceptance-10 :: character decision persisted | priority=normal | soul=李 | skills=character-decision.md
+- round 2 session session-acceptance-10 :: character decision persisted | priority=normal | soul=李 | skills=character-decision.md
+- round 3 session session-acceptance-10 :: character decision persisted | priority=normal | soul=李 | skills=character-decision.md
+- round 4 session session-acceptance-10 :: character decision persisted | priority=normal | soul=李 | skills=character-decision.md
+- round 5 session session-acceptance-10 :: character decision persisted | priority=normal | soul=李 | skills=character-decision.md
+- round 6 session session-acceptance-10 :: character decision persisted | priority=normal | soul=李 | skills=character-decision.md
+- round 7 session session-acceptance-10 :: character decision persisted | priority=normal | soul=李 | skills=character-decision.md
+- round 8 session session-acceptance-10 :: character decision persisted | priority=normal | soul=李 | skills=character-decision.md
+- round 9 session session-acceptance-10 :: character decision persisted | priority=normal | soul=李 | skills=character-decision.md
+- round 10 session session-acceptance-10 :: character decision persisted | priority=normal | soul=李 | skills=character-decision.md

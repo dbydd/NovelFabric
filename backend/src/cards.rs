@@ -169,6 +169,19 @@ impl CardService {
         Ok(cards)
     }
 
+    pub async fn delete(
+        &self,
+        project_slug: &str,
+        kind: CardKind,
+        id: &str,
+    ) -> Result<CardRecord, CardError> {
+        let existing = self.get(project_slug, kind, id).await?;
+        self.storage
+            .remove_file(&card_path(project_slug, kind, id))
+            .await?;
+        Ok(existing)
+    }
+
     pub async fn update(&self, request: UpdateCardRequest) -> Result<CardRecord, CardError> {
         validate_project_slug(&request.project_slug)?;
         validate_card_id(&request.id)?;

@@ -40,8 +40,12 @@ use tracing::info_span;
 use tracing_subscriber as _;
 
 use crate::{
-    agents::{AgentAssetRecord, AgentAssetService, AgentSummary, UpdateAgentAssetRequest},
+    agents::{
+        AgentAssetRecord, AgentAssetService, AgentSummary, UpdateAgentAssetRequest,
+        UpsertAgentSkillRequest,
+    },
     cards::{CardKind, CardRecord, CardService, CreateCardRequest, UpdateCardRequest},
+    config::{LlmSettings, LlmSettingsError, LlmSettingsService},
     import::{ImportRecord, ImportService, ImportTxtRequest},
     memory::{
         CreateMemoryEntryRequest, MemoryEntry, MemoryEntrySummary, MemoryScope, MemoryService,
@@ -171,7 +175,10 @@ pub fn app(config: ApplicationConfig) -> Router {
             "/api/projects",
             get(list_projects_handler).post(create_project_handler),
         )
-        .route("/api/projects/{slug}", get(get_project_handler))
+        .route(
+            "/api/projects/{slug}",
+            get(get_project_handler).delete(delete_project_handler),
+        )
         .route("/api/projects/{slug}/import", post(import_txt_handler))
         .route("/api/projects/{slug}/agents", get(list_agents_handler))
         .route(
@@ -179,12 +186,18 @@ pub fn app(config: ApplicationConfig) -> Router {
             get(get_agent_handler).put(update_agent_handler),
         )
         .route(
+            "/api/projects/{slug}/agents/{agent_id}/skills/{skill_file}",
+            post(upsert_agent_skill_handler).delete(delete_agent_skill_handler),
+        )
+        .route(
             "/api/projects/{slug}/cards",
             get(list_cards_handler).post(create_card_handler),
         )
         .route(
             "/api/projects/{slug}/cards/{kind}/{card_id}",
-            get(get_card_handler).put(update_card_handler),
+            get(get_card_handler)
+                .put(update_card_handler)
+                .delete(delete_card_handler),
         )
         .route(
             "/api/projects/{slug}/memory",
@@ -192,7 +205,9 @@ pub fn app(config: ApplicationConfig) -> Router {
         )
         .route(
             "/api/projects/{slug}/memory/{scope_kind}/{scope_id}/{timeline}/{timepoint}/{key}",
-            get(get_memory_handler).put(update_memory_handler),
+            get(get_memory_handler)
+                .put(update_memory_handler)
+                .delete(delete_memory_handler),
         )
         .route(
             "/api/projects/{slug}/timeline/timepoints",
@@ -294,6 +309,10 @@ pub fn app(config: ApplicationConfig) -> Router {
             "/api/projects/{slug}/simulation/sessions/{session_id}/interview",
             post(create_interview_handler),
         )
+        .route(
+            "/api/config/llm-settings",
+            get(get_llm_settings_handler).put(put_llm_settings_handler),
+        )
         .route("/api/projects/{slug}/reports", get(list_reports_handler))
         .route(
             "/api/projects/{slug}/reports/simulation",
@@ -371,6 +390,30 @@ async fn shutdown_signal() {
     tracing::info!("shutdown signal received");
 }
 
+async fn get_llm_settings_handler(
+    State(state): State<AppState>,
+) -> Result<Json<LlmSettings>, AppError> {
+    let service = LlmSettingsService::new(Arc::clone(&state.storage));
+    match service.load().await {
+        Ok(Some(settings)) => Ok(Json(settings)),
+        Ok(None) => Err(AppError::NotFound),
+        Err(LlmSettingsError::Storage(_)) => Err(AppError::Internal),
+        Err(LlmSettingsError::Invalid(_)) => unreachable!(),
+    }
+}
+
+async fn put_llm_settings_handler(
+    State(state): State<AppState>,
+    Json(body): Json<LlmSettings>,
+) -> Result<Json<LlmSettings>, AppError> {
+    let service = LlmSettingsService::new(Arc::clone(&state.storage));
+    let saved = service.save(body).await.map_err(|error| match error {
+        LlmSettingsError::Invalid(msg) => AppError::BadRequest(msg),
+        LlmSettingsError::Storage(_) => AppError::Internal,
+    })?;
+    Ok(Json(saved))
+}
+
 async fn health_handler(State(state): State<AppState>) -> Result<Json<HealthPayload>, AppError> {
     let _ = state.config.server.bind_address;
 
@@ -420,6 +463,30 @@ async fn list_projects_handler(
         .await
         .map_err(|_| AppError::Internal)?;
     Ok(Json(projects))
+}
+
+async fn delete_project_handler(
+    State(state): State<AppState>,
+    AxumPath(slug): AxumPath<String>,
+) -> Result<Json<ProjectRecord>, AppError> {
+    let project = state
+        .projects
+        .get(&slug)
+        .await
+        .map_err(|error| match error {
+            crate::project::ProjectError::NotFound(_) => AppError::NotFound,
+            _ => AppError::Internal,
+        })?;
+    state
+        .projects
+        .delete(&slug)
+        .await
+        .map_err(|error| match error {
+            crate::project::ProjectError::NotFound(_) => AppError::NotFound,
+            crate::project::ProjectError::InvalidSlug(slug) => AppError::BadRequest(slug),
+            _ => AppError::Internal,
+        })?;
+    Ok(Json(project))
 }
 
 async fn get_project_handler(
@@ -487,6 +554,11 @@ async fn import_txt_handler(
 pub struct AgentAssetBody {
     pub soul: String,
     pub memory: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentSkillBody {
+    pub body: String,
 }
 
 async fn list_agents_handler(
@@ -676,6 +748,38 @@ pub struct WritingPrewriteReportBody {
     pub query: Option<String>,
 }
 
+async fn upsert_agent_skill_handler(
+    State(state): State<AppState>,
+    AxumPath((slug, agent_id, skill_file)): AxumPath<(String, String, String)>,
+    Json(body): Json<AgentSkillBody>,
+) -> Result<Json<AgentAssetRecord>, AppError> {
+    let agent = state
+        .agents
+        .upsert_skill(
+            &slug,
+            &agent_id,
+            UpsertAgentSkillRequest {
+                file_name: skill_file,
+                body: body.body,
+            },
+        )
+        .await
+        .map_err(map_agent_error)?;
+    Ok(Json(agent))
+}
+
+async fn delete_agent_skill_handler(
+    State(state): State<AppState>,
+    AxumPath((slug, agent_id, skill_file)): AxumPath<(String, String, String)>,
+) -> Result<Json<AgentAssetRecord>, AppError> {
+    let agent = state
+        .agents
+        .delete_skill(&slug, &agent_id, &skill_file)
+        .await
+        .map_err(map_agent_error)?;
+    Ok(Json(agent))
+}
+
 async fn list_cards_handler(
     State(state): State<AppState>,
     AxumPath(slug): AxumPath<String>,
@@ -738,6 +842,18 @@ async fn update_card_handler(
             title: body.title,
             body: body.body,
         })
+        .await
+        .map_err(map_card_error)?;
+    Ok(Json(record))
+}
+
+async fn delete_card_handler(
+    State(state): State<AppState>,
+    AxumPath((slug, kind, card_id)): AxumPath<(String, String, String)>,
+) -> Result<Json<CardRecord>, AppError> {
+    let record = state
+        .cards
+        .delete(&slug, parse_card_kind(&kind)?, &card_id)
         .await
         .map_err(map_card_error)?;
     Ok(Json(record))
@@ -829,6 +945,26 @@ async fn update_memory_handler(
                 body: body.body,
             },
         )
+        .await
+        .map_err(map_memory_error)?;
+    Ok(Json(record))
+}
+
+async fn delete_memory_handler(
+    State(state): State<AppState>,
+    AxumPath((slug, scope_kind, scope_id, timeline, timepoint, key)): AxumPath<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+    )>,
+) -> Result<Json<MemoryEntry>, AppError> {
+    let scope = parse_memory_scope_path(&scope_kind, &scope_id)?;
+    let record = state
+        .memory
+        .delete(&slug, &scope, &timeline, &timepoint, &key)
         .await
         .map_err(map_memory_error)?;
     Ok(Json(record))

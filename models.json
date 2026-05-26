@@ -1,0 +1,27 @@
+{
+  "$schema": "https://raw.githubusercontent.com/byteowlz/schemas/refs/heads/main/pi-agent/models.schema.json",
+  "providers": {
+    "axonhub": {
+      "baseUrl": "http://dbydd-mac.local:3000/v1",
+      "apiKey": "ah-f65b95f972a0a81c67db29fb81433acb3e4770513fc7dfe3a7bf4c7e934bb8d5",
+      "api": "openai-chat-stream",
+      "models": [
+        {
+          "id": "generic-writer",
+          "name": "Generic writer",
+          "reasoning": true,
+          "contextWindow": 1000000,
+          "maxTokens": 256000,
+          "api": "openai-chat-stream",
+          "compat": {
+            "supportsReasoningEffort": true
+          },
+          "input": [
+            "image",
+            "text"
+          ]
+        }
+      ]
+    }
+  }
+}

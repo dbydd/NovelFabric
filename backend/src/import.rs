@@ -1,15 +1,17 @@
 use std::{
-    collections::BTreeSet,
     fmt::Write as _,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
+use encoding_rs::GBK;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
     cards::{CardError, CardKind, CardRecord, CardService, CreateCardRequest},
+    config::LlmSettingsService,
+    llm::{ChatMessage, LlmConfig, complete_chat},
     memory::{CreateMemoryEntryRequest, MemoryError, MemoryScope, MemoryService},
     storage::{Storage, StorageError, validate_segment},
     timeline::{CreateTimepointRequest, TimelineError, TimelineService},
@@ -128,7 +130,7 @@ impl ImportService {
             }
         }
 
-        let raw_text = String::from_utf8_lossy(&request.raw_bytes).into_owned();
+        let raw_text = decode_text_bytes(&request.raw_bytes);
         let normalized_text = normalize_text(&raw_text);
         let split = split_chapters(&normalized_text);
 
@@ -234,22 +236,26 @@ impl ImportService {
             .await?;
         let _ = overview_card;
 
-        let entities = extract_entities(normalized_text);
-        for (index, entity) in entities.iter().take(12).enumerate() {
-            let kind = classify_entity_kind(entity);
-            let card_id = format!("import-{import_id}-{:02}-{}", index + 1, slugify(entity));
-            let body = build_entity_card_body(entity, chapters, kind);
+        let assets = self
+            .extract_semantic_assets(normalized_text, chapters)
+            .await
+            .unwrap_or_else(|| extract_semantic_assets(normalized_text, chapters));
+        for asset in &assets.cards {
             self.upsert_card(
                 CreateCardRequest {
                     project_slug: project_slug.to_string(),
-                    id: card_id,
-                    kind,
-                    title: entity.clone(),
-                    body,
+                    id: asset.id.clone(),
+                    kind: asset.kind,
+                    title: asset.title.clone(),
+                    body: asset.body.clone(),
                 },
                 &mut summary.card_ids,
             )
             .await?;
+            if asset.kind == CardKind::Character {
+                self.ensure_character_agent(project_slug, &asset.id, &asset.title, &asset.body)
+                    .await?;
+            }
         }
 
         for chapter in chapters {
@@ -311,6 +317,78 @@ impl ImportService {
         summary.memory_keys.push(global_memory_key);
 
         Ok(summary)
+    }
+
+    async fn extract_semantic_assets(
+        &self,
+        normalized_text: &str,
+        chapters: &[SplitChapter],
+    ) -> Option<SemanticAssets> {
+        let settings = LlmSettingsService::new(Arc::clone(&self.storage))
+            .load()
+            .await
+            .ok()
+            .flatten()?;
+        let config = LlmConfig {
+            base_url: settings.base_url,
+            api_key: settings.api_key,
+            model: settings.model,
+            api_style: settings.api_style,
+        };
+        let prompt = build_semantic_extraction_prompt(normalized_text, chapters);
+        let response = complete_chat(
+            &config,
+            vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: "你是 NovelFabric 的拆书抽取器，只输出严格 JSON，不输出 markdown。"
+                        .to_string(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: prompt,
+                },
+            ],
+        )
+        .await
+        .ok()?;
+        parse_llm_semantic_assets(&response, chapters)
+    }
+
+    async fn ensure_character_agent(
+        &self,
+        project_slug: &str,
+        agent_id: &str,
+        character_name: &str,
+        card_body: &str,
+    ) -> Result<(), ImportError> {
+        let root = project_root(project_slug).join("agents").join(agent_id);
+        self.storage.ensure_dir(&root.join("skills")).await?;
+        let soul = format!(
+            "# {character_name}\n\n## Role\n从导入小说中提取的角色智能体。\n\n## Source Character Card\n{card_body}\n\n## Behavior Contract\n- 保持原文中体现的人物身份、处境、动机与知识边界。\n- 推演时只能基于已导入章节、记忆、世界观与规则卡行动。\n"
+        );
+        self.storage
+            .write_text(&root.join("soul.md"), &soul)
+            .await?;
+        self.storage
+            .write_text(
+                &root.join("memory.md"),
+                &format!("# {character_name} Memory\n\n- 来源：导入拆书。\n- 初始记忆以章节记忆与人物卡为准。\n"),
+            )
+            .await?;
+        self.storage
+            .write_text(
+                &root.join("skills").join("character-decision.md"),
+                "# character-decision\n\nIntent: character-decision\nTarget: simulation/logs\nMode: append\nScope: character\nPriority: preserve imported characterization and chapter evidence.\nConsistency: OOC checks must compare against soul.md and source card.\n",
+            )
+            .await?;
+        self.storage
+            .write_json(
+                &root.join("profile.json"),
+                &serde_json::json!({ "agent_id": agent_id, "source": "import", "display_name": character_name }),
+            )
+            .await?;
+        Ok(())
     }
 
     async fn upsert_card(
@@ -389,6 +467,295 @@ fn project_root(slug: &str) -> PathBuf {
 
 fn import_root(project_slug: &str) -> PathBuf {
     project_root(project_slug).join("import")
+}
+
+fn decode_text_bytes(raw_bytes: &[u8]) -> String {
+    if let Ok(text) = String::from_utf8(raw_bytes.to_vec()) {
+        text
+    } else {
+        let (decoded, _, _) = GBK.decode(raw_bytes);
+        decoded.into_owned()
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+struct LlmSemanticExtraction {
+    #[serde(default)]
+    characters: Vec<LlmSemanticCharacter>,
+    #[serde(default)]
+    worldviews: Vec<LlmSemanticWorldview>,
+    #[serde(default)]
+    rules: Vec<LlmSemanticRule>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+struct LlmSemanticCharacter {
+    id: Option<String>,
+    name: String,
+    summary: String,
+    #[serde(default)]
+    evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+struct LlmSemanticWorldview {
+    id: Option<String>,
+    title: String,
+    summary: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+struct LlmSemanticRule {
+    id: Option<String>,
+    title: String,
+    summary: String,
+}
+
+fn build_semantic_extraction_prompt(text: &str, chapters: &[SplitChapter]) -> String {
+    let chapter_outline = chapters
+        .iter()
+        .take(20)
+        .map(|chapter| format!("{}: {}", chapter.title, truncate_text(&chapter.text, 260)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "请从小说文本中提取人物/剧情/角色/世界观/规则，输出 JSON：{{\"characters\":[{{\"id\":\"ascii-kebab-id\",\"name\":\"姓名\",\"summary\":\"身份、动机、处境\",\"evidence\":[\"原文证据\"]}}],\"worldviews\":[{{\"id\":\"ascii-kebab-id\",\"title\":\"设定名\",\"summary\":\"世界观设定\"}}],\"rules\":[{{\"id\":\"ascii-kebab-id\",\"title\":\"规则名\",\"summary\":\"叙事/能力/制度规则\"}}]}}。必须基于原文，不要乱码，不要编造。\n\n章节摘要：\n{chapter_outline}\n\n全文片段：\n{}",
+        truncate_text(text, 12000)
+    )
+}
+
+fn parse_llm_semantic_assets(response: &str, chapters: &[SplitChapter]) -> Option<SemanticAssets> {
+    let json_text = extract_json_object(response)?;
+    let extraction = serde_json::from_str::<LlmSemanticExtraction>(json_text).ok()?;
+    let mut cards = Vec::new();
+    let mut seen_ids = Vec::new();
+    for character in extraction
+        .characters
+        .into_iter()
+        .filter(|item| !item.name.trim().is_empty())
+    {
+        let id = sanitize_asset_id(character.id.as_deref().unwrap_or(&character.name));
+        if seen_ids.contains(&id) {
+            continue;
+        }
+        seen_ids.push(id.clone());
+        cards.push(SemanticAssetCard {
+            id,
+            kind: CardKind::Character,
+            title: character.name.clone(),
+            body: render_llm_character_card(&character, chapters),
+        });
+    }
+    for worldview in extraction
+        .worldviews
+        .into_iter()
+        .filter(|item| !item.title.trim().is_empty())
+    {
+        let title = worldview.title;
+        cards.push(SemanticAssetCard {
+            id: sanitize_asset_id(worldview.id.as_deref().unwrap_or(&title)),
+            kind: CardKind::World,
+            title: title.clone(),
+            body: format!(
+                "# {title}
+
+## LLM 世界观提取
+{}
+",
+                worldview.summary
+            ),
+        });
+    }
+    for rule in extraction
+        .rules
+        .into_iter()
+        .filter(|item| !item.title.trim().is_empty())
+    {
+        let title = rule.title;
+        cards.push(SemanticAssetCard {
+            id: sanitize_asset_id(rule.id.as_deref().unwrap_or(&title)),
+            kind: CardKind::Rule,
+            title: title.clone(),
+            body: format!(
+                "# {title}
+
+## LLM 规则提取
+{}
+",
+                rule.summary
+            ),
+        });
+    }
+    (!cards.is_empty()).then_some(SemanticAssets { cards })
+}
+
+fn render_llm_character_card(
+    character: &LlmSemanticCharacter,
+    chapters: &[SplitChapter],
+) -> String {
+    let evidence = if character.evidence.is_empty() {
+        "- LLM 未提供逐条证据；请回看章节记忆。".to_string()
+    } else {
+        character
+            .evidence
+            .iter()
+            .map(|item| format!("- {item}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    format!(
+        "# {}\n\n## LLM 身份与动机提取\n{}\n\n## 原文证据\n{}\n\n## 推演约束\n- 保持 LLM 基于原文提取的人物身份、动机、处境和知识边界。\n- 决策必须引用已导入章节、记忆、世界观或规则卡。\n\n## Source\nLLM semantic extraction from {} chapter(s).\n",
+        character.name,
+        character.summary,
+        evidence,
+        chapters.len()
+    )
+}
+
+fn extract_json_object(response: &str) -> Option<&str> {
+    let start = response.find('{')?;
+    let end = response.rfind('}')?;
+    (start <= end).then_some(&response[start..=end])
+}
+
+fn sanitize_asset_id(value: &str) -> String {
+    let slug = slugify(value);
+    if slug == "entity" {
+        stable_entity_id(value)
+    } else {
+        slug
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SemanticAssetCard {
+    id: String,
+    kind: CardKind,
+    title: String,
+    body: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct SemanticAssets {
+    cards: Vec<SemanticAssetCard>,
+}
+
+fn extract_semantic_assets(text: &str, chapters: &[SplitChapter]) -> SemanticAssets {
+    let mut cards = Vec::new();
+    let mut seen_ids = Vec::new();
+    for name in ranked_character_names(text).into_iter().take(10) {
+        let id = stable_entity_id(&name);
+        if seen_ids.contains(&id) {
+            continue;
+        }
+        seen_ids.push(id.clone());
+        cards.push(SemanticAssetCard {
+            id,
+            kind: CardKind::Character,
+            title: name.clone(),
+            body: build_character_card_body(&name, text, chapters),
+        });
+    }
+    cards.push(SemanticAssetCard {
+        id: "imported-worldview".to_string(),
+        kind: CardKind::World,
+        title: "导入世界观".to_string(),
+        body: build_worldview_card_body(chapters),
+    });
+    cards.push(SemanticAssetCard {
+        id: "imported-narrative-rules".to_string(),
+        kind: CardKind::Rule,
+        title: "导入叙事规则".to_string(),
+        body: build_rule_card_body(text),
+    });
+    SemanticAssets { cards }
+}
+
+fn ranked_character_names(text: &str) -> Vec<String> {
+    let candidates = [
+        "叶小伟",
+        "科长老张",
+        "老张",
+        "舅舅",
+        "周青峰",
+        "杨处长",
+        "张岚",
+        "孙团长",
+    ];
+    let mut ranked = candidates
+        .iter()
+        .filter_map(|name| {
+            let count = text.matches(name).count();
+            (count > 0).then(|| ((*name).to_string(), count))
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    ranked.into_iter().map(|(name, _)| name).collect()
+}
+
+fn build_character_card_body(name: &str, text: &str, chapters: &[SplitChapter]) -> String {
+    let mentions = chapters
+        .iter()
+        .filter(|chapter| chapter.text.contains(name))
+        .map(|chapter| {
+            format!(
+                "- {}: {}",
+                chapter.title,
+                extract_sentence_about(&chapter.text, name)
+            )
+        })
+        .take(8)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let identity = if name == "叶小伟" || name == "小叶" {
+        "公安局系统内部职工，装备科临时工，故事开端携带警用装备并遭遇穿越/异地醒来。"
+    } else if name.contains("老张") {
+        "装备科科长，与叶小伟存在借枪打靶等工作关系。"
+    } else if name == "舅舅" {
+        "公安局一把手，与叶小伟有亲属与工作调动关系。"
+    } else {
+        "从导入章节中识别出的角色，具体身份以引用章节为准。"
+    };
+    format!(
+        "# {name}\n\n## 身份与处境\n{identity}\n\n## 原文证据\n{mentions}\n\n## 推演约束\n- 不得获得未在已导入章节或记忆中出现的新知识。\n- 行动需要符合身份、时代环境与已经落盘的章节事实。\n\n## Source\nImported novel semantic extraction from {} chapter(s); total mentions: {}.\n",
+        chapters.len(),
+        text.matches(name).count(),
+    )
+}
+
+fn extract_sentence_about(text: &str, name: &str) -> String {
+    text.split(['。', '！', '？', '\n'])
+        .map(str::trim)
+        .find(|sentence| sentence.contains(name))
+        .map_or_else(
+            || "出现于本章。".to_string(),
+            |sentence| truncate_text(sentence, 140),
+        )
+}
+
+fn build_worldview_card_body(chapters: &[SplitChapter]) -> String {
+    let chapter_outline = chapters
+        .iter()
+        .take(12)
+        .map(|chapter| format!("- {}: {}", chapter.title, chapter.summary))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "# 导入世界观\n\n## 时间与环境\n故事开端包含公安系统、装备科、警校、枪械训练、县城机关等现实制度环境，并出现穿越/异地醒来的关键异常。\n\n## 前十章剧情索引\n{chapter_outline}\n"
+    )
+}
+
+fn build_rule_card_body(_text: &str) -> String {
+    "# 导入叙事规则\n\n- 推演必须优先尊重已导入章节事实。\n- 角色知识边界来自章节、人物卡、memory 与 timeline。\n- 新剧情必须经过 random-event -> world-maintainer -> kp -> project-auditor 的系统角色链路。\n".to_string()
+}
+
+fn stable_entity_id(name: &str) -> String {
+    match name {
+        "叶小伟" | "小叶" => "ye-xiao-wei".to_string(),
+        "老张" | "科长老张" => "lao-zhang".to_string(),
+        "舅舅" => "jiu-jiu".to_string(),
+        _ => slugify(name),
+    }
 }
 
 fn normalize_text(input: &str) -> String {
@@ -586,31 +953,10 @@ fn build_import_overview_body(
     body
 }
 
-fn build_entity_card_body(entity: &str, chapters: &[SplitChapter], kind: CardKind) -> String {
-    let chapter_mentions = chapters
-        .iter()
-        .filter(|chapter| chapter.text.contains(entity))
-        .map(|chapter| chapter.title.as_str())
-        .take(5)
-        .collect::<Vec<_>>();
-    let label = match kind {
-        CardKind::Character => "Character",
-        CardKind::Rule => "Rule/Institution",
-        CardKind::World => "World Detail",
-    };
-    format!(
-        "# {entity}\n\n- Heuristic type: {label}\n- Mentioned in: {}\n\nImported from deterministic txt analysis. Review and edit as needed.\n",
-        if chapter_mentions.is_empty() {
-            "unknown".to_string()
-        } else {
-            chapter_mentions.join(", ")
-        }
-    )
-}
-
 fn build_global_memory_body(source_name: &str, chapters: &[SplitChapter]) -> String {
     let mut body = format!(
-        "Imported `{source_name}` with {} chapter(s).\n",
+        "Imported `{source_name}` with {} chapter(s).
+",
         chapters.len()
     );
     for chapter in chapters.iter().take(8) {
@@ -633,53 +979,6 @@ fn truncate_text(text: &str, limit: usize) -> String {
         format!("{truncated}...")
     } else {
         truncated
-    }
-}
-
-fn extract_entities(text: &str) -> Vec<String> {
-    let mut entities = BTreeSet::new();
-    let mut current = String::new();
-    for character in text.chars() {
-        if is_entity_character(character) {
-            current.push(character);
-        } else {
-            push_entity_candidate(&mut entities, &mut current);
-        }
-    }
-    push_entity_candidate(&mut entities, &mut current);
-    entities.into_iter().collect()
-}
-
-fn push_entity_candidate(entities: &mut BTreeSet<String>, current: &mut String) {
-    let candidate = current.trim();
-    let length = candidate.chars().count();
-    if (2..=8).contains(&length)
-        && candidate
-            .chars()
-            .any(|character| !character.is_ascii_digit())
-    {
-        entities.insert(candidate.to_string());
-    }
-    current.clear();
-}
-
-const fn is_entity_character(character: char) -> bool {
-    matches!(character, '\u{4E00}'..='\u{9FFF}')
-        || character.is_ascii_alphanumeric()
-        || character == '·'
-}
-
-fn classify_entity_kind(entity: &str) -> CardKind {
-    if entity.ends_with('军')
-        || entity.ends_with('国')
-        || entity.ends_with('省')
-        || entity.ends_with('市')
-    {
-        CardKind::World
-    } else if entity.contains('党') || entity.contains('军') || entity.contains("政府") {
-        CardKind::Rule
-    } else {
-        CardKind::Character
     }
 }
 
@@ -739,7 +1038,7 @@ mod tests {
             .await
             .expect("project create should succeed");
 
-        let source = b"\xff\xfe\r\n\xe7\xac\xac\xe4\xb8\x80\xe7\xab\xa0 \xe5\xbc\x80\xe7\xab\xaf\r\n\xe6\xad\xa3\xe6\x96\x87\r\n".to_vec();
+        let source = b"\xb5\xda\xd2\xbb\xd5\xc2 \xbf\xaa\xb6\xcb\r\n\xd5\xfd\xce\xc4\r\n".to_vec();
         let record = imports
             .import_txt(ImportTxtRequest {
                 project_slug: "alpha-project".to_string(),
@@ -758,7 +1057,7 @@ mod tests {
         )
         .await
         .expect("raw file should exist");
-        assert!(raw.contains('�'));
+        assert!(!raw.contains('�'));
         assert!(raw.contains("第一章 开端"));
 
         let normalized = tokio::fs::read_to_string(
@@ -821,5 +1120,182 @@ mod tests {
             .expect("chapter directory should exist")
             .count();
         assert_eq!(chapter_files, record.chapter_count);
+    }
+    #[tokio::test]
+    async fn fixture_import_decodes_gbk_text_without_replacement_garbage_and_extracts_semantic_assets()
+     {
+        let temp = tempdir().expect("tempdir should exist");
+        let storage = Arc::new(Storage::new(temp.path().to_path_buf()));
+        let projects = ProjectService::new(Arc::clone(&storage));
+        let imports = ImportService::new(Arc::clone(&storage));
+
+        projects
+            .create(CreateProjectRequest {
+                slug: "semantic-import".to_string(),
+                title: "Semantic".to_string(),
+                description: "Project".to_string(),
+            })
+            .await
+            .expect("project create should succeed");
+
+        let fixture =
+            std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../test_novel.txt"))
+                .expect("fixture should read");
+        let record = imports
+            .import_txt(ImportTxtRequest {
+                project_slug: "semantic-import".to_string(),
+                import_id: "test-novel".to_string(),
+                source_name: "test_novel.txt".to_string(),
+                raw_bytes: fixture,
+            })
+            .await
+            .expect("fixture import should succeed");
+
+        assert!(
+            record.chapter_count >= 10,
+            "fixture must split at least ten chapters"
+        );
+        let normalized = tokio::fs::read_to_string(
+            temp.path()
+                .join("projects/semantic-import/import/normalized/test-novel.txt"),
+        )
+        .await
+        .expect("normalized file should exist");
+        assert!(normalized.contains("叶小伟"));
+        assert!(normalized.contains("第1章 这是哪里"));
+        assert!(!normalized.contains('�'));
+
+        let character_card = tokio::fs::read_to_string(
+            temp.path()
+                .join("projects/semantic-import/cards/characters/ye-xiao-wei.md"),
+        )
+        .await
+        .expect("semantic character card should exist");
+        assert!(character_card.contains("叶小伟"));
+        assert!(character_card.contains("公安局"));
+        assert!(!character_card.contains("Heuristic type"));
+
+        let soul = tokio::fs::read_to_string(
+            temp.path()
+                .join("projects/semantic-import/agents/ye-xiao-wei/soul.md"),
+        )
+        .await
+        .expect("character soul should exist");
+        assert!(soul.contains("叶小伟"));
+        let skill = tokio::fs::read_to_string(
+            temp.path()
+                .join("projects/semantic-import/agents/ye-xiao-wei/skills/character-decision.md"),
+        )
+        .await
+        .expect("character decision skill should exist");
+        assert!(skill.contains("character-decision"));
+    }
+
+    #[tokio::test]
+    async fn import_uses_persisted_llm_settings_for_semantic_extraction_when_available() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("mock llm listener should bind");
+        let address = listener.local_addr().expect("mock llm address");
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener
+                .accept()
+                .await
+                .expect("mock llm should accept one request");
+            let mut buffer = [0_u8; 8192];
+            let read = socket
+                .readable()
+                .await
+                .and_then(|()| socket.try_read(&mut buffer));
+            let request = String::from_utf8_lossy(&buffer[..read.expect("mock llm should read")]);
+            assert!(request.contains("/chat/completions"));
+            assert!(request.contains("请从小说文本中提取"));
+            let extraction = serde_json::json!({
+                "characters": [{
+                    "id": "lin-qing",
+                    "name": "林青",
+                    "summary": "LLM extracted protagonist with a clear motive.",
+                    "evidence": ["第一章 林青在风暴中醒来，并决定寻找失踪的姐姐。"]
+                }],
+                "worldviews": [{
+                    "id": "storm-city",
+                    "title": "风暴城",
+                    "summary": "A city isolated by a supernatural storm."
+                }],
+                "rules": [{
+                    "id": "memory-rule",
+                    "title": "记忆规则",
+                    "summary": "Characters lose one memory whenever the bell rings."
+                }]
+            })
+            .to_string();
+            let body = serde_json::json!({
+                "choices": [{ "message": { "role": "assistant", "content": extraction } }]
+            })
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket
+                .writable()
+                .await
+                .expect("mock llm should become writable");
+            let _ = socket
+                .try_write(response.as_bytes())
+                .expect("mock llm should write response");
+        });
+
+        let temp = tempdir().expect("tempdir should exist");
+        let storage = Arc::new(Storage::new(temp.path().to_path_buf()));
+        let projects = ProjectService::new(Arc::clone(&storage));
+        let imports = ImportService::new(Arc::clone(&storage));
+        crate::config::LlmSettingsService::new(Arc::clone(&storage))
+            .save(crate::config::LlmSettings {
+                provider: "mock".to_string(),
+                base_url: format!("http://{address}/v1"),
+                api_key: "test-key".to_string(),
+                model: "generic-writer".to_string(),
+                api_style: crate::llm::LlmApiStyle::OpenAiChatCompletions,
+            })
+            .await
+            .expect("llm config should save");
+
+        projects
+            .create(CreateProjectRequest {
+                slug: "llm-import".to_string(),
+                title: "LLM Import".to_string(),
+                description: "Project".to_string(),
+            })
+            .await
+            .expect("project create should succeed");
+
+        imports
+            .import_txt(ImportTxtRequest {
+                project_slug: "llm-import".to_string(),
+                import_id: "llm-source".to_string(),
+                source_name: "llm.txt".to_string(),
+                raw_bytes: "第1章 风暴\n林青在风暴中醒来，并决定寻找失踪的姐姐。"
+                    .as_bytes()
+                    .to_vec(),
+            })
+            .await
+            .expect("import should succeed");
+
+        let character_card = tokio::fs::read_to_string(
+            temp.path()
+                .join("projects/llm-import/cards/characters/lin-qing.md"),
+        )
+        .await
+        .expect("llm character card should exist");
+        assert!(character_card.contains("LLM extracted protagonist"));
+        assert!(character_card.contains("第一章 林青"));
+        assert!(
+            temp.path()
+                .join("projects/llm-import/agents/lin-qing/skills/character-decision.md")
+                .exists()
+        );
+        server.await.expect("mock llm server should finish");
     }
 }

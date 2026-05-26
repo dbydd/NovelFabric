@@ -776,6 +776,7 @@ dependencies = [
  "axum",
  "clap",
  "directories",
+ "encoding_rs",
  "reqwest",
  "serde",
  "serde_json",

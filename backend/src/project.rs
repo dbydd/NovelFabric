@@ -74,6 +74,16 @@ impl ProjectService {
         Ok(serde_json::from_str(&text)?)
     }
 
+    pub async fn delete(&self, slug: &str) -> Result<(), ProjectError> {
+        validate_project_slug(slug)?;
+        let root = project_root(slug);
+        if !self.storage.exists(&root.join("project.json")).await? {
+            return Err(ProjectError::NotFound(slug.to_string()));
+        }
+        self.storage.remove_dir_all(&root).await?;
+        Ok(())
+    }
+
     pub async fn list(&self) -> Result<Vec<ProjectRecord>, ProjectError> {
         let directories = self.storage.list_dirs(Path::new(PROJECTS_DIR)).await?;
         let mut projects = Vec::new();
@@ -318,5 +328,30 @@ mod tests {
 
         assert!(matches!(result, Err(ProjectError::InvalidSlug(slug)) if slug == "Bad Slug"));
         assert!(!temp.path().join(Path::new("projects/Bad Slug")).exists());
+    }
+
+    #[tokio::test]
+    async fn delete_project_removes_project_directory() {
+        let temp = tempdir().expect("tempdir should exist");
+        let service = ProjectService::new(Arc::new(Storage::new(temp.path().to_path_buf())));
+
+        service
+            .create(CreateProjectRequest {
+                slug: "delete-me".to_string(),
+                title: "Delete Me".to_string(),
+                description: "Project".to_string(),
+            })
+            .await
+            .expect("project creation should succeed");
+
+        service
+            .delete("delete-me")
+            .await
+            .expect("project delete should succeed");
+        assert!(!temp.path().join("projects/delete-me").exists());
+        assert!(matches!(
+            service.get("delete-me").await,
+            Err(ProjectError::NotFound(_))
+        ));
     }
 }

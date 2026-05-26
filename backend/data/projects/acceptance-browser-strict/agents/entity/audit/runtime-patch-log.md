@@ -1,0 +1,22 @@
+# Runtime patch audit
+
+- operation: `append` target: `agents/entity/audit/runtime-round-log.md`
+- operation: `append` target: `agents/entity/memory.md`
+- operation: `append` target: `agents/entity/audit/runtime-round-log.md`
+- operation: `append` target: `agents/entity/memory.md`
+- operation: `append` target: `agents/entity/audit/runtime-round-log.md`
+- operation: `append` target: `agents/entity/memory.md`
+- operation: `append` target: `agents/entity/audit/runtime-round-log.md`
+- operation: `append` target: `agents/entity/memory.md`
+- operation: `append` target: `agents/entity/audit/runtime-round-log.md`
+- operation: `append` target: `agents/entity/memory.md`
+- operation: `append` target: `agents/entity/audit/runtime-round-log.md`
+- operation: `append` target: `agents/entity/memory.md`
+- operation: `append` target: `agents/entity/audit/runtime-round-log.md`
+- operation: `append` target: `agents/entity/memory.md`
+- operation: `append` target: `agents/entity/audit/runtime-round-log.md`
+- operation: `append` target: `agents/entity/memory.md`
+- operation: `append` target: `agents/entity/audit/runtime-round-log.md`
+- operation: `append` target: `agents/entity/memory.md`
+- operation: `append` target: `agents/entity/audit/runtime-round-log.md`
+- operation: `append` target: `agents/entity/memory.md`

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { createMemoryEntry, ensureProject, listMemoryByScope, updateMemoryEntry, updateProject, type MemoryEntry, type NovelProject } from '../lib/workspace'
+import { createMemoryEntry, deleteMemoryEntry, ensureProject, listMemoryByScope, updateMemoryEntry, updateProject, type MemoryEntry, type NovelProject } from '../lib/workspace'
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug))
@@ -46,6 +46,15 @@ async function createEntry() {
   project.value = { ...project.value, memory: [...project.value.memory, created] }
   select(created)
 }
+async function removeEntry() {
+  if (!project.value || !selected.value) return
+  await deleteMemoryEntry(project.value.slug, selected.value)
+  project.value = { ...project.value, memory: project.value.memory.filter((entry) => entry.id !== selected.value?.id) }
+  const next = project.value.memory[0]
+  if (next) select(next)
+  else { selectedId.value = ''; title.value = ''; body.value = '' }
+}
+
 async function saveEntry() {
   if (!project.value || !selected.value) return
   const updated = await updateMemoryEntry(project.value.slug, selected.value, { ...selected.value, title: title.value, body: body.value, timeline: timeline.value, timepoint: timepoint.value })
@@ -71,7 +80,7 @@ async function saveEntry() {
         <label class="nf-label">标题<input v-model="title" class="nf-input" data-testid="memory-title-input" /></label>
         <div class="memory-meta-row"><label class="nf-label">时间线<input v-model="timeline" class="nf-input" data-testid="memory-timeline-input" /></label><label class="nf-label">时间点<input v-model="timepoint" class="nf-input" data-testid="memory-timepoint-input" /></label></div>
         <label class="nf-label">内容<textarea v-model="body" class="nf-textarea memory-body" data-testid="memory-body-input"></textarea></label>
-        <button class="nf-button accent" type="button" @click="saveEntry" data-testid="save-memory-button">保存记忆</button>
+        <div class="editor-actions"><button class="nf-button accent" type="button" @click="saveEntry" data-testid="save-memory-button">保存记忆</button><button class="nf-button danger" type="button" @click="removeEntry" data-testid="delete-memory-button">删除记忆</button></div>
       </div>
     </main>
     <aside class="card-pane nf-panel" data-testid="card-summary">
@@ -95,6 +104,7 @@ async function saveEntry() {
 .memory-item span { color: var(--nf-muted); font-size: 13px; }
 .memory-meta-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--nf-space-3); }
 .memory-body { min-height: 48vh; }
+.editor-actions { display: flex; gap: var(--nf-space-2); }
 .card-summary { display: grid; gap: 6px; border: 1px solid var(--nf-border); border-radius: 6px; padding: var(--nf-space-3); background: #fff; }
 .card-summary p { margin: 0; color: var(--nf-muted); font-size: 13px; }
 @media (max-width: 1100px) { .memory-view { grid-template-columns: 1fr; height: auto; } }

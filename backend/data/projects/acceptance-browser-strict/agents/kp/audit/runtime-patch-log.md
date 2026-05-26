@@ -1,0 +1,22 @@
+# Runtime patch audit
+
+- operation: `append` target: `agents/kp/audit/runtime-round-log.md`
+- operation: `append` target: `cards/rules/runtime-kp-rulings.md`
+- operation: `append` target: `agents/kp/audit/runtime-round-log.md`
+- operation: `append` target: `cards/rules/runtime-kp-rulings.md`
+- operation: `append` target: `agents/kp/audit/runtime-round-log.md`
+- operation: `append` target: `cards/rules/runtime-kp-rulings.md`
+- operation: `append` target: `agents/kp/audit/runtime-round-log.md`
+- operation: `append` target: `cards/rules/runtime-kp-rulings.md`
+- operation: `append` target: `agents/kp/audit/runtime-round-log.md`
+- operation: `append` target: `cards/rules/runtime-kp-rulings.md`
+- operation: `append` target: `agents/kp/audit/runtime-round-log.md`
+- operation: `append` target: `cards/rules/runtime-kp-rulings.md`
+- operation: `append` target: `agents/kp/audit/runtime-round-log.md`
+- operation: `append` target: `cards/rules/runtime-kp-rulings.md`
+- operation: `append` target: `agents/kp/audit/runtime-round-log.md`
+- operation: `append` target: `cards/rules/runtime-kp-rulings.md`
+- operation: `append` target: `agents/kp/audit/runtime-round-log.md`
+- operation: `append` target: `cards/rules/runtime-kp-rulings.md`
+- operation: `append` target: `agents/kp/audit/runtime-round-log.md`
+- operation: `append` target: `cards/rules/runtime-kp-rulings.md`

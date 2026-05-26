@@ -5,6 +5,11 @@ import SettingsView from './SettingsView.vue'
 
 const ensureProject = vi.fn()
 const importNovelText = vi.fn()
+const getLlmSettings = vi.fn()
+const saveLlmSettings = vi.fn()
+const deleteCard = vi.fn()
+const saveAgentSkill = vi.fn()
+const deleteAgentSkill = vi.fn()
 const route = { params: { slug: 'alpha-project' } }
 
 vi.mock('vue-router', () => ({
@@ -14,6 +19,14 @@ vi.mock('vue-router', () => ({
 vi.mock('../lib/workspace', () => ({
   ensureProject: (...args: unknown[]) => ensureProject(...args),
   importNovelText: (...args: unknown[]) => importNovelText(...args),
+  getLlmSettings: (...args: unknown[]) => getLlmSettings(...args),
+  saveLlmSettings: (...args: unknown[]) => saveLlmSettings(...args),
+  deleteCard: (...args: unknown[]) => deleteCard(...args),
+  saveAgentSkill: (...args: unknown[]) => saveAgentSkill(...args),
+  deleteAgentSkill: (...args: unknown[]) => deleteAgentSkill(...args),
+  saveCard: vi.fn(),
+  updateAgent: vi.fn(),
+  getAgent: vi.fn(),
   updateProject: vi.fn(),
 }))
 
@@ -21,6 +34,8 @@ describe('SettingsView', () => {
   beforeEach(() => {
     ensureProject.mockReset()
     importNovelText.mockReset()
+    getLlmSettings.mockReset()
+    getLlmSettings.mockResolvedValue(undefined)
   })
 
   it('renders imported report after file import', async () => {

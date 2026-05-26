@@ -1,0 +1,10 @@
+- round 1 session session-acceptance-10 :: random event note persisted | priority=normal | soul=random-event | skills=
+- round 2 session session-acceptance-10 :: random event note persisted | priority=normal | soul=random-event | skills=
+- round 3 session session-acceptance-10 :: random event note persisted | priority=normal | soul=random-event | skills=
+- round 4 session session-acceptance-10 :: random event note persisted | priority=normal | soul=random-event | skills=
+- round 5 session session-acceptance-10 :: random event note persisted | priority=normal | soul=random-event | skills=
+- round 6 session session-acceptance-10 :: random event note persisted | priority=normal | soul=random-event | skills=
+- round 7 session session-acceptance-10 :: random event note persisted | priority=normal | soul=random-event | skills=
+- round 8 session session-acceptance-10 :: random event note persisted | priority=normal | soul=random-event | skills=
+- round 9 session session-acceptance-10 :: random event note persisted | priority=normal | soul=random-event | skills=
+- round 10 session session-acceptance-10 :: random event note persisted | priority=normal | soul=random-event | skills=

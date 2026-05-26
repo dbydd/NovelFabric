@@ -1,13 +1,92 @@
-use std::{net::SocketAddr, path::PathBuf};
+use std::{
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::fs;
 
-use crate::{ApplicationConfig, ServerConfig};
+use crate::{
+    ApplicationConfig, ServerConfig,
+    llm::LlmApiStyle,
+    storage::{Storage, StorageError},
+};
 
 const CONFIG_FILE_NAME: &str = "config.toml";
+
+const CONFIG_DIR: &str = "config";
+const LLM_CONFIG_FILE: &str = "llm.json";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LlmSettings {
+    pub provider: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    pub api_style: LlmApiStyle,
+}
+
+#[derive(Debug, Clone)]
+pub struct LlmSettingsService {
+    storage: Arc<Storage>,
+}
+
+#[derive(Debug, Error)]
+pub enum LlmSettingsError {
+    #[error("invalid llm setting: {0}")]
+    Invalid(String),
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+}
+
+impl LlmSettingsService {
+    #[must_use]
+    pub const fn new(storage: Arc<Storage>) -> Self {
+        Self { storage }
+    }
+
+    pub async fn load(&self) -> Result<Option<LlmSettings>, LlmSettingsError> {
+        let path = llm_settings_path();
+        if !self.storage.exists(&path).await? {
+            return Ok(None);
+        }
+        let text = self.storage.read_text(&path).await?;
+        Ok(Some(
+            serde_json::from_str(&text).map_err(StorageError::Json)?,
+        ))
+    }
+
+    pub async fn save(&self, settings: LlmSettings) -> Result<LlmSettings, LlmSettingsError> {
+        validate_llm_settings(&settings)?;
+        self.storage
+            .write_json(&llm_settings_path(), &settings)
+            .await?;
+        Ok(settings)
+    }
+}
+
+fn validate_llm_settings(settings: &LlmSettings) -> Result<(), LlmSettingsError> {
+    for (name, value) in [
+        ("provider", settings.provider.as_str()),
+        ("base_url", settings.base_url.as_str()),
+        ("model", settings.model.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            return Err(LlmSettingsError::Invalid(name.to_string()));
+        }
+    }
+    if !(settings.base_url.starts_with("http://") || settings.base_url.starts_with("https://")) {
+        return Err(LlmSettingsError::Invalid("base_url".to_string()));
+    }
+    Ok(())
+}
+
+fn llm_settings_path() -> PathBuf {
+    Path::new(CONFIG_DIR).join(LLM_CONFIG_FILE)
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ConfigOverrides {
@@ -164,5 +243,32 @@ bind_address = "127.0.0.1:50041"
             .expect("config should read");
         assert!(written.contains("bind_address"));
         assert!(written.contains("data_dir"));
+    }
+
+    #[tokio::test]
+    async fn persists_frontend_llm_config_to_local_config_file() {
+        let temp = tempdir().expect("tempdir should exist");
+        let storage = crate::storage::Storage::new(temp.path().to_path_buf());
+        let service = crate::config::LlmSettingsService::new(std::sync::Arc::new(storage));
+        let settings = crate::config::LlmSettings {
+            provider: "axonhub".to_string(),
+            base_url: "http://localhost:3000/v1".to_string(),
+            api_key: "test-key".to_string(),
+            model: "generic-writer".to_string(),
+            api_style: crate::llm::LlmApiStyle::OpenAiChatCompletions,
+        };
+
+        service
+            .save(settings.clone())
+            .await
+            .expect("settings save should succeed");
+        let loaded = service
+            .load()
+            .await
+            .expect("settings load should succeed")
+            .expect("settings should exist");
+
+        assert_eq!(loaded, settings);
+        assert!(temp.path().join("config/llm.json").exists());
     }
 }

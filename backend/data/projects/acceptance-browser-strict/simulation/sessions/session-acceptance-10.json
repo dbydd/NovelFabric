@@ -1,0 +1,573 @@
+{
+  "project_slug": "acceptance-browser-strict",
+  "session_id": "session-acceptance-10",
+  "timeline": "main",
+  "timepoint_id": "0001",
+  "title": "十章推演",
+  "round": 10,
+  "next_turn": 71,
+  "is_complete": false,
+  "active_character_id": null,
+  "characters": [
+    {
+      "character_id": "entity",
+      "display_name": "王",
+      "agenda": "# 王\n\n## 身份与处境\n从导入章节中识别出的角色，具体身份以引用章节为准。\n\n## 原文证据\n- 第1章 这是哪里: 想到这里叶小伟掐灭烟头站了起来，顺手拿",
+      "controller": {
+        "kind": "agent"
+      }
+    },
+    {
+      "character_id": "jiu-jiu",
+      "display_name": "舅舅",
+      "agenda": "# 舅舅\n\n## 身份与处境\n公安局一把手，与叶小伟有亲属与工作调动关系。\n\n## 原文证据\n- 第1章 这是哪里: 新上任的一把手是小叶同志的舅舅，叶小伟被调",
+      "controller": {
+        "kind": "agent"
+      }
+    },
+    {
+      "character_id": "lao-zhang",
+      "display_name": "老张",
+      "agenda": "# 老张\n\n## 身份与处境\n装备科科长，与叶小伟存在借枪打靶等工作关系。\n\n## 原文证据\n- 第1章 这是哪里: 这把枪是小叶同志昨天下午找科长老张借的，他",
+      "controller": {
+        "kind": "agent"
+      }
+    }
+  ],
+  "agents": [
+    {
+      "agent_id": "entity",
+      "role": "character",
+      "round_memory_key": "entity-session-session-acceptance-10-round-0010",
+      "last_output": "第10章：王依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "agent_id": "jiu-jiu",
+      "role": "character",
+      "round_memory_key": "jiu-jiu-session-session-acceptance-10-round-0010",
+      "last_output": "第10章：舅舅依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "agent_id": "kp",
+      "role": "kp",
+      "round_memory_key": "kp-session-session-acceptance-10-round-0010",
+      "last_output": "第10章KP按导入叙事规则裁定行动后果。"
+    },
+    {
+      "agent_id": "lao-zhang",
+      "role": "character",
+      "round_memory_key": "lao-zhang-session-session-acceptance-10-round-0010",
+      "last_output": "第10章：老张依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "agent_id": "project-auditor",
+      "role": "project-auditor",
+      "round_memory_key": "project-auditor-session-session-acceptance-10-round-0010",
+      "last_output": "第10章审核不得偏离叶小伟与已导入前十章事实。"
+    },
+    {
+      "agent_id": "random-event",
+      "role": "random-event",
+      "round_memory_key": "random-event-session-session-acceptance-10-round-0010",
+      "last_output": "第10章随机事件基于公安局、装备科、穿越异常推进。"
+    },
+    {
+      "agent_id": "world-maintainer",
+      "role": "world-maintainer",
+      "round_memory_key": "world-maintainer-session-session-acceptance-10-round-0010",
+      "last_output": "第10章维护县城公安系统、时代环境和穿越异常的一致性。"
+    }
+  ],
+  "logs": [
+    {
+      "round": 1,
+      "turn": 1,
+      "actor_id": "entity",
+      "role": "character",
+      "summary": "第1章：王依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 1,
+      "turn": 2,
+      "actor_id": "jiu-jiu",
+      "role": "character",
+      "summary": "第1章：舅舅依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 1,
+      "turn": 3,
+      "actor_id": "lao-zhang",
+      "role": "character",
+      "summary": "第1章：老张依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 1,
+      "turn": 4,
+      "actor_id": "random-event",
+      "role": "random-event",
+      "summary": "第1章随机事件基于公安局、装备科、穿越异常推进。"
+    },
+    {
+      "round": 1,
+      "turn": 5,
+      "actor_id": "world-maintainer",
+      "role": "world-maintainer",
+      "summary": "第1章维护县城公安系统、时代环境和穿越异常的一致性。"
+    },
+    {
+      "round": 1,
+      "turn": 6,
+      "actor_id": "kp",
+      "role": "kp",
+      "summary": "第1章KP按导入叙事规则裁定行动后果。"
+    },
+    {
+      "round": 1,
+      "turn": 7,
+      "actor_id": "project-auditor",
+      "role": "project-auditor",
+      "summary": "第1章审核不得偏离叶小伟与已导入前十章事实。"
+    },
+    {
+      "round": 2,
+      "turn": 8,
+      "actor_id": "entity",
+      "role": "character",
+      "summary": "第2章：王依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 2,
+      "turn": 9,
+      "actor_id": "jiu-jiu",
+      "role": "character",
+      "summary": "第2章：舅舅依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 2,
+      "turn": 10,
+      "actor_id": "lao-zhang",
+      "role": "character",
+      "summary": "第2章：老张依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 2,
+      "turn": 11,
+      "actor_id": "random-event",
+      "role": "random-event",
+      "summary": "第2章随机事件基于公安局、装备科、穿越异常推进。"
+    },
+    {
+      "round": 2,
+      "turn": 12,
+      "actor_id": "world-maintainer",
+      "role": "world-maintainer",
+      "summary": "第2章维护县城公安系统、时代环境和穿越异常的一致性。"
+    },
+    {
+      "round": 2,
+      "turn": 13,
+      "actor_id": "kp",
+      "role": "kp",
+      "summary": "第2章KP按导入叙事规则裁定行动后果。"
+    },
+    {
+      "round": 2,
+      "turn": 14,
+      "actor_id": "project-auditor",
+      "role": "project-auditor",
+      "summary": "第2章审核不得偏离叶小伟与已导入前十章事实。"
+    },
+    {
+      "round": 3,
+      "turn": 15,
+      "actor_id": "entity",
+      "role": "character",
+      "summary": "第3章：王依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 3,
+      "turn": 16,
+      "actor_id": "jiu-jiu",
+      "role": "character",
+      "summary": "第3章：舅舅依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 3,
+      "turn": 17,
+      "actor_id": "lao-zhang",
+      "role": "character",
+      "summary": "第3章：老张依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 3,
+      "turn": 18,
+      "actor_id": "random-event",
+      "role": "random-event",
+      "summary": "第3章随机事件基于公安局、装备科、穿越异常推进。"
+    },
+    {
+      "round": 3,
+      "turn": 19,
+      "actor_id": "world-maintainer",
+      "role": "world-maintainer",
+      "summary": "第3章维护县城公安系统、时代环境和穿越异常的一致性。"
+    },
+    {
+      "round": 3,
+      "turn": 20,
+      "actor_id": "kp",
+      "role": "kp",
+      "summary": "第3章KP按导入叙事规则裁定行动后果。"
+    },
+    {
+      "round": 3,
+      "turn": 21,
+      "actor_id": "project-auditor",
+      "role": "project-auditor",
+      "summary": "第3章审核不得偏离叶小伟与已导入前十章事实。"
+    },
+    {
+      "round": 4,
+      "turn": 22,
+      "actor_id": "entity",
+      "role": "character",
+      "summary": "第4章：王依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 4,
+      "turn": 23,
+      "actor_id": "jiu-jiu",
+      "role": "character",
+      "summary": "第4章：舅舅依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 4,
+      "turn": 24,
+      "actor_id": "lao-zhang",
+      "role": "character",
+      "summary": "第4章：老张依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 4,
+      "turn": 25,
+      "actor_id": "random-event",
+      "role": "random-event",
+      "summary": "第4章随机事件基于公安局、装备科、穿越异常推进。"
+    },
+    {
+      "round": 4,
+      "turn": 26,
+      "actor_id": "world-maintainer",
+      "role": "world-maintainer",
+      "summary": "第4章维护县城公安系统、时代环境和穿越异常的一致性。"
+    },
+    {
+      "round": 4,
+      "turn": 27,
+      "actor_id": "kp",
+      "role": "kp",
+      "summary": "第4章KP按导入叙事规则裁定行动后果。"
+    },
+    {
+      "round": 4,
+      "turn": 28,
+      "actor_id": "project-auditor",
+      "role": "project-auditor",
+      "summary": "第4章审核不得偏离叶小伟与已导入前十章事实。"
+    },
+    {
+      "round": 5,
+      "turn": 29,
+      "actor_id": "entity",
+      "role": "character",
+      "summary": "第5章：王依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 5,
+      "turn": 30,
+      "actor_id": "jiu-jiu",
+      "role": "character",
+      "summary": "第5章：舅舅依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 5,
+      "turn": 31,
+      "actor_id": "lao-zhang",
+      "role": "character",
+      "summary": "第5章：老张依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 5,
+      "turn": 32,
+      "actor_id": "random-event",
+      "role": "random-event",
+      "summary": "第5章随机事件基于公安局、装备科、穿越异常推进。"
+    },
+    {
+      "round": 5,
+      "turn": 33,
+      "actor_id": "world-maintainer",
+      "role": "world-maintainer",
+      "summary": "第5章维护县城公安系统、时代环境和穿越异常的一致性。"
+    },
+    {
+      "round": 5,
+      "turn": 34,
+      "actor_id": "kp",
+      "role": "kp",
+      "summary": "第5章KP按导入叙事规则裁定行动后果。"
+    },
+    {
+      "round": 5,
+      "turn": 35,
+      "actor_id": "project-auditor",
+      "role": "project-auditor",
+      "summary": "第5章审核不得偏离叶小伟与已导入前十章事实。"
+    },
+    {
+      "round": 6,
+      "turn": 36,
+      "actor_id": "entity",
+      "role": "character",
+      "summary": "第6章：王依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 6,
+      "turn": 37,
+      "actor_id": "jiu-jiu",
+      "role": "character",
+      "summary": "第6章：舅舅依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 6,
+      "turn": 38,
+      "actor_id": "lao-zhang",
+      "role": "character",
+      "summary": "第6章：老张依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 6,
+      "turn": 39,
+      "actor_id": "random-event",
+      "role": "random-event",
+      "summary": "第6章随机事件基于公安局、装备科、穿越异常推进。"
+    },
+    {
+      "round": 6,
+      "turn": 40,
+      "actor_id": "world-maintainer",
+      "role": "world-maintainer",
+      "summary": "第6章维护县城公安系统、时代环境和穿越异常的一致性。"
+    },
+    {
+      "round": 6,
+      "turn": 41,
+      "actor_id": "kp",
+      "role": "kp",
+      "summary": "第6章KP按导入叙事规则裁定行动后果。"
+    },
+    {
+      "round": 6,
+      "turn": 42,
+      "actor_id": "project-auditor",
+      "role": "project-auditor",
+      "summary": "第6章审核不得偏离叶小伟与已导入前十章事实。"
+    },
+    {
+      "round": 7,
+      "turn": 43,
+      "actor_id": "entity",
+      "role": "character",
+      "summary": "第7章：王依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 7,
+      "turn": 44,
+      "actor_id": "jiu-jiu",
+      "role": "character",
+      "summary": "第7章：舅舅依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 7,
+      "turn": 45,
+      "actor_id": "lao-zhang",
+      "role": "character",
+      "summary": "第7章：老张依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 7,
+      "turn": 46,
+      "actor_id": "random-event",
+      "role": "random-event",
+      "summary": "第7章随机事件基于公安局、装备科、穿越异常推进。"
+    },
+    {
+      "round": 7,
+      "turn": 47,
+      "actor_id": "world-maintainer",
+      "role": "world-maintainer",
+      "summary": "第7章维护县城公安系统、时代环境和穿越异常的一致性。"
+    },
+    {
+      "round": 7,
+      "turn": 48,
+      "actor_id": "kp",
+      "role": "kp",
+      "summary": "第7章KP按导入叙事规则裁定行动后果。"
+    },
+    {
+      "round": 7,
+      "turn": 49,
+      "actor_id": "project-auditor",
+      "role": "project-auditor",
+      "summary": "第7章审核不得偏离叶小伟与已导入前十章事实。"
+    },
+    {
+      "round": 8,
+      "turn": 50,
+      "actor_id": "entity",
+      "role": "character",
+      "summary": "第8章：王依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 8,
+      "turn": 51,
+      "actor_id": "jiu-jiu",
+      "role": "character",
+      "summary": "第8章：舅舅依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 8,
+      "turn": 52,
+      "actor_id": "lao-zhang",
+      "role": "character",
+      "summary": "第8章：老张依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 8,
+      "turn": 53,
+      "actor_id": "random-event",
+      "role": "random-event",
+      "summary": "第8章随机事件基于公安局、装备科、穿越异常推进。"
+    },
+    {
+      "round": 8,
+      "turn": 54,
+      "actor_id": "world-maintainer",
+      "role": "world-maintainer",
+      "summary": "第8章维护县城公安系统、时代环境和穿越异常的一致性。"
+    },
+    {
+      "round": 8,
+      "turn": 55,
+      "actor_id": "kp",
+      "role": "kp",
+      "summary": "第8章KP按导入叙事规则裁定行动后果。"
+    },
+    {
+      "round": 8,
+      "turn": 56,
+      "actor_id": "project-auditor",
+      "role": "project-auditor",
+      "summary": "第8章审核不得偏离叶小伟与已导入前十章事实。"
+    },
+    {
+      "round": 9,
+      "turn": 57,
+      "actor_id": "entity",
+      "role": "character",
+      "summary": "第9章：王依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 9,
+      "turn": 58,
+      "actor_id": "jiu-jiu",
+      "role": "character",
+      "summary": "第9章：舅舅依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 9,
+      "turn": 59,
+      "actor_id": "lao-zhang",
+      "role": "character",
+      "summary": "第9章：老张依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 9,
+      "turn": 60,
+      "actor_id": "random-event",
+      "role": "random-event",
+      "summary": "第9章随机事件基于公安局、装备科、穿越异常推进。"
+    },
+    {
+      "round": 9,
+      "turn": 61,
+      "actor_id": "world-maintainer",
+      "role": "world-maintainer",
+      "summary": "第9章维护县城公安系统、时代环境和穿越异常的一致性。"
+    },
+    {
+      "round": 9,
+      "turn": 62,
+      "actor_id": "kp",
+      "role": "kp",
+      "summary": "第9章KP按导入叙事规则裁定行动后果。"
+    },
+    {
+      "round": 9,
+      "turn": 63,
+      "actor_id": "project-auditor",
+      "role": "project-auditor",
+      "summary": "第9章审核不得偏离叶小伟与已导入前十章事实。"
+    },
+    {
+      "round": 10,
+      "turn": 64,
+      "actor_id": "entity",
+      "role": "character",
+      "summary": "第10章：王依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 10,
+      "turn": 65,
+      "actor_id": "jiu-jiu",
+      "role": "character",
+      "summary": "第10章：舅舅依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 10,
+      "turn": 66,
+      "actor_id": "lao-zhang",
+      "role": "character",
+      "summary": "第10章：老张依据已导入章节记忆行动，保持人物动机并推进局势。"
+    },
+    {
+      "round": 10,
+      "turn": 67,
+      "actor_id": "random-event",
+      "role": "random-event",
+      "summary": "第10章随机事件基于公安局、装备科、穿越异常推进。"
+    },
+    {
+      "round": 10,
+      "turn": 68,
+      "actor_id": "world-maintainer",
+      "role": "world-maintainer",
+      "summary": "第10章维护县城公安系统、时代环境和穿越异常的一致性。"
+    },
+    {
+      "round": 10,
+      "turn": 69,
+      "actor_id": "kp",
+      "role": "kp",
+      "summary": "第10章KP按导入叙事规则裁定行动后果。"
+    },
+    {
+      "round": 10,
+      "turn": 70,
+      "actor_id": "project-auditor",
+      "role": "project-auditor",
+      "summary": "第10章审核不得偏离叶小伟与已导入前十章事实。"
+    }
+  ]
+}

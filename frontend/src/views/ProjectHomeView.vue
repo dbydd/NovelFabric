@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { createProject, loadProjects, syncProjectsFromBackend, type NovelProject } from '../lib/workspace'
+import { createProject, deleteProject, loadProjects, syncProjectsFromBackend, type NovelProject } from '../lib/workspace'
 
 const router = useRouter()
 const projects = ref<NovelProject[]>(loadProjects())
@@ -12,6 +12,11 @@ const hasProjects = computed(() => projects.value.length > 0)
 onMounted(async () => {
   projects.value = await syncProjectsFromBackend()
 })
+
+async function removeProject(slug: string) {
+  await deleteProject(slug)
+  projects.value = await syncProjectsFromBackend()
+}
 
 async function submitProject() {
   const project = await createProject(title.value || '未命名小说项目', description.value || '文本优先的 NovelFabric 项目')
@@ -59,7 +64,7 @@ async function submitProject() {
             <div><dt>记忆</dt><dd>{{ project.memory.length }}</dd></div>
             <div><dt>章节</dt><dd>{{ project.chapters.length }}</dd></div>
           </dl>
-          <button class="nf-button secondary" type="button" @click="router.push(`/project/${project.slug}/simulation`)" :data-testid="`open-${project.slug}`">打开工作区</button>
+          <div class="project-actions"><button class="nf-button secondary" type="button" @click="router.push(`/project/${project.slug}/simulation`)" :data-testid="`open-${project.slug}`">打开工作区</button><button class="nf-button danger" type="button" @click="removeProject(project.slug)" :data-testid="`delete-${project.slug}`">删除项目</button></div>
         </article>
       </div>
     </section>
@@ -77,6 +82,7 @@ h1 { margin: 0; font-size: clamp(32px, 5vw, 56px); line-height: 1.05; max-width:
 .project-card { border: 1px solid var(--nf-border); border-radius: var(--nf-radius); padding: var(--nf-space-4); background: #fff; display: grid; gap: var(--nf-space-3); }
 .project-card h2 { margin: 0; }
 .project-card p { margin: 0; color: var(--nf-muted); }
+.project-actions { display: flex; gap: var(--nf-space-2); flex-wrap: wrap; }
 dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
 dt { color: var(--nf-muted); font-size: 12px; font-weight: 800; }
 dd { margin: 0; font-weight: 900; }

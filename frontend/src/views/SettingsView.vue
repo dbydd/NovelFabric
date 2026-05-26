@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { ensureProject, getAgent, importNovelText, saveCard, updateAgent, type AgentAssetRecord, type AgentAssetSummary, type CardKind, type NovelProject } from '../lib/workspace'
+import { deleteAgentSkill, deleteCard, ensureProject, getAgent, getLlmSettings, importNovelText, saveAgentSkill, saveCard, saveLlmSettings, updateAgent, type AgentAssetRecord, type AgentAssetSummary, type CardKind, type LlmSettings, type NovelProject } from '../lib/workspace'
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug))
@@ -18,6 +18,13 @@ const selectedAgent = ref<AgentAssetRecord | undefined>(undefined)
 const agentSoul = ref('')
 const agentMemory = ref('')
 const agents = computed<AgentAssetSummary[]>(() => project.value?.agents ?? [])
+const llmProvider = ref('axonhub')
+const llmBaseUrl = ref('http://localhost:3000/v1')
+const llmApiKey = ref('')
+const llmModel = ref('generic-writer')
+const llmApiStyle = ref<LlmSettings['api_style']>('OpenAiChatCompletions')
+const skillFileName = ref('character-decision.md')
+const skillBody = ref('# character-decision\n')
 
 onMounted(async () => {
   project.value = await ensureProject(slug.value)
@@ -25,6 +32,14 @@ onMounted(async () => {
   if (firstCard) selectCard(firstCard.id)
   const firstAgent = project.value?.agents?.[0]
   if (firstAgent) await selectAgent(firstAgent.agentId)
+  const llm = await getLlmSettings()
+  if (llm) {
+    llmProvider.value = llm.provider
+    llmBaseUrl.value = llm.base_url
+    llmApiKey.value = llm.api_key
+    llmModel.value = llm.model
+    llmApiStyle.value = llm.api_style
+  }
 })
 
 function selectCard(id: string) {
@@ -33,6 +48,14 @@ function selectCard(id: string) {
   selectedCardId.value = id
   cardTitle.value = card.title
   cardBody.value = card.body
+}
+
+async function removeCurrentCard() {
+  if (!project.value || !selectedCard.value) return
+  await deleteCard(project.value.slug, selectedCard.value)
+  project.value = await ensureProject(project.value.slug)
+  selectedCardId.value = project.value?.cards.find((card) => card.kind === activeCardKind.value)?.id ?? ''
+  if (selectedCardId.value) selectCard(selectedCardId.value)
 }
 
 async function saveCurrentCard() {
@@ -52,6 +75,22 @@ async function selectAgent(agentId: string) {
 async function saveAgentAsset() {
   if (!project.value || !selectedAgent.value) return
   selectedAgent.value = await updateAgent(project.value.slug, selectedAgent.value.agentId, { soul: agentSoul.value, memory: agentMemory.value })
+  project.value = await ensureProject(project.value.slug)
+}
+
+async function saveLlmConfig() {
+  await saveLlmSettings({ provider: llmProvider.value, base_url: llmBaseUrl.value, api_key: llmApiKey.value, model: llmModel.value, api_style: llmApiStyle.value })
+}
+
+async function saveSkill() {
+  if (!project.value || !selectedAgent.value) return
+  selectedAgent.value = await saveAgentSkill(project.value.slug, selectedAgent.value.agentId, skillFileName.value, skillBody.value)
+  project.value = await ensureProject(project.value.slug)
+}
+
+async function removeSkill(fileName: string) {
+  if (!project.value || !selectedAgent.value) return
+  selectedAgent.value = await deleteAgentSkill(project.value.slug, selectedAgent.value.agentId, fileName)
   project.value = await ensureProject(project.value.slug)
 }
 
@@ -79,7 +118,7 @@ async function handleImport(event: Event) {
           <span class="nf-help">导入后写入后端文本资源，项目创建与拆书保持两步走。</span>
         </label>
         <p v-if="importStatus" class="import-status" data-testid="import-status">{{ importStatus }}</p>
-        <article v-if="project.importReport" class="import-report" data-testid="import-report"><strong>Import Report</strong><p>{{ project.importReport.sourceName }} · {{ project.importReport.chapterCount }} chapters</p><pre>{{ project.importReport.preview }}</pre></article>
+        <article v-if="project.importReport" class="import-report" data-testid="import-report"><strong>Import Report</strong><p>{{ project.importReport.sourceName }} · {{ project.importReport.chapterCount }} chapters</p><pre>{{ project.importReport.preview }}</pre></article><section class="llm-config nf-form" data-testid="llm-config-panel"><h2>LLM API 配置</h2><label class="nf-label">Provider<input v-model="llmProvider" class="nf-input" data-testid="llm-provider-input" /></label><label class="nf-label">Base URL<input v-model="llmBaseUrl" class="nf-input" data-testid="llm-base-url-input" /></label><label class="nf-label">API Key<input v-model="llmApiKey" class="nf-input" type="password" data-testid="llm-api-key-input" /></label><label class="nf-label">Model<input v-model="llmModel" class="nf-input" data-testid="llm-model-input" /></label><label class="nf-label">API Style<select v-model="llmApiStyle" class="nf-input" data-testid="llm-api-style-select"><option value="OpenAiChatCompletions">pi-agent / OpenAI chat</option><option value="OpenAiResponses">OpenAI responses</option><option value="AnthropicMessages">Anthropic messages</option></select></label><button class="nf-button accent" type="button" @click="saveLlmConfig" data-testid="save-llm-button">保存 LLM 配置到本地文件</button></section>
       </div>
     </aside>
     <main class="card-editor nf-panel" data-testid="card-editor">
@@ -92,7 +131,7 @@ async function handleImport(event: Event) {
         <section class="nf-form card-form">
           <label class="nf-label">标题<input v-model="cardTitle" class="nf-input" data-testid="card-title-input" /></label>
           <label class="nf-label">正文<textarea v-model="cardBody" class="nf-textarea card-body" data-testid="card-body-input"></textarea></label>
-          <button class="nf-button accent" type="button" @click="saveCurrentCard" data-testid="save-card-button">保存卡片</button>
+          <div class="editor-actions"><button class="nf-button accent" type="button" @click="saveCurrentCard" data-testid="save-card-button">保存卡片</button><button class="nf-button danger" type="button" @click="removeCurrentCard" data-testid="delete-card-button">删除卡片</button></div>
         </section>
       </div>
     </main>
@@ -108,7 +147,7 @@ async function handleImport(event: Event) {
         </div>
         <div v-if="selectedAgent" class="agent-editor" data-testid="agent-editor">
           <label class="nf-label">soul.md<textarea v-model="agentSoul" class="nf-textarea agent-textarea" data-testid="agent-soul-input"></textarea></label>
-          <label class="nf-label">memory.md<textarea v-model="agentMemory" class="nf-textarea agent-textarea" data-testid="agent-memory-input"></textarea></label>
+          <label class="nf-label">memory.md<textarea v-model="agentMemory" class="nf-textarea agent-textarea" data-testid="agent-memory-input"></textarea></label><section class="skill-manager" data-testid="skill-manager"><strong>skills</strong><button v-for="skill in selectedAgent.skills" :key="skill" class="nf-button danger" type="button" @click="removeSkill(skill)" data-testid="delete-skill-button">删除 {{ skill }}</button><label class="nf-label">skill 文件名<input v-model="skillFileName" class="nf-input" data-testid="skill-file-input" /></label><textarea v-model="skillBody" class="nf-textarea agent-textarea" data-testid="skill-body-input"></textarea><button class="nf-button secondary" type="button" @click="saveSkill" data-testid="save-skill-button">保存 skill</button></section>
           <button class="nf-button accent" type="button" @click="saveAgentAsset" data-testid="save-agent-button">保存 Agent 资产</button>
         </div>
         <p v-else class="nf-empty">暂无 Agent 资产</p>
@@ -141,6 +180,8 @@ dt { color: var(--nf-muted); font-size: 12px; font-weight: 800; } dd { margin: 0
 .agent-card.active { border-left: 4px solid var(--nf-primary); background: var(--nf-panel-muted); }
 .agent-card small { color: var(--nf-muted); }
 .agent-editor { display: grid; gap: var(--nf-space-3); }
+.editor-actions { display: flex; gap: var(--nf-space-2); flex-wrap: wrap; }
+.skill-manager, .llm-config { display: grid; gap: var(--nf-space-2); border: 1px solid var(--nf-border); border-radius: 6px; padding: var(--nf-space-3); background: var(--nf-panel-muted); }
 .agent-textarea { min-height: 150px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 @media (max-width: 1150px) { .settings-view { grid-template-columns: 1fr; } .card-grid { grid-template-columns: 1fr; } }
 </style>
