@@ -11,8 +11,8 @@ use thiserror::Error;
 
 use crate::{
     cards::{CardError, CardKind, CardRecord, CardService, CreateCardRequest},
-    config::LlmSettingsService,
-    llm::{ChatMessage, LlmConfig, complete_chat},
+    config::LlmConfigService,
+    llm::{ChatMessage, complete_chat},
     memory::{CreateMemoryEntryRequest, MemoryError, MemoryScope, MemoryService},
     storage::{Storage, StorageError, validate_segment},
     timeline::{CreateTimepointRequest, TimelineError, TimelineService},
@@ -325,17 +325,11 @@ impl ImportService {
         normalized_text: &str,
         chapters: &[SplitChapter],
     ) -> Option<SemanticAssets> {
-        let settings = LlmSettingsService::new(Arc::clone(&self.storage))
-            .load()
+        let config = LlmConfigService::new(Arc::clone(&self.storage))
+            .load_resolved("import")
             .await
             .ok()
             .flatten()?;
-        let config = LlmConfig {
-            base_url: settings.base_url,
-            api_key: settings.api_key,
-            model: settings.model,
-            api_style: settings.api_style,
-        };
         let prompt = build_semantic_extraction_prompt(normalized_text, chapters);
         let response = complete_chat(
             &config,
@@ -1278,6 +1272,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::too_many_lines)]
     async fn import_uses_persisted_llm_settings_for_semantic_extraction_when_available() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -1337,16 +1332,27 @@ mod tests {
         let storage = Arc::new(Storage::new(temp.path().to_path_buf()));
         let projects = ProjectService::new(Arc::clone(&storage));
         let imports = ImportService::new(Arc::clone(&storage));
-        crate::config::LlmSettingsService::new(Arc::clone(&storage))
-            .save(crate::config::LlmSettings {
+        let llm_config = crate::config::LlmConfigService::new(Arc::clone(&storage));
+        llm_config
+            .save_endpoint(crate::config::LlmEndpointConfig {
                 provider: "mock".to_string(),
                 base_url: format!("http://{address}/v1"),
                 api_key: "test-key".to_string(),
-                model: "generic-writer".to_string(),
                 api_style: crate::llm::LlmApiStyle::OpenAiChatCompletions,
             })
             .await
-            .expect("llm config should save");
+            .expect("llm endpoint should save");
+        llm_config
+            .save_role(
+                "default",
+                crate::config::LlmRoleConfig {
+                    role_id: "default".to_string(),
+                    model: "generic-writer".to_string(),
+                    api_style: None,
+                },
+            )
+            .await
+            .expect("llm role should save");
 
         projects
             .create(CreateProjectRequest {

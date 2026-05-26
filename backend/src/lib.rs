@@ -45,7 +45,9 @@ use crate::{
         UpsertAgentSkillRequest,
     },
     cards::{CardKind, CardRecord, CardService, CreateCardRequest, UpdateCardRequest},
-    config::{LlmSettings, LlmSettingsError, LlmSettingsService},
+    config::{
+        LlmConfigService, LlmEndpointConfig, LlmRoleConfig, LlmRolesConfig, LlmSettingsError,
+    },
     import::{ImportRecord, ImportService, ImportTxtRequest},
     memory::{
         CreateMemoryEntryRequest, MemoryEntry, MemoryEntrySummary, MemoryScope, MemoryService,
@@ -310,8 +312,19 @@ pub fn app(config: ApplicationConfig) -> Router {
             post(create_interview_handler),
         )
         .route(
+            "/api/config/llm-endpoint",
+            get(get_llm_endpoint_handler).put(put_llm_endpoint_handler),
+        )
+        .route(
             "/api/config/llm-settings",
-            get(get_llm_settings_handler).put(put_llm_settings_handler),
+            get(get_llm_endpoint_handler).put(put_llm_endpoint_handler),
+        )
+        .route("/api/config/llm-roles", get(list_llm_roles_handler))
+        .route(
+            "/api/config/llm-roles/{role_id}",
+            get(get_llm_role_handler)
+                .put(put_llm_role_handler)
+                .delete(delete_llm_role_handler),
         )
         .route("/api/projects/{slug}/reports", get(list_reports_handler))
         .route(
@@ -390,28 +403,88 @@ async fn shutdown_signal() {
     tracing::info!("shutdown signal received");
 }
 
-async fn get_llm_settings_handler(
+async fn get_llm_endpoint_handler(
     State(state): State<AppState>,
-) -> Result<Json<LlmSettings>, AppError> {
-    let service = LlmSettingsService::new(Arc::clone(&state.storage));
-    match service.load().await {
-        Ok(Some(settings)) => Ok(Json(settings)),
+) -> Result<Json<LlmEndpointConfig>, AppError> {
+    let service = LlmConfigService::new(Arc::clone(&state.storage));
+    match service.load_endpoint().await {
+        Ok(Some(endpoint)) => Ok(Json(endpoint)),
         Ok(None) => Err(AppError::NotFound),
-        Err(LlmSettingsError::Storage(_)) => Err(AppError::Internal),
-        Err(LlmSettingsError::Invalid(_)) => unreachable!(),
+        Err(LlmSettingsError::Storage(_) | LlmSettingsError::Invalid(_)) => Err(AppError::Internal),
     }
 }
 
-async fn put_llm_settings_handler(
+async fn put_llm_endpoint_handler(
     State(state): State<AppState>,
-    Json(body): Json<LlmSettings>,
-) -> Result<Json<LlmSettings>, AppError> {
-    let service = LlmSettingsService::new(Arc::clone(&state.storage));
-    let saved = service.save(body).await.map_err(|error| match error {
-        LlmSettingsError::Invalid(msg) => AppError::BadRequest(msg),
-        LlmSettingsError::Storage(_) => AppError::Internal,
-    })?;
+    Json(body): Json<LlmEndpointConfig>,
+) -> Result<Json<LlmEndpointConfig>, AppError> {
+    let service = LlmConfigService::new(Arc::clone(&state.storage));
+    let saved = service
+        .save_endpoint(body)
+        .await
+        .map_err(|error| match error {
+            LlmSettingsError::Invalid(msg) => AppError::BadRequest(msg),
+            LlmSettingsError::Storage(_) => AppError::Internal,
+        })?;
     Ok(Json(saved))
+}
+
+async fn list_llm_roles_handler(
+    State(state): State<AppState>,
+) -> Result<Json<LlmRolesConfig>, AppError> {
+    let service = LlmConfigService::new(Arc::clone(&state.storage));
+    service
+        .load_roles()
+        .await
+        .map(Json)
+        .map_err(|error| match error {
+            LlmSettingsError::Invalid(msg) => AppError::BadRequest(msg),
+            LlmSettingsError::Storage(_) => AppError::Internal,
+        })
+}
+
+async fn get_llm_role_handler(
+    State(state): State<AppState>,
+    AxumPath(role_id): AxumPath<String>,
+) -> Result<Json<LlmRoleConfig>, AppError> {
+    let service = LlmConfigService::new(Arc::clone(&state.storage));
+    match service.load_role(&role_id).await {
+        Ok(Some(role)) => Ok(Json(role)),
+        Ok(None) => Err(AppError::NotFound),
+        Err(LlmSettingsError::Invalid(msg)) => Err(AppError::BadRequest(msg)),
+        Err(LlmSettingsError::Storage(_)) => Err(AppError::Internal),
+    }
+}
+
+async fn put_llm_role_handler(
+    State(state): State<AppState>,
+    AxumPath(role_id): AxumPath<String>,
+    Json(body): Json<LlmRoleConfig>,
+) -> Result<Json<LlmRoleConfig>, AppError> {
+    let service = LlmConfigService::new(Arc::clone(&state.storage));
+    service
+        .save_role(&role_id, body)
+        .await
+        .map(Json)
+        .map_err(|error| match error {
+            LlmSettingsError::Invalid(msg) => AppError::BadRequest(msg),
+            LlmSettingsError::Storage(_) => AppError::Internal,
+        })
+}
+
+async fn delete_llm_role_handler(
+    State(state): State<AppState>,
+    AxumPath(role_id): AxumPath<String>,
+) -> Result<StatusCode, AppError> {
+    let service = LlmConfigService::new(Arc::clone(&state.storage));
+    service
+        .delete_role(&role_id)
+        .await
+        .map_err(|error| match error {
+            LlmSettingsError::Invalid(msg) => AppError::BadRequest(msg),
+            LlmSettingsError::Storage(_) => AppError::Internal,
+        })?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn health_handler(State(state): State<AppState>) -> Result<Json<HealthPayload>, AppError> {

@@ -95,12 +95,25 @@ export interface AgentAssetRecord extends AgentAssetSummary {
 }
 
 export type LlmApiStyle = 'OpenAiResponses' | 'OpenAiChatCompletions' | 'AnthropicMessages'
-export interface LlmSettings {
+export interface LlmEndpointConfig {
   provider: string
   base_url: string
   api_key: string
-  model: string
   api_style: LlmApiStyle
+}
+
+export interface LlmRoleConfig {
+  role_id: string
+  model: string
+  api_style?: LlmApiStyle | null
+}
+
+export interface LlmRolesConfig {
+  roles: LlmRoleConfig[]
+}
+
+export interface LlmSettings extends LlmEndpointConfig {
+  model?: string
 }
 
 export interface ReviewNote {
@@ -867,16 +880,55 @@ export async function deleteAgentSkill(projectSlug: string, agentId: string, fil
   return toAgentRecord(agent)
 }
 
+export async function getLlmEndpoint(): Promise<LlmEndpointConfig | undefined> {
+  try { return await fetchJson<LlmEndpointConfig>('/api/config/llm-endpoint') } catch { return undefined }
+}
+
+export async function saveLlmEndpoint(endpoint: LlmEndpointConfig): Promise<LlmEndpointConfig> {
+  return fetchJson<LlmEndpointConfig>('/api/config/llm-endpoint', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(endpoint),
+  })
+}
+
+export async function listLlmRoles(): Promise<LlmRoleConfig[]> {
+  const output = await fetchJson<LlmRolesConfig>('/api/config/llm-roles')
+  return output.roles
+}
+
+export async function getLlmRole(roleId: string): Promise<LlmRoleConfig | undefined> {
+  try { return await fetchJson<LlmRoleConfig>(`/api/config/llm-roles/${encodeURIComponent(roleId)}`) } catch { return undefined }
+}
+
+export async function saveLlmRole(role: LlmRoleConfig): Promise<LlmRoleConfig> {
+  return fetchJson<LlmRoleConfig>(`/api/config/llm-roles/${encodeURIComponent(role.role_id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(role),
+  })
+}
+
+export async function deleteLlmRole(roleId: string): Promise<void> {
+  await fetchJson(`/api/config/llm-roles/${encodeURIComponent(roleId)}`, { method: 'DELETE' })
+}
+
 export async function getLlmSettings(): Promise<LlmSettings | undefined> {
-  try { return await fetchJson<LlmSettings>('/api/config/llm-settings') } catch { return undefined }
+  const endpoint = await getLlmEndpoint()
+  if (!endpoint) return undefined
+  const defaultRole = await getLlmRole('default')
+  return { ...endpoint, model: defaultRole?.model }
 }
 
 export async function saveLlmSettings(settings: LlmSettings): Promise<LlmSettings> {
-  return fetchJson<LlmSettings>('/api/config/llm-settings', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settings),
+  const endpoint = await saveLlmEndpoint({
+    provider: settings.provider,
+    base_url: settings.base_url,
+    api_key: settings.api_key,
+    api_style: settings.api_style,
   })
+  const role = settings.model ? await saveLlmRole({ role_id: 'default', model: settings.model, api_style: null }) : await getLlmRole('default')
+  return { ...endpoint, model: role?.model }
 }
 
 export async function saveSimulationResult(project: NovelProject, fileName = 'testresult.txt'): Promise<void> {
@@ -1090,6 +1142,11 @@ export async function rebuildStoryGraph(projectSlug: string): Promise<StoryGraph
 export async function listStoryGraphNodes(projectSlug: string): Promise<StoryGraphNode[]> {
   const nodes = await fetchJson<BackendStoryGraphNode[]>(`/api/projects/${encodeURIComponent(projectSlug)}/knowledge/graph/nodes`)
   return nodes.map(toStoryGraphNode)
+}
+
+export async function listStoryGraphEdges(projectSlug: string): Promise<StoryGraphEdge[]> {
+  const edges = await fetchJson<BackendStoryGraphEdge[]>(`/api/projects/${encodeURIComponent(projectSlug)}/knowledge/graph/edges`)
+  return edges.map(toStoryGraphEdge)
 }
 
 export async function listStoryGraphEpisodes(projectSlug: string): Promise<StoryGraphEpisode[]> {

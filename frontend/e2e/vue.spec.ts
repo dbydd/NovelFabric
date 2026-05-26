@@ -163,6 +163,10 @@ test('knowledge simulation report and interview flow works in browser acceptance
     await route.fulfill({ json: [{ id: 'character:aria', name: 'Aria', labels: ['Character'], summary: 'Protects the vault', source_paths: ['cards/characters/aria.md'] }] })
   })
 
+  await page.route('**/api/projects/alpha-project/knowledge/graph/edges', async (route) => {
+    await route.fulfill({ json: [{ id: 'edge:1', source: 'character:aria', target: 'chapter:chapter-001', relation: 'MENTIONED_IN', fact: 'Aria is mentioned in chapter', valid_at: null, invalid_at: null, source_path: 'writing/chapters/chapter-001.md' }] })
+  })
+
   await page.route('**/api/projects/alpha-project/knowledge/graph/episodes', async (route) => {
     await route.fulfill({ json: [{ id: 'episode:1', timeline: 'main', timepoint: '0001', source_path: 'simulation/logs/session-main.md', summary: 'Aria protects the vault gate.' }] })
   })

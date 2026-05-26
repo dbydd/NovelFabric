@@ -96,7 +96,7 @@ impl StoryGraphService {
         ensure_knowledge_dirs(self.storage.as_ref(), project_slug).await?;
 
         let mut nodes: Vec<StoryGraphNode> = Vec::new();
-        let edges: Vec<StoryGraphEdge> = Vec::new();
+        let mut edges: Vec<StoryGraphEdge> = Vec::new();
         let mut episodes: Vec<StoryGraphEpisode> = Vec::new();
         let mut chunks: Vec<StoryGraphChunk> = Vec::new();
 
@@ -114,6 +114,7 @@ impl StoryGraphService {
             .await?;
         self.collect_timepoint_episodes(project_slug, &mut episodes)
             .await?;
+        build_derived_edges(&nodes, &episodes, &chunks, &mut edges);
 
         let manifest = StoryGraphManifest {
             node_count: nodes.len(),
@@ -372,6 +373,66 @@ impl StoryGraphService {
             });
         }
         Ok(())
+    }
+}
+
+fn build_derived_edges(
+    nodes: &[StoryGraphNode],
+    episodes: &[StoryGraphEpisode],
+    chunks: &[StoryGraphChunk],
+    edges: &mut Vec<StoryGraphEdge>,
+) {
+    let entity_nodes: Vec<_> = nodes
+        .iter()
+        .filter(|node| !node.labels.iter().any(|label| label == "Chapter"))
+        .collect();
+    let mut edge_index = 1_usize;
+
+    for chunk in chunks {
+        let lowered = chunk.text.to_lowercase();
+        let target = chunk
+            .id
+            .strip_prefix("chunk:")
+            .and_then(|value| value.strip_suffix(":0"))
+            .map(|stem| format!("chapter:{stem}"));
+        let Some(target) = target else { continue };
+        for node in &entity_nodes {
+            if lowered.contains(&node.name.to_lowercase()) {
+                edges.push(StoryGraphEdge {
+                    id: format!("edge:{edge_index:04}"),
+                    source: node.id.clone(),
+                    target: target.clone(),
+                    relation: "MENTIONED_IN".to_string(),
+                    fact: format!("{} is mentioned in {}", node.name, chunk.source_path),
+                    valid_at: None,
+                    invalid_at: None,
+                    source_path: chunk.source_path.clone(),
+                });
+                edge_index += 1;
+            }
+        }
+    }
+
+    for episode in episodes {
+        let lowered = episode.summary.to_lowercase();
+        for node in &entity_nodes {
+            if lowered.contains(&node.name.to_lowercase()) {
+                edges.push(StoryGraphEdge {
+                    id: format!("edge:{edge_index:04}"),
+                    source: node.id.clone(),
+                    target: node.id.clone(),
+                    relation: "VALID_IN_TIMELINE".to_string(),
+                    fact: format!(
+                        "{} appears in {} / {}",
+                        node.name, episode.timeline, episode.timepoint
+                    ),
+                    valid_at: Some(format!("{}/{}", episode.timeline, episode.timepoint)),
+                    invalid_at: None,
+                    source_path: episode.source_path.clone(),
+                });
+                edge_index += 1;
+            }
+        }
     }
 }
 
@@ -638,6 +699,7 @@ mod tests {
             .expect("rebuild should succeed");
 
         assert!(output.node_count >= 2);
+        assert!(output.edge_count >= 1);
         assert!(output.episode_count >= 3);
 
         let nodes = storage

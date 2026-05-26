@@ -19,18 +19,41 @@ const CONFIG_FILE_NAME: &str = "config.toml";
 
 const CONFIG_DIR: &str = "config";
 const LLM_CONFIG_FILE: &str = "llm.json";
+const LLM_ROLES_CONFIG_FILE: &str = "roles.json";
+const DEFAULT_ROLE_ID: &str = "default";
+const DEFAULT_LLM_MODEL: &str = "gpt-4o-mini";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct LlmSettings {
+pub struct LlmEndpointConfig {
     pub provider: String,
     pub base_url: String,
     pub api_key: String,
-    pub model: String,
     pub api_style: LlmApiStyle,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LlmRoleConfig {
+    pub role_id: String,
+    pub model: String,
+    pub api_style: Option<LlmApiStyle>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct LlmRolesConfig {
+    pub roles: Vec<LlmRoleConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct LegacyLlmSettings {
+    provider: String,
+    base_url: String,
+    api_key: String,
+    model: Option<String>,
+    api_style: LlmApiStyle,
+}
+
 #[derive(Debug, Clone)]
-pub struct LlmSettingsService {
+pub struct LlmConfigService {
     storage: Arc<Storage>,
 }
 
@@ -42,50 +65,185 @@ pub enum LlmSettingsError {
     Storage(#[from] StorageError),
 }
 
-impl LlmSettingsService {
+impl LlmConfigService {
     #[must_use]
     pub const fn new(storage: Arc<Storage>) -> Self {
         Self { storage }
     }
 
-    pub async fn load(&self) -> Result<Option<LlmSettings>, LlmSettingsError> {
-        let path = llm_settings_path();
+    pub async fn load_endpoint(&self) -> Result<Option<LlmEndpointConfig>, LlmSettingsError> {
+        let path = llm_endpoint_path();
         if !self.storage.exists(&path).await? {
             return Ok(None);
         }
         let text = self.storage.read_text(&path).await?;
-        Ok(Some(
-            serde_json::from_str(&text).map_err(StorageError::Json)?,
-        ))
+        let legacy =
+            serde_json::from_str::<LegacyLlmSettings>(&text).map_err(StorageError::Json)?;
+        let endpoint = LlmEndpointConfig {
+            provider: legacy.provider,
+            base_url: legacy.base_url,
+            api_key: legacy.api_key,
+            api_style: legacy.api_style,
+        };
+        validate_llm_endpoint(&endpoint)?;
+        Ok(Some(endpoint))
     }
 
-    pub async fn save(&self, settings: LlmSettings) -> Result<LlmSettings, LlmSettingsError> {
-        validate_llm_settings(&settings)?;
+    pub async fn save_endpoint(
+        &self,
+        endpoint: LlmEndpointConfig,
+    ) -> Result<LlmEndpointConfig, LlmSettingsError> {
+        validate_llm_endpoint(&endpoint)?;
         self.storage
-            .write_json(&llm_settings_path(), &settings)
+            .write_json(&llm_endpoint_path(), &endpoint)
             .await?;
-        Ok(settings)
+        Ok(endpoint)
+    }
+
+    pub async fn load_roles(&self) -> Result<LlmRolesConfig, LlmSettingsError> {
+        let path = llm_roles_path();
+        if !self.storage.exists(&path).await? {
+            return Ok(LlmRolesConfig::default());
+        }
+        let text = self.storage.read_text(&path).await?;
+        let roles = serde_json::from_str::<LlmRolesConfig>(&text).map_err(StorageError::Json)?;
+        for role in &roles.roles {
+            validate_llm_role(role)?;
+        }
+        Ok(roles)
+    }
+
+    pub async fn load_role(
+        &self,
+        role_id: &str,
+    ) -> Result<Option<LlmRoleConfig>, LlmSettingsError> {
+        let role_id = normalize_role_id(role_id)?;
+        if let Some(role) = self
+            .load_roles()
+            .await?
+            .roles
+            .into_iter()
+            .find(|role| role.role_id == role_id)
+        {
+            return Ok(Some(role));
+        }
+        if role_id == DEFAULT_ROLE_ID {
+            return Ok(Some(self.default_role_from_legacy().await?));
+        }
+        Ok(None)
+    }
+
+    pub async fn save_role(
+        &self,
+        role_id: &str,
+        mut config: LlmRoleConfig,
+    ) -> Result<LlmRoleConfig, LlmSettingsError> {
+        config.role_id = normalize_role_id(role_id)?;
+        validate_llm_role(&config)?;
+
+        let mut roles = self.load_roles().await?;
+        roles.roles.retain(|role| role.role_id != config.role_id);
+        roles.roles.push(config.clone());
+        roles
+            .roles
+            .sort_by(|left, right| left.role_id.cmp(&right.role_id));
+        self.storage.write_json(&llm_roles_path(), &roles).await?;
+        Ok(config)
+    }
+
+    pub async fn delete_role(&self, role_id: &str) -> Result<(), LlmSettingsError> {
+        let role_id = normalize_role_id(role_id)?;
+        let mut roles = self.load_roles().await?;
+        roles.roles.retain(|role| role.role_id != role_id);
+        self.storage.write_json(&llm_roles_path(), &roles).await?;
+        Ok(())
+    }
+
+    pub async fn load_resolved(
+        &self,
+        role_id: &str,
+    ) -> Result<Option<crate::llm::LlmConfig>, LlmSettingsError> {
+        let Some(endpoint) = self.load_endpoint().await? else {
+            return Ok(None);
+        };
+        let role = match self.load_role(role_id).await? {
+            Some(role) => role,
+            None => self
+                .load_role(DEFAULT_ROLE_ID)
+                .await?
+                .unwrap_or_else(default_llm_role),
+        };
+        Ok(Some(crate::llm::LlmConfig {
+            base_url: endpoint.base_url,
+            api_key: endpoint.api_key,
+            model: role.model,
+            api_style: role.api_style.unwrap_or(endpoint.api_style),
+        }))
+    }
+
+    async fn default_role_from_legacy(&self) -> Result<LlmRoleConfig, LlmSettingsError> {
+        let path = llm_endpoint_path();
+        if self.storage.exists(&path).await? {
+            let text = self.storage.read_text(&path).await?;
+            let legacy =
+                serde_json::from_str::<LegacyLlmSettings>(&text).map_err(StorageError::Json)?;
+            if let Some(model) = legacy.model.filter(|model| !model.trim().is_empty()) {
+                return Ok(LlmRoleConfig {
+                    role_id: DEFAULT_ROLE_ID.to_string(),
+                    model,
+                    api_style: None,
+                });
+            }
+        }
+        Ok(default_llm_role())
     }
 }
 
-fn validate_llm_settings(settings: &LlmSettings) -> Result<(), LlmSettingsError> {
+fn default_llm_role() -> LlmRoleConfig {
+    LlmRoleConfig {
+        role_id: DEFAULT_ROLE_ID.to_string(),
+        model: DEFAULT_LLM_MODEL.to_string(),
+        api_style: None,
+    }
+}
+
+fn validate_llm_endpoint(endpoint: &LlmEndpointConfig) -> Result<(), LlmSettingsError> {
     for (name, value) in [
-        ("provider", settings.provider.as_str()),
-        ("base_url", settings.base_url.as_str()),
-        ("model", settings.model.as_str()),
+        ("provider", endpoint.provider.as_str()),
+        ("base_url", endpoint.base_url.as_str()),
     ] {
         if value.trim().is_empty() {
             return Err(LlmSettingsError::Invalid(name.to_string()));
         }
     }
-    if !(settings.base_url.starts_with("http://") || settings.base_url.starts_with("https://")) {
+    if !(endpoint.base_url.starts_with("http://") || endpoint.base_url.starts_with("https://")) {
         return Err(LlmSettingsError::Invalid("base_url".to_string()));
     }
     Ok(())
 }
 
-fn llm_settings_path() -> PathBuf {
+fn validate_llm_role(role: &LlmRoleConfig) -> Result<(), LlmSettingsError> {
+    normalize_role_id(&role.role_id)?;
+    if role.model.trim().is_empty() {
+        return Err(LlmSettingsError::Invalid("model".to_string()));
+    }
+    Ok(())
+}
+
+fn normalize_role_id(role_id: &str) -> Result<String, LlmSettingsError> {
+    let role_id = role_id.trim();
+    if role_id.is_empty() {
+        return Err(LlmSettingsError::Invalid("role_id".to_string()));
+    }
+    Ok(role_id.to_string())
+}
+
+fn llm_endpoint_path() -> PathBuf {
     Path::new(CONFIG_DIR).join(LLM_CONFIG_FILE)
+}
+
+fn llm_roles_path() -> PathBuf {
+    Path::new(CONFIG_DIR).join(LLM_ROLES_CONFIG_FILE)
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -246,29 +404,86 @@ bind_address = "127.0.0.1:50041"
     }
 
     #[tokio::test]
-    async fn persists_frontend_llm_config_to_local_config_file() {
+    async fn persists_frontend_llm_config_to_local_config_files() {
         let temp = tempdir().expect("tempdir should exist");
         let storage = crate::storage::Storage::new(temp.path().to_path_buf());
-        let service = crate::config::LlmSettingsService::new(std::sync::Arc::new(storage));
-        let settings = crate::config::LlmSettings {
+        let service = crate::config::LlmConfigService::new(std::sync::Arc::new(storage));
+        let endpoint = crate::config::LlmEndpointConfig {
             provider: "axonhub".to_string(),
             base_url: "http://localhost:3000/v1".to_string(),
             api_key: "test-key".to_string(),
-            model: "generic-writer".to_string(),
             api_style: crate::llm::LlmApiStyle::OpenAiChatCompletions,
+        };
+        let role = crate::config::LlmRoleConfig {
+            role_id: "default".to_string(),
+            model: "generic-writer".to_string(),
+            api_style: None,
         };
 
         service
-            .save(settings.clone())
+            .save_endpoint(endpoint.clone())
             .await
-            .expect("settings save should succeed");
-        let loaded = service
-            .load()
+            .expect("endpoint save should succeed");
+        service
+            .save_role("default", role.clone())
             .await
-            .expect("settings load should succeed")
-            .expect("settings should exist");
+            .expect("role save should succeed");
+        let loaded_endpoint = service
+            .load_endpoint()
+            .await
+            .expect("endpoint load should succeed")
+            .expect("endpoint should exist");
+        let loaded_role = service
+            .load_role("default")
+            .await
+            .expect("role load should succeed")
+            .expect("role should exist");
+        let resolved = service
+            .load_resolved("import")
+            .await
+            .expect("resolved load should succeed")
+            .expect("resolved config should exist");
 
-        assert_eq!(loaded, settings);
+        assert_eq!(loaded_endpoint, endpoint);
+        assert_eq!(loaded_role, role);
+        assert_eq!(resolved.model, "generic-writer");
         assert!(temp.path().join("config/llm.json").exists());
+        assert!(temp.path().join("config/roles.json").exists());
+    }
+
+    #[tokio::test]
+    async fn loads_legacy_llm_settings_model_as_default_role() {
+        let temp = tempdir().expect("tempdir should exist");
+        let storage = crate::storage::Storage::new(temp.path().to_path_buf());
+        let service = crate::config::LlmConfigService::new(std::sync::Arc::new(storage));
+        tokio::fs::create_dir_all(temp.path().join("config"))
+            .await
+            .expect("config dir should write");
+        tokio::fs::write(
+            temp.path().join("config/llm.json"),
+            r#"{
+  "provider": "axonhub",
+  "base_url": "http://localhost:3000/v1",
+  "api_key": "test-key",
+  "model": "legacy-writer",
+  "api_style": "OpenAiChatCompletions"
+}"#,
+        )
+        .await
+        .expect("legacy settings should write");
+
+        let endpoint = service
+            .load_endpoint()
+            .await
+            .expect("endpoint load should succeed")
+            .expect("endpoint should exist");
+        let role = service
+            .load_role("default")
+            .await
+            .expect("role load should succeed")
+            .expect("role should exist");
+
+        assert_eq!(endpoint.provider, "axonhub");
+        assert_eq!(role.model, "legacy-writer");
     }
 }

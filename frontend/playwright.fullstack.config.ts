@@ -1,37 +1,17 @@
+import process from 'node:process'
 import { defineConfig, devices } from '@playwright/test'
-
-const backendPort = 50090
-const frontendPort = 5174
-const dataDir = process.env.NOVELFABRIC_E2E_DATA_DIR ?? '/tmp/novelfabric-fullstack-e2e-data'
 
 export default defineConfig({
   testDir: './e2e-fullstack',
-  timeout: 60_000,
+  timeout: 60 * 1000,
   expect: { timeout: 10_000 },
-  reporter: 'html',
+  reporter: 'line',
   use: {
-    baseURL: `http://127.0.0.1:${frontendPort}`,
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:5174',
     headless: true,
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
   },
   projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-  ],
-  webServer: [
-    {
-      command: `cargo run --manifest-path ../backend/Cargo.toml --bin novelfabric-backend -- --bind-address 127.0.0.1:${backendPort} --data-dir ${dataDir}`,
-      port: backendPort,
-      reuseExistingServer: false,
-      timeout: 30_000,
-    },
-    {
-      command: `VITE_API_BASE=http://127.0.0.1:${backendPort} npm run dev -- --host 127.0.0.1 --port ${frontendPort}`,
-      port: frontendPort,
-      reuseExistingServer: false,
-      timeout: 30_000,
-    },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
 })
