@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { advanceSimulation, createSimulationSession, ensureProject, formatSwarmActionLabel, getSwarmRound, possessCharacter, saveSimulationResult, type NovelProject, type SimulationCharacter, type SwarmTurnRecord } from '../lib/workspace'
+import { advanceSimulation, createSimulationSession, ensureProject, formatSwarmActionLabel, getSwarmRound, possessCharacter, type NovelProject, type SimulationCharacter, type SwarmTurnRecord } from '../lib/workspace'
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug))
@@ -10,6 +10,8 @@ const selectedCharacter = ref('')
 const worldState = ref('各角色处境稳定，世界观等待下一轮推演变化。')
 const userAction = ref('')
 const swarmRound = ref<SwarmTurnRecord | undefined>(undefined)
+const advanceCount = ref(10)
+const isAdvancingBatch = ref(false)
 
 onMounted(async () => {
   project.value = await ensureProject(slug.value)
@@ -25,16 +27,20 @@ async function ensureSession() {
   project.value = { ...project.value, simulation }
 }
 
-async function advanceTenChapters() {
-  for (let index = project.value?.simulation.round ?? 0; index < 10; index += 1) {
-    worldState.value = `第${index + 1}章推演：基于已导入人物、剧情、世界观与知识图谱推进，不跳过角色动机与审计。`
-    await advanceRound()
+async function advanceBatch() {
+  if (!project.value || isAdvancingBatch.value) return
+  const rounds = Math.max(1, Math.min(100, Math.trunc(Number(advanceCount.value) || 1)))
+  advanceCount.value = rounds
+  isAdvancingBatch.value = true
+  try {
+    for (let step = 0; step < rounds; step += 1) {
+      const nextRound = (project.value?.simulation.round ?? 0) + 1
+      worldState.value = `第${nextRound}轮推演：基于已导入人物、剧情、世界观与知识图谱推进，不跳过角色动机与审计。`
+      await advanceRound()
+    }
+  } finally {
+    isAdvancingBatch.value = false
   }
-}
-
-async function downloadResult() {
-  if (!project.value) return
-  await saveSimulationResult(project.value, 'testresult.txt')
 }
 
 async function advanceRound() {
@@ -147,7 +153,15 @@ const systemUpdateItems = computed(() => (swarmRound.value?.outputs ?? []).flatM
       <div class="suggestions" data-testid="suggestions">
         <button v-for="option in ['调查周围', '与角色交谈', '谨慎前进', '改变计划']" :key="option" class="nf-button secondary" type="button" @click="userAction = option">{{ option }}</button>
       </div>
-      <div class="sim-action-stack"><button class="nf-button accent" type="button" @click="advanceRound" data-testid="advance-round-button">开始 / 推进自动推演</button><button class="nf-button secondary" type="button" @click="advanceTenChapters" data-testid="advance-ten-button">推演至少10章</button><button class="nf-button secondary" type="button" @click="downloadResult" data-testid="download-result-button">下载 testresult.txt</button></div>
+      <div class="sim-action-stack">
+        <button class="nf-button accent" type="button" @click="advanceRound" data-testid="advance-round-button">开始 / 推进自动推演</button>
+        <label class="nf-label compact-batch">连续推演轮数
+          <span class="batch-controls">
+            <input v-model.number="advanceCount" class="nf-input batch-input" type="number" min="1" max="100" step="1" data-testid="advance-count-input" />
+            <button class="nf-button secondary" type="button" @click="advanceBatch" :disabled="isAdvancingBatch" data-testid="advance-batch-button">推演 N 次</button>
+          </span>
+        </label>
+      </div>
     </footer>
   </section>
   <p v-else class="nf-empty">项目不存在</p>
@@ -166,5 +180,8 @@ const systemUpdateItems = computed(() => (swarmRound.value?.outputs ?? []).flatM
 .control-pane { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--nf-space-3); align-items: end; padding: var(--nf-space-3); background: var(--nf-panel); border: 1px solid var(--nf-border); border-radius: var(--nf-radius); }
 .suggestions { display: flex; flex-wrap: wrap; gap: var(--nf-space-2); }
 .sim-action-stack { display: grid; gap: var(--nf-space-2); }
+.compact-batch { gap: 6px; }
+.batch-controls { display: grid; grid-template-columns: 92px auto; gap: var(--nf-space-2); align-items: center; }
+.batch-input { min-width: 0; }
 @media (max-width: 1100px) { .simulation-view { grid-template-columns: 1fr; height: auto; } .control-pane { grid-template-columns: 1fr; } }
 </style>

@@ -200,8 +200,8 @@ test_novel.txt
 6. 浏览器进入知识层并重建 StoryGraph/RAG
 7. 验证 GraphRAG 可视化与 edge list
 8. 浏览器检查 agent soul/memory/skills
-9. 浏览器推进 10 轮 simulation
-10. 浏览器下载 `testresult.txt` 并检查内容
+9. 浏览器通过可编辑轮数输入推进 10 轮 simulation
+10. 浏览器在创作页导出正文文本并检查下载行为
 
 ---
 

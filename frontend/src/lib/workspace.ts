@@ -931,29 +931,28 @@ export async function saveLlmSettings(settings: LlmSettings): Promise<LlmSetting
   return { ...endpoint, model: role?.model }
 }
 
-export async function saveSimulationResult(project: NovelProject, fileName = 'testresult.txt'): Promise<void> {
-  const grouped = new Map<number, SimulationLog[]>()
-  for (const log of project.simulation.logs) {
-    grouped.set(log.round, [...(grouped.get(log.round) ?? []), log])
-  }
-  const chapterLines = Array.from(grouped.entries()).sort((left, right) => left[0] - right[0]).flatMap(([round, logs]) => [
-    '',
-    `## 第${round}章`,
-    ...logs.map((log) => `R${log.round} [${log.role}] ${log.actor}: ${log.summary}`),
-  ])
-  const lines = [
-    `# ${project.title} 推演结果`,
-    `Project: ${project.slug}`,
-    `Round: ${project.simulation.round}`,
-    ...chapterLines,
-  ]
-  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
+function downloadTextFile(fileName: string, text: string): void {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
   link.download = fileName
   link.click()
   URL.revokeObjectURL(url)
+}
+
+export function exportWritingText(project: NovelProject, fileName = `${project.slug}-writing.txt`): void {
+  const lines = [
+    `# ${project.title} 创作正文`,
+    `Project: ${project.slug}`,
+    '',
+    ...project.chapters.flatMap((chapter, index) => [
+      `## ${index + 1}. ${chapter.title}`,
+      chapter.body.trimEnd(),
+      '',
+    ]),
+  ]
+  downloadTextFile(fileName, lines.join('\n'))
 }
 
 export async function saveCard(projectSlug: string, card: CardRecord): Promise<CardRecord> {

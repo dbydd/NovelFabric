@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { addReviewNote, createChapter as createChapterRequest, createWritingBranch, ensureProject, updateChapter, type ChapterRecord, type NovelProject, type ReviewNote } from '../lib/workspace'
+import { addReviewNote, createChapter as createChapterRequest, createWritingBranch, ensureProject, exportWritingText, updateChapter, type ChapterRecord, type NovelProject, type ReviewNote } from '../lib/workspace'
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug))
@@ -46,6 +46,11 @@ async function addChapterReview() {
   reviewNotes.value = await addReviewNote(project.value.slug, selected.value.id, { reviewer: 'reviewer', body: reviewBody.value })
 }
 
+function downloadWriting() {
+  if (!project.value) return
+  exportWritingText(project.value)
+}
+
 async function branchFromHistorical() {
   if (!project.value || !selected.value || isCurrent.value) return
   await createWritingBranch(project.value.slug, {
@@ -63,7 +68,7 @@ async function branchFromHistorical() {
 <template>
   <section v-if="project" class="writing-view" data-testid="writing-view">
     <aside class="chapter-pane nf-panel" data-testid="chapter-list">
-      <div class="nf-panel-header">章节列表 <button class="nf-button" type="button" @click="createChapter" data-testid="new-chapter-button">新建章节</button></div>
+      <div class="nf-panel-header chapter-header"><span>章节列表</span><span class="chapter-actions"><button class="nf-button secondary" type="button" @click="downloadWriting" data-testid="download-writing-button">导出正文</button><button class="nf-button" type="button" @click="createChapter" data-testid="new-chapter-button">新建章节</button></span></div>
       <div class="chapter-list">
         <button v-for="chapter in project.chapters" :key="chapter.id" class="chapter-item" :class="{ active: chapter.id === selectedId }" type="button" @click="syncEditor(chapter)" data-testid="chapter-item">
           <span>{{ chapter.title }}</span><span class="nf-badge">{{ chapter.isCurrent ? '当前' : '只读' }}</span>
@@ -102,6 +107,8 @@ async function branchFromHistorical() {
 <style scoped>
 .writing-view { height: calc(100vh - var(--nf-header)); display: grid; grid-template-columns: 280px minmax(0, 1fr) 280px; gap: var(--nf-space-3); padding: var(--nf-space-3); }
 .chapter-pane, .editor-pane, .branch-pane { min-height: 0; overflow: auto; }
+.chapter-header { gap: var(--nf-space-2); }
+.chapter-actions { display: flex; flex-wrap: wrap; gap: var(--nf-space-2); }
 .chapter-list { display: grid; }
 .chapter-item { display: flex; justify-content: space-between; gap: var(--nf-space-2); padding: var(--nf-space-3); border: 0; border-bottom: 1px solid var(--nf-border); background: #fff; text-align: left; cursor: pointer; }
 .chapter-item.active { border-left: 4px solid var(--nf-primary); background: var(--nf-panel-muted); }
