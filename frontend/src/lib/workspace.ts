@@ -80,6 +80,9 @@ export interface ImportReport {
   chapterCount: number
   importedAt: string
   preview: string
+  extractionStatus?: string
+  extractionMessage?: string
+  llmModel?: string | null
 }
 
 export interface AgentAssetSummary {
@@ -92,6 +95,12 @@ export interface AgentAssetRecord extends AgentAssetSummary {
   soul: string
   memory: string
   skills: string[]
+}
+
+export interface AgentSkillRecord {
+  agentId: string
+  fileName: string
+  body: string
 }
 
 export type LlmApiStyle = 'OpenAiResponses' | 'OpenAiChatCompletions' | 'AnthropicMessages'
@@ -110,6 +119,25 @@ export interface LlmRoleConfig {
 
 export interface LlmRolesConfig {
   roles: LlmRoleConfig[]
+}
+
+export interface LlmHealthcheckRequest {
+  role_id?: string
+  endpoint?: LlmEndpointConfig
+  role?: LlmRoleConfig
+}
+
+export interface LlmHealthcheckResult {
+  ok: boolean
+  role_id: string
+  provider: string
+  model: string
+  api_style: LlmApiStyle
+  latency_ms: number
+  provider_status?: number | null
+  error_kind?: string | null
+  error_message?: string | null
+  response_preview?: string | null
 }
 
 export interface LlmSettings extends LlmEndpointConfig {
@@ -210,6 +238,20 @@ export interface SwarmOutputAction {
   content?: string
 }
 
+export interface SwarmSkillInvocationEvidence {
+  skillFile: string
+  intent?: string | null
+  target?: string | null
+  mode?: string | null
+  scope?: string | null
+  consistency?: string | null
+  selectedAction?: string | null
+  selectedPath?: string | null
+  evidencePaths: string[]
+  status: string
+  warnReason?: string | null
+}
+
 export interface SwarmOutputRecord {
   agentId: string
   role: string
@@ -218,6 +260,7 @@ export interface SwarmOutputRecord {
   evidence: string[]
   actions: SwarmOutputAction[]
   consistencyChecks: SwarmConsistencyChecks
+  skillInvocations: SwarmSkillInvocationEvidence[]
 }
 
 export interface SwarmTurnRecord {
@@ -337,6 +380,20 @@ interface BackendSwarmAction {
   content?: string
 }
 
+interface BackendSwarmSkillInvocationEvidence {
+  skill_file: string
+  intent?: string | null
+  target?: string | null
+  mode?: string | null
+  scope?: string | null
+  consistency?: string | null
+  selected_action?: string | null
+  selected_path?: string | null
+  evidence_paths: string[]
+  status: string
+  warn_reason?: string | null
+}
+
 interface BackendSwarmOutputRecord {
   agent_id: string
   role: string
@@ -345,6 +402,7 @@ interface BackendSwarmOutputRecord {
   evidence: string[]
   actions: BackendSwarmAction[]
   consistency_checks: BackendSwarmConsistencyChecks
+  skill_invocations?: BackendSwarmSkillInvocationEvidence[]
 }
 
 interface BackendSwarmTurnRecord {
@@ -433,6 +491,13 @@ interface BackendAgentRecord {
   skills: string[]
 }
 
+interface BackendAgentSkillRecord {
+  project_slug: string
+  agent_id: string
+  file_name: string
+  body: string
+}
+
 interface BackendImportRecord {
   source_name: string
   chapter_count: number
@@ -440,6 +505,9 @@ interface BackendImportRecord {
   card_ids: string[]
   memory_keys: string[]
   timepoint_ids: string[]
+  extraction_status: string
+  extraction_message: string
+  llm_model?: string | null
 }
 
 interface BackendSimulationSession {
@@ -517,7 +585,8 @@ function defaultProject(title: string, description: string, slug: string): Novel
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase()}${path}`, init)
   if (!response.ok) {
-    throw new Error(`request failed: ${response.status}`)
+    const body = await response.text().catch(() => '')
+    throw new Error(`request failed: ${response.status} ${path}${body ? `: ${body}` : ''}`)
   }
   return response.json() as Promise<T>
 }
@@ -708,17 +777,10 @@ export async function hydrateProject(meta: ProjectMeta): Promise<NovelProject> {
 }
 
 export async function ensureProject(slug: string): Promise<NovelProject | undefined> {
-  try {
-    const meta = await fetchJson<ProjectMeta>(`/api/projects/${encodeURIComponent(slug)}`)
-    const project = await hydrateProject(meta)
-    updateProject(project)
-    return project
-  } catch {
-    const local = getProject(slug)
-    if (local) return local
-    const synced = await syncProjectsFromBackend()
-    return synced.find((project) => project.slug === slug)
-  }
+  const meta = await fetchJson<ProjectMeta>(`/api/projects/${encodeURIComponent(slug)}`)
+  const project = await hydrateProject(meta)
+  updateProject(project)
+  return project
 }
 
 export async function createProject(title: string, description: string): Promise<NovelProject> {
@@ -728,39 +790,24 @@ export async function createProject(title: string, description: string): Promise
     slug = `${slug}-${Date.now()}`
   }
 
-  try {
-    await fetchJson<ProjectMeta>('/api/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug, title, description }),
-    })
-  } catch {
-    const fallback = defaultProject(title, description, slug)
-    localProjects.unshift(fallback)
-    saveProjects(localProjects)
-    return fallback
-  }
+  await fetchJson<ProjectMeta>('/api/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug, title, description }),
+  })
 
   const project = await ensureProject(slug)
-  return project ?? defaultProject(title, description, slug)
+  if (!project) {
+    throw new Error(`project ${slug} was created but could not be loaded from backend`)
+  }
+  return project
 }
 
 export async function syncProjectsFromBackend(): Promise<NovelProject[]> {
-  try {
-    const remote = await fetchJson<ProjectMeta[]>('/api/projects')
-    const local = loadProjects()
-    const hydrated = await Promise.all(remote.map(async (meta) => {
-      try {
-        return await hydrateProject(meta)
-      } catch {
-        return local.find((project) => project.slug === meta.slug) ?? defaultProject(meta.title, meta.description, meta.slug)
-      }
-    }))
-    saveProjects(hydrated)
-    return hydrated
-  } catch {
-    return loadProjects()
-  }
+  const remote = await fetchJson<ProjectMeta[]>('/api/projects')
+  const hydrated = await Promise.all(remote.map(hydrateProject))
+  saveProjects(hydrated)
+  return hydrated
 }
 
 export function getProject(slug: string): NovelProject | undefined {
@@ -796,7 +843,6 @@ export function splitTextIntoChapters(text: string): Array<{ title: string; body
 }
 
 export async function importNovelText(project: NovelProject, sourceName: string, input: string | Blob): Promise<NovelProject> {
-  const text = typeof input === 'string' ? input : await input.text()
   try {
     const form = new FormData()
     form.append('sourceName', sourceName)
@@ -806,7 +852,11 @@ export async function importNovelText(project: NovelProject, sourceName: string,
       method: 'POST',
       body: form,
     })
-    if (!response.ok) throw new Error(`import failed: ${response.status}`)
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      const detail = body.trim() ? `: ${body.trim().slice(0, 500)}` : ''
+      throw new Error(`import failed: ${response.status}${detail}`)
+    }
     const record = await response.json() as BackendImportRecord
     const refreshed = await ensureProject(project.slug)
     if (refreshed) {
@@ -816,44 +866,18 @@ export async function importNovelText(project: NovelProject, sourceName: string,
           sourceName: record.source_name,
           chapterCount: record.chapter_count,
           importedAt: new Date().toISOString(),
-          preview: `cards=${record.card_ids.length}; memory=${record.memory_keys.length}; timepoints=${record.timepoint_ids.length}; report=${record.report_file}`,
+          preview: `LLM semantic extraction: ${record.extraction_status}; ${record.extraction_message}; model=${record.llm_model ?? 'unconfigured'}; cards=${record.card_ids.length}; memory=${record.memory_keys.length}; timepoints=${record.timepoint_ids.length}; report=${record.report_file}`,
+          extractionStatus: record.extraction_status,
+          extractionMessage: record.extraction_message,
+          llmModel: record.llm_model ?? null,
         },
       }
     }
-  } catch {
-    // fall back to local-only preview
+  } catch (error) {
+    throw new Error(`后端导入失败，未写入后端文本资源：${error instanceof Error ? error.message : String(error)}`)
   }
 
-  const chapters = splitTextIntoChapters(text)
-  const importedChapters = chapters.map((chapter, index) => ({
-    id: `import-${String(index + 1).padStart(3, '0')}`,
-    title: chapter.title,
-    body: chapter.body,
-    isCurrent: false,
-  }))
-  const preview = text.slice(0, 500)
-  const updated: NovelProject = {
-    ...project,
-    importReport: { sourceName, chapterCount: importedChapters.length, importedAt: new Date().toISOString(), preview },
-    chapters: [...importedChapters, ...project.chapters],
-    memory: [
-      ...project.memory,
-      ...importedChapters.slice(0, 8).map((chapter, index) => ({
-        id: `import-memory-${index + 1}`,
-        scope: 'chapter' as const,
-        timeline: 'imported-story',
-        timepoint: String(index + 1).padStart(4, '0'),
-        title: chapter.title,
-        body: chapter.body.slice(0, 360),
-      })),
-    ],
-    cards: [
-      ...project.cards,
-      { id: `world-import-${Date.now()}`, kind: 'world', title: `导入概览：${sourceName}`, body: `导入 ${importedChapters.length} 个章节。\n\n${preview}` },
-    ],
-  }
-  updateProject(updated)
-  return updated
+  throw new Error('后端导入完成后无法刷新项目状态，请重新打开项目。')
 }
 
 export async function deleteCard(projectSlug: string, card: CardRecord): Promise<CardRecord> {
@@ -864,6 +888,11 @@ export async function deleteMemoryEntry(projectSlug: string, entry: MemoryEntry)
   const scopeId = entry.scopeId ?? 'root'
   const record = await fetchJson<BackendMemoryEntry>(`/api/projects/${encodeURIComponent(projectSlug)}/memory/${entry.scope}/${encodeURIComponent(scopeId)}/${encodeURIComponent(entry.timeline)}/${encodeURIComponent(entry.timepoint)}/${encodeURIComponent(entry.id)}`, { method: 'DELETE' })
   return toMemoryEntry(record)
+}
+
+export async function getAgentSkill(projectSlug: string, agentId: string, fileName: string): Promise<AgentSkillRecord> {
+  const skill = await fetchJson<BackendAgentSkillRecord>(`/api/projects/${encodeURIComponent(projectSlug)}/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(fileName)}`)
+  return { agentId: skill.agent_id, fileName: skill.file_name, body: skill.body }
 }
 
 export async function saveAgentSkill(projectSlug: string, agentId: string, fileName: string, body: string): Promise<AgentAssetRecord> {
@@ -906,6 +935,14 @@ export async function saveLlmRole(role: LlmRoleConfig): Promise<LlmRoleConfig> {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(role),
+  })
+}
+
+export async function testLlmHealth(request: LlmHealthcheckRequest = {}): Promise<LlmHealthcheckResult> {
+  return fetchJson<LlmHealthcheckResult>('/api/config/llm-healthcheck', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
   })
 }
 
@@ -1190,6 +1227,19 @@ function toSwarmTurnRecord(record: BackendSwarmTurnRecord): SwarmTurnRecord {
       evidence: output.evidence,
       actions: output.actions,
       consistencyChecks: output.consistency_checks,
+      skillInvocations: (output.skill_invocations ?? []).map((invocation) => ({
+        skillFile: invocation.skill_file,
+        intent: invocation.intent,
+        target: invocation.target,
+        mode: invocation.mode,
+        scope: invocation.scope,
+        consistency: invocation.consistency,
+        selectedAction: invocation.selected_action,
+        selectedPath: invocation.selected_path,
+        evidencePaths: invocation.evidence_paths,
+        status: invocation.status,
+        warnReason: invocation.warn_reason,
+      })),
     })),
   }
 }

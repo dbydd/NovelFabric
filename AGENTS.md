@@ -30,8 +30,9 @@ NovelFabric 是一个**文本优先**的小说创作与推演平台。
 | 7 | `docs/architecture/story-graph-rag.md` | StoryGraph / StoryRAG 数据模型、检索工具、派生索引约束 | graph / rag / knowledge / memory 检索任务 |
 | 8 | `docs/architecture/story-swarm-runtime.md` | StorySwarm / ReportAgent 轮次、结构化输出、一致性检查 | simulation / swarm / report / interview 任务 |
 | 9 | `docs/architecture/implementation-roadmap-story-systems.md` | 文件级实现路线图、milestone、测试命令 | 实现 StoryGraph/RAG/Swarm/ReportAgent 时 |
+| 10 | `docs/architecture/v3-usability-plan.md` | v3 可用性阶段入口：LLM 拆书、LLM 健康检查、技能卡调用证据、按钮反馈 | v3 / usability / 拆书 / LLM / provider / model / skill invocation 任务 |
 
-如果任务与 MiroFish 融合、群体智能、RAG、推演增强、报告 agent 有关，**第 6-9 份文档必读**。不要假设可以靠搜索补齐这些约束。
+如果任务与 MiroFish 融合、群体智能、RAG、推演增强、报告 agent 有关，**第 6-9 份文档必读**。如果任务与 v3 可用性、LLM 拆书、provider/model 配置、技能卡调用证据或按钮反馈有关，**第 10 份文档必读**。不要假设可以靠搜索补齐这些约束。
 
 ## 3. 项目级硬约束
 

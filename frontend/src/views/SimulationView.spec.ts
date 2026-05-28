@@ -79,6 +79,31 @@ describe('SimulationView', () => {
         evidence: ['cards/characters/aria.md'],
         consistencyChecks: { ooc: 'PASS', world: 'PASS', timeline: 'PASS', rules: 'PASS' },
         actions: [{ type: 'append_memory', path: 'agents/aria/memory.md' }, { type: 'replace_project_section', path: 'history/project-audit-log.md', old: '## Runtime Notes', content: '- round 1 :: project audit note persisted' }],
+        skillInvocations: [{
+          skillFile: 'kp-adjudicate.md',
+          intent: 'kp_adjudicate',
+          target: 'cards/rules',
+          mode: 'replace_section',
+          scope: 'rules',
+          consistency: 'rules',
+          selectedAction: 'replace_project_section',
+          selectedPath: 'history/project-audit-log.md',
+          evidencePaths: ['agents/kp/skills/kp-adjudicate.md', 'cards/rules/runtime-kp-rulings.md'],
+          status: 'PASS',
+          warnReason: null,
+        }, {
+          skillFile: 'broken-skill.md',
+          intent: 'kp_adjudicate',
+          target: null,
+          mode: null,
+          scope: null,
+          consistency: null,
+          selectedAction: 'replace_project_section',
+          selectedPath: 'history/project-audit-log.md',
+          evidencePaths: ['agents/kp/skills/broken-skill.md'],
+          status: 'WARN',
+          warnReason: "invalid skill frontmatter: missing target, mode, scope, consistency; repair this agent's skills/broken-skill.md in Settings Agent assets before trusting this invocation",
+        }],
       }],
     })
 
@@ -105,6 +130,18 @@ describe('SimulationView', () => {
     expect(wrapper.text()).toContain('planner decision explanation')
     expect(wrapper.text()).toContain('target selected by project-auditor/project_audit')
     expect(wrapper.text()).toContain('mode selected by replace_project_section')
+    expect(wrapper.find('[data-testid="skill-invocation-list"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Skill contract / planner evidence')
+    expect(wrapper.text()).toContain('kp-adjudicate.md')
+    expect(wrapper.text()).toContain('intent=kp_adjudicate')
+    expect(wrapper.text()).toContain('target=cards/rules')
+    expect(wrapper.text()).toContain('mode=replace_section')
+    expect(wrapper.text()).toContain('selected replace_project_section → history/project-audit-log.md')
+    expect(wrapper.text()).toContain('agents/kp/skills/kp-adjudicate.md')
+    expect(wrapper.text()).toContain('broken-skill.md')
+    expect(wrapper.text()).toContain('WARN')
+    expect(wrapper.text()).toContain('warn/block: invalid skill frontmatter')
+    expect(wrapper.text()).toContain("repair this agent's skills/broken-skill.md in Settings Agent assets")
     expect(wrapper.text()).toContain('tuning entrypoint for project-auditor')
     expect(wrapper.text()).toContain('step 1: go to 项目设定 → Agent 资产, select project-auditor, then open agents/aria/skills/*.md')
     expect(wrapper.text()).toContain('step 2: review keys target/mode/scope')

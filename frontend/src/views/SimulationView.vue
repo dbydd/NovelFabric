@@ -107,13 +107,28 @@ const systemUpdateItems = computed(() => (swarmRound.value?.outputs ?? []).flatM
                 <code>{{ formatSwarmActionLabel(action) }}</code>
               </li>
             </ul>
+            <section v-if="output.skillInvocations?.length" class="skill-invocation-list" data-testid="skill-invocation-list">
+              <strong>Skill contract / planner evidence</strong>
+              <article v-for="invocation in output.skillInvocations" :key="`${output.agentId}-${invocation.skillFile}`" class="skill-invocation-card" data-testid="skill-invocation-card">
+                <div><strong>{{ invocation.skillFile }}</strong><span class="nf-badge">{{ invocation.status }}</span></div>
+                <small>intent={{ invocation.intent ?? 'unset' }} · target={{ invocation.target ?? 'unset' }} · mode={{ invocation.mode ?? 'unset' }} · scope={{ invocation.scope ?? 'unset' }} · consistency={{ invocation.consistency ?? 'unset' }}</small>
+                <small>selected {{ invocation.selectedAction ?? 'none' }} → {{ invocation.selectedPath ?? 'none' }}</small>
+                <small v-if="invocation.warnReason">warn/block: {{ invocation.warnReason }}</small>
+                <div v-if="invocation.evidencePaths.length" class="skill-invocation-evidence" data-testid="skill-invocation-evidence">
+                  <small>evidence paths</small>
+                  <ul>
+                    <li v-for="path in invocation.evidencePaths" :key="path"><code>{{ path }}</code></li>
+                  </ul>
+                </div>
+              </article>
+            </section>
           </article>
         </div>
       </div>
       <div class="nf-panel system-updates-panel" v-if="systemUpdateItems.length" data-testid="system-updates-panel">
         <div class="nf-panel-header">Observed File Updates</div>
         <div class="timeline-list">
-          <article v-for="item in systemUpdateItems" :key="`${item.path}-${item.summary}`" class="log-card" data-testid="system-update-card">
+          <article v-for="(item, index) in systemUpdateItems" :key="`${item.role}-${item.intent}-${item.path}-${item.mode}-${item.section}-${index}`" class="log-card" data-testid="system-update-card">
             <strong>{{ item.path }}</strong>
             <small>{{ item.role }} · {{ item.intent }} · {{ item.mode }}<span v-if="item.section"> · {{ item.section }}</span></small>
             <p v-if="item.summary">{{ item.summary }}</p>
@@ -173,6 +188,9 @@ const systemUpdateItems = computed(() => (swarmRound.value?.outputs ?? []).flatM
 .timeline-list, .role-list { display: grid; gap: var(--nf-space-2); padding: var(--nf-space-3); }
 .log-card, .role-card { display: grid; gap: 6px; padding: var(--nf-space-3); border: 1px solid var(--nf-border); border-radius: 6px; background: #fff; }
 .runtime-action-list { margin: 0; padding-left: 18px; color: var(--nf-muted); }
+.skill-invocation-list, .skill-invocation-card { display: grid; gap: 6px; }
+.skill-invocation-card { border: 1px solid var(--nf-border); border-radius: 6px; padding: var(--nf-space-2); background: var(--nf-panel-muted); }
+.skill-invocation-card small { color: var(--nf-muted); }
 .decision-card { display: grid; gap: 6px; }
 .decision-lines { display: grid; gap: 4px; color: var(--nf-muted); }
 .tuning-checklist ul { margin: 0; padding-left: 18px; }

@@ -24,11 +24,11 @@
 固定顺序：
 
 ```text
-M1 StoryGraph MVP
-  → M2 StoryRAG MVP
+M1 StoryGraph implementation baseline
+  → M2 StoryRAG implementation baseline
   → M3 Swarm context integration
   → M4 structured agent round outputs
-  → M5 ReportAgent MVP
+  → M5 ReportAgent implementation baseline
   → M6 interview / deeper analysis
   → M7 optional external adapter
 ```
@@ -37,7 +37,7 @@ M1 StoryGraph MVP
 
 ---
 
-## 2. M1 — StoryGraph MVP
+## 2. M1 — StoryGraph implementation baseline
 
 ### 2.1 目标
 
@@ -158,7 +158,7 @@ cargo test --manifest-path backend/Cargo.toml -q
 
 ---
 
-## 3. M2 — StoryRAG MVP
+## 3. M2 — StoryRAG implementation baseline
 
 ### 3.1 目标
 
@@ -372,7 +372,7 @@ simulation/logs/<session_id>.md
 
 ---
 
-## 6. M5 — ReportAgent MVP
+## 6. M5 — ReportAgent implementation baseline
 
 ### 6.1 目标
 

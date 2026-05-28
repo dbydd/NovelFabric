@@ -8,9 +8,15 @@ const projects = ref<NovelProject[]>(loadProjects())
 const title = ref('')
 const description = ref('')
 const hasProjects = computed(() => projects.value.length > 0)
+const createStatus = ref('')
+const isCreating = ref(false)
 
 onMounted(async () => {
-  projects.value = await syncProjectsFromBackend()
+  try {
+    projects.value = await syncProjectsFromBackend()
+  } catch (error) {
+    createStatus.value = error instanceof Error ? `读取后端项目失败：${error.message}` : '读取后端项目失败。'
+  }
 })
 
 async function removeProject(slug: string) {
@@ -19,14 +25,25 @@ async function removeProject(slug: string) {
 }
 
 async function submitProject() {
-  const project = await createProject(title.value || '未命名小说项目', description.value || '文本优先的 NovelFabric 项目')
-  projects.value = await syncProjectsFromBackend()
-  if (!projects.value.find((entry) => entry.slug === project.slug)) {
-    projects.value = loadProjects()
+  if (isCreating.value) return
+  isCreating.value = true
+  createStatus.value = '正在创建项目并写入后端文件…'
+  try {
+    const project = await createProject(title.value || '未命名小说项目', description.value || '文本优先的 NovelFabric 项目')
+    try {
+      projects.value = await syncProjectsFromBackend()
+    } catch {
+      projects.value = [project]
+    }
+    title.value = ''
+    description.value = ''
+    createStatus.value = `已创建项目：${project.title}`
+    router.push(`/project/${project.slug}/settings`)
+  } catch (error) {
+    createStatus.value = error instanceof Error ? `创建失败：${error.message}` : '创建失败：后端未确认项目写入'
+  } finally {
+    isCreating.value = false
   }
-  title.value = ''
-  description.value = ''
-  router.push(`/project/${project.slug}/settings`)
 }
 </script>
 
@@ -47,7 +64,8 @@ async function submitProject() {
           <label class="nf-label" for="project-description">项目描述
             <textarea id="project-description" v-model="description" class="nf-textarea" data-testid="project-description-input"></textarea>
           </label>
-          <button class="nf-button" type="submit" data-testid="create-project-button">创建并进入项目</button>
+          <button class="nf-button" type="submit" :disabled="isCreating" data-testid="create-project-button">{{ isCreating ? '创建中…' : '创建并进入项目' }}</button>
+          <p v-if="createStatus" class="action-status" data-testid="create-project-status">{{ createStatus }}</p>
         </div>
       </form>
     </div>
@@ -83,6 +101,7 @@ h1 { margin: 0; font-size: clamp(32px, 5vw, 56px); line-height: 1.05; max-width:
 .project-card h2 { margin: 0; }
 .project-card p { margin: 0; color: var(--nf-muted); }
 .project-actions { display: flex; gap: var(--nf-space-2); flex-wrap: wrap; }
+.action-status { margin: 0; color: var(--nf-muted); font-weight: 800; }
 dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
 dt { color: var(--nf-muted); font-size: 12px; font-weight: 800; }
 dd { margin: 0; font-weight: 900; }

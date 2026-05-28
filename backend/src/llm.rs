@@ -106,11 +106,15 @@ pub enum LlmError {
     EmptyChoice,
 }
 
+const LLM_REQUEST_TIMEOUT_SECS: u64 = 3;
+
 pub async fn complete_chat(
     config: &LlmConfig,
     messages: Vec<ChatMessage>,
 ) -> Result<String, LlmError> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(LLM_REQUEST_TIMEOUT_SECS))
+        .build()?;
     let mut attempts = 0_u8;
     loop {
         attempts += 1;

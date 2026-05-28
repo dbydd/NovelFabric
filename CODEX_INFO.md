@@ -114,12 +114,13 @@ config/roles.json
 
 - 所有角色默认继承 `default`。
 - 手动配置某个 role 后覆盖默认模型；API style 可继承 endpoint，也可按 role 覆盖。
+- Settings UI 支持对选中的 role 直接运行 LLM healthcheck，返回结果必须显示 role_id / provider / model / API style。
 - 旧式 `llm-settings` 只作为兼容路径，不应继续扩展为主配置模型。
 
 已知 provider 事实：
 
-- `generic-write` 不存在。
-- `generic-writer` 存在且可用。
+- 默认本地写作模型使用 `generic-writer`，该模型存在且可用。
+- 角色覆盖 healthcheck 已通过 browser path 验证：保存 `kp` role override 后，浏览器可测试该 role 并在 reload 后看到覆盖配置仍存在。
 - `backend/src/llm.rs` 已支持 OpenAI Responses、OpenAI Chat Completions、Anthropic Messages。
 - Responses 返回解析不能假设每个 `output[]` 都有 `content`；必须动态过滤 `output_text`。
 
@@ -230,45 +231,35 @@ RUSTDOC=/opt/homebrew/bin/rustdoc \
 ### Frontend
 
 ```bash
+npm run test:unit -- --run
 npm run type-check
 npm run build
 ```
 
-本轮相关单测：
-
-```bash
-npm run test:unit -- --run src/views/SettingsView.spec.ts src/lib/workspace.spec.ts
-```
-
-全量 `npm run test:unit -- --run` 当前仍受 Electron spec 环境问题影响：`No such built-in module: node:`。这不是 LLM/RAG 本轮改动引入的失败。
+当前全量 frontend unit suite 已恢复通过：9 files / 24 tests。不要再把 Electron Vitest 环境问题当作当前 known issue；若后续复发，应以新的验证输出更新 `STATE.md`。
 
 ### Full-stack browser acceptance
 
-若后端/前端需手动启动：
+首选使用 Playwright `webServer` 自动启动后端、Vite 与本地 LLM provider：
 
 ```bash
+cd frontend && \
 HOME=/Users/dbydd \
 CARGO_HOME=/Users/dbydd/.cargo \
 RUSTC=/opt/homebrew/bin/rustc \
 RUSTDOC=/opt/homebrew/bin/rustdoc \
-/opt/homebrew/bin/cargo run --manifest-path backend/Cargo.toml --bin novelfabric-backend -- \
-  --bind-address 127.0.0.1:50002 \
-  --data-dir /tmp/novelfabric-acceptance-data
-```
-
-```bash
-VITE_API_BASE=http://127.0.0.1:50002 \
-npx vite --host 127.0.0.1 --port 5174
-```
-
-验收：
-
-```bash
-HOME=/Users/dbydd \
+NOVELFABRIC_CARGO=/opt/homebrew/bin/cargo \
 PLAYWRIGHT_BROWSERS_PATH=/Users/dbydd/Library/Caches/ms-playwright \
-PLAYWRIGHT_BASE_URL=http://127.0.0.1:5174 \
-npx playwright test --config=playwright.fullstack.config.ts e2e-fullstack/strict-import-simulation.spec.ts
+npm run test:e2e:fullstack
 ```
+
+当前 fullstack suite 通过：8 specs using 1 worker。配置默认使用：
+
+- backend: `127.0.0.1:50003`
+- Vite frontend: `127.0.0.1:50004`
+- local LLM provider fixture: `127.0.0.1:50112`
+
+其中 browser-only acceptance specs 只能用真实 UI 操作作为成功证据；`story-systems.spec.ts` 是明确标注的 API-assisted fullstack coverage，不能算作 browser-only acceptance。当前错误报告窄切片覆盖 Settings healthcheck 的 auth / model_not_found / provider_5xx / network 可见错误、backend timeout 分类覆盖，以及 Import invalid-schema 可见失败报告。
 
 ---
 
@@ -294,7 +285,8 @@ npx playwright test --config=playwright.fullstack.config.ts e2e-fullstack/strict
 
 ## 10. 继续开发时的优先级
 
-1. 修 Electron Vitest 环境，使全量 unit test 也能绿。
+1. 继续强化 LLM/provider 错误报告端到端覆盖：auth failure、model-not-found、provider_5xx、network 与 invalid import schema 已有 browser 窄切片，timeout 已有 backend 分类覆盖；下一步补更细的 schema diagnostics，并在可保持 suite 稳定时补 browser timeout 覆盖。
 2. 继续把 split LLM config 接入更多 import/runtime 路径。
 3. 强化 StoryGraph 关系抽取，不要只依赖简单字符串提及。
 4. 保持 browser-only acceptance，不要用 API 直调冒充完整验收。
+5. 保持 `npm run test:unit -- --run` 与 `npm run test:e2e:fullstack` 绿色；若失败，先更新 `STATE.md` 再继续相关改动。

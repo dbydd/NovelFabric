@@ -41,14 +41,15 @@ use tracing_subscriber as _;
 
 use crate::{
     agents::{
-        AgentAssetRecord, AgentAssetService, AgentSummary, UpdateAgentAssetRequest,
-        UpsertAgentSkillRequest,
+        AgentAssetRecord, AgentAssetService, AgentSkillRecord, AgentSummary,
+        UpdateAgentAssetRequest, UpsertAgentSkillRequest,
     },
     cards::{CardKind, CardRecord, CardService, CreateCardRequest, UpdateCardRequest},
     config::{
         LlmConfigService, LlmEndpointConfig, LlmRoleConfig, LlmRolesConfig, LlmSettingsError,
     },
     import::{ImportRecord, ImportService, ImportTxtRequest},
+    llm::{ChatMessage, LlmApiStyle, LlmError, complete_chat},
     memory::{
         CreateMemoryEntryRequest, MemoryEntry, MemoryEntrySummary, MemoryScope, MemoryService,
         UpdateMemoryEntryRequest,
@@ -189,7 +190,9 @@ pub fn app(config: ApplicationConfig) -> Router {
         )
         .route(
             "/api/projects/{slug}/agents/{agent_id}/skills/{skill_file}",
-            post(upsert_agent_skill_handler).delete(delete_agent_skill_handler),
+            get(get_agent_skill_handler)
+                .post(upsert_agent_skill_handler)
+                .delete(delete_agent_skill_handler),
         )
         .route(
             "/api/projects/{slug}/cards",
@@ -318,6 +321,10 @@ pub fn app(config: ApplicationConfig) -> Router {
         .route(
             "/api/config/llm-settings",
             get(get_llm_endpoint_handler).put(put_llm_endpoint_handler),
+        )
+        .route(
+            "/api/config/llm-healthcheck",
+            post(post_llm_healthcheck_handler),
         )
         .route("/api/config/llm-roles", get(list_llm_roles_handler))
         .route(
@@ -485,6 +492,255 @@ async fn delete_llm_role_handler(
             LlmSettingsError::Storage(_) => AppError::Internal,
         })?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct LlmHealthcheckRequest {
+    pub role_id: Option<String>,
+    pub endpoint: Option<LlmEndpointConfig>,
+    pub role: Option<LlmRoleConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LlmHealthcheckPayload {
+    pub ok: bool,
+    pub role_id: String,
+    pub provider: String,
+    pub model: String,
+    pub api_style: LlmApiStyle,
+    pub latency_ms: u128,
+    pub provider_status: Option<u16>,
+    pub error_kind: Option<String>,
+    pub error_message: Option<String>,
+    pub response_preview: Option<String>,
+}
+
+async fn post_llm_healthcheck_handler(
+    State(state): State<AppState>,
+    Json(body): Json<LlmHealthcheckRequest>,
+) -> Result<Json<LlmHealthcheckPayload>, AppError> {
+    let payload = run_llm_healthcheck(Arc::clone(&state.storage), body).await;
+    Ok(Json(payload))
+}
+
+async fn run_llm_healthcheck(
+    storage: Arc<Storage>,
+    request: LlmHealthcheckRequest,
+) -> LlmHealthcheckPayload {
+    let role_id = request.role_id.unwrap_or_else(|| "default".to_string());
+    let started = std::time::Instant::now();
+    let service = LlmConfigService::new(storage);
+    let endpoint =
+        match resolve_healthcheck_endpoint(&service, request.endpoint, &role_id, started).await {
+            Ok(endpoint) => endpoint,
+            Err(payload) => return payload,
+        };
+    let role = match resolve_healthcheck_role(&service, request.role, &role_id, &endpoint, started)
+        .await
+    {
+        Ok(role) => role,
+        Err(payload) => return payload,
+    };
+    execute_llm_healthcheck(role_id, endpoint, role, started).await
+}
+
+async fn resolve_healthcheck_endpoint(
+    service: &LlmConfigService,
+    request_endpoint: Option<LlmEndpointConfig>,
+    role_id: &str,
+    started: std::time::Instant,
+) -> Result<LlmEndpointConfig, LlmHealthcheckPayload> {
+    if let Some(endpoint) = request_endpoint {
+        return Ok(endpoint);
+    }
+    match service.load_endpoint().await {
+        Ok(Some(endpoint)) => Ok(endpoint),
+        Ok(None) => Err(failed_healthcheck(
+            role_id.to_string(),
+            String::new(),
+            String::new(),
+            LlmApiStyle::OpenAiChatCompletions,
+            started,
+            None,
+            "missing_config",
+            "LLM endpoint / key is not configured. Save Endpoint / Key before testing.",
+        )),
+        Err(error) => Err(failed_healthcheck(
+            role_id.to_string(),
+            String::new(),
+            String::new(),
+            LlmApiStyle::OpenAiChatCompletions,
+            started,
+            None,
+            "config_error",
+            &error.to_string(),
+        )),
+    }
+}
+
+async fn resolve_healthcheck_role(
+    service: &LlmConfigService,
+    request_role: Option<LlmRoleConfig>,
+    role_id: &str,
+    endpoint: &LlmEndpointConfig,
+    started: std::time::Instant,
+) -> Result<LlmRoleConfig, LlmHealthcheckPayload> {
+    if let Some(mut role) = request_role {
+        role.role_id.clone_from(&role_id.to_string());
+        return Ok(role);
+    }
+    match service.load_role(role_id).await {
+        Ok(Some(role)) => Ok(role),
+        Ok(None) => Ok(load_default_healthcheck_role(service).await),
+        Err(error) => Err(failed_healthcheck(
+            role_id.to_string(),
+            endpoint.provider.clone(),
+            String::new(),
+            endpoint.api_style.clone(),
+            started,
+            None,
+            "config_error",
+            &error.to_string(),
+        )),
+    }
+}
+
+async fn load_default_healthcheck_role(service: &LlmConfigService) -> LlmRoleConfig {
+    match service.load_role("default").await {
+        Ok(Some(role)) => role,
+        Ok(None) | Err(_) => LlmRoleConfig {
+            role_id: "default".to_string(),
+            model: crate::config::DEFAULT_LLM_MODEL.to_string(),
+            api_style: None,
+        },
+    }
+}
+
+async fn execute_llm_healthcheck(
+    role_id: String,
+    endpoint: LlmEndpointConfig,
+    role: LlmRoleConfig,
+    started: std::time::Instant,
+) -> LlmHealthcheckPayload {
+    let config = crate::llm::LlmConfig {
+        base_url: endpoint.base_url,
+        api_key: endpoint.api_key,
+        model: role.model.clone(),
+        api_style: role
+            .api_style
+            .clone()
+            .unwrap_or_else(|| endpoint.api_style.clone()),
+    };
+    match complete_chat(&config, healthcheck_messages()).await {
+        Ok(response) => LlmHealthcheckPayload {
+            ok: true,
+            role_id,
+            provider: endpoint.provider,
+            model: role.model,
+            api_style: config.api_style,
+            latency_ms: started.elapsed().as_millis(),
+            provider_status: None,
+            error_kind: None,
+            error_message: None,
+            response_preview: Some(truncate_for_healthcheck(&response)),
+        },
+        Err(error) => {
+            let (status, kind, message) = classify_llm_error(error);
+            failed_healthcheck(
+                role_id,
+                endpoint.provider,
+                role.model,
+                config.api_style,
+                started,
+                status,
+                kind,
+                &message,
+            )
+        }
+    }
+}
+
+fn healthcheck_messages() -> Vec<ChatMessage> {
+    vec![
+        ChatMessage {
+            role: "system".to_string(),
+            content: "You are a NovelFabric LLM healthcheck. Reply with a short OK sentence."
+                .to_string(),
+        },
+        ChatMessage {
+            role: "user".to_string(),
+            content: "Return: NovelFabric LLM healthcheck OK".to_string(),
+        },
+    ]
+}
+
+#[allow(clippy::too_many_arguments)]
+fn failed_healthcheck(
+    role_id: String,
+    provider: String,
+    model: String,
+    api_style: LlmApiStyle,
+    started: std::time::Instant,
+    provider_status: Option<u16>,
+    error_kind: &str,
+    error_message: &str,
+) -> LlmHealthcheckPayload {
+    LlmHealthcheckPayload {
+        ok: false,
+        role_id,
+        provider,
+        model,
+        api_style,
+        latency_ms: started.elapsed().as_millis(),
+        provider_status,
+        error_kind: Some(error_kind.to_string()),
+        error_message: Some(error_message.to_string()),
+        response_preview: None,
+    }
+}
+
+fn classify_llm_error(error: LlmError) -> (Option<u16>, &'static str, String) {
+    match error {
+        LlmError::Http(error) => {
+            if error.is_timeout() {
+                (None, "timeout", error.to_string())
+            } else if error.is_connect() {
+                (None, "network", error.to_string())
+            } else {
+                (None, "http", error.to_string())
+            }
+        }
+        LlmError::Json(error) => (None, "schema_parse", error.to_string()),
+        LlmError::EmptyChoice => (
+            None,
+            "empty_response",
+            "provider returned no assistant text".to_string(),
+        ),
+        LlmError::ProviderStatus { status, body } => {
+            let kind = if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+                "auth"
+            } else if status.is_server_error() {
+                "provider_5xx"
+            } else if status == StatusCode::NOT_FOUND || body.to_ascii_lowercase().contains("model")
+            {
+                "model_not_found"
+            } else if status == StatusCode::TOO_MANY_REQUESTS {
+                "rate_limit"
+            } else {
+                "provider_status"
+            };
+            (Some(status.as_u16()), kind, body)
+        }
+    }
+}
+
+fn truncate_for_healthcheck(text: &str) -> String {
+    const MAX_CHARS: usize = 180;
+    let mut out = text.chars().take(MAX_CHARS).collect::<String>();
+    if text.chars().count() > MAX_CHARS {
+        out.push('…');
+    }
+    out
 }
 
 async fn health_handler(State(state): State<AppState>) -> Result<Json<HealthPayload>, AppError> {
@@ -819,6 +1075,18 @@ pub struct BranchImpactReportBody {
 pub struct WritingPrewriteReportBody {
     pub chapter_id: String,
     pub query: Option<String>,
+}
+
+async fn get_agent_skill_handler(
+    State(state): State<AppState>,
+    AxumPath((slug, agent_id, skill_file)): AxumPath<(String, String, String)>,
+) -> Result<Json<AgentSkillRecord>, AppError> {
+    let skill = state
+        .agents
+        .get_skill(&slug, &agent_id, &skill_file)
+        .await
+        .map_err(map_agent_error)?;
+    Ok(Json(skill))
 }
 
 async fn upsert_agent_skill_handler(
@@ -2189,6 +2457,152 @@ Original
                 .is_some_and(|hits| !hits.is_empty()),
             "quick search should return text-backed hits"
         );
+    }
+
+    #[tokio::test]
+    async fn llm_healthcheck_route_reports_missing_endpoint_without_calling_provider() {
+        let temp = tempdir().expect("tempdir should exist");
+        let router = app(ApplicationConfig {
+            server: super::ServerConfig::default(),
+            data_dir: temp.path().to_path_buf(),
+        });
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/config/llm-healthcheck")
+                    .header(axum::http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"role_id":"default"}"#))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("healthcheck should respond");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body should collect");
+        let payload: serde_json::Value = serde_json::from_slice(&body).expect("json payload");
+        assert_eq!(payload["ok"], false);
+        assert_eq!(payload["error_kind"], "missing_config");
+        assert!(
+            payload["error_message"]
+                .as_str()
+                .unwrap_or("")
+                .contains("LLM endpoint")
+        );
+    }
+
+    #[tokio::test]
+    async fn llm_healthcheck_classifies_provider_status_errors() {
+        assert_eq!(
+            super::classify_llm_error(crate::llm::LlmError::ProviderStatus {
+                status: StatusCode::UNAUTHORIZED,
+                body: "bad api key".to_string(),
+            })
+            .1,
+            "auth"
+        );
+        assert_eq!(
+            super::classify_llm_error(crate::llm::LlmError::ProviderStatus {
+                status: StatusCode::NOT_FOUND,
+                body: "missing model".to_string(),
+            })
+            .1,
+            "model_not_found"
+        );
+        assert_eq!(
+            super::classify_llm_error(crate::llm::LlmError::ProviderStatus {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                body: "server failed".to_string(),
+            })
+            .1,
+            "provider_5xx"
+        );
+        assert_eq!(
+            super::classify_llm_error(crate::llm::LlmError::ProviderStatus {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                body: "model backend crashed".to_string(),
+            })
+            .1,
+            "provider_5xx"
+        );
+    }
+
+    #[tokio::test]
+    async fn llm_healthcheck_classifies_timeout_http_errors() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let address = listener
+            .local_addr()
+            .expect("listener address should exist");
+        let server = tokio::spawn(async move {
+            if let Ok((_stream, _peer)) = listener.accept().await {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        });
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(20))
+            .build()
+            .expect("client should build");
+        let error = client
+            .post(format!("http://{address}/v1/chat/completions"))
+            .body("{}")
+            .send()
+            .await
+            .expect_err("request should time out");
+        let (_status, kind, _message) =
+            super::classify_llm_error(crate::llm::LlmError::Http(error));
+        assert_eq!(kind, "timeout");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn llm_healthcheck_for_unsaved_role_uses_default_model() {
+        let temp = tempdir().expect("tempdir should exist");
+        let router = app(ApplicationConfig {
+            server: super::ServerConfig::default(),
+            data_dir: temp.path().to_path_buf(),
+        });
+
+        let save_endpoint_response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri("/api/config/llm-endpoint")
+                    .header(axum::http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"provider":"local-test-provider","base_url":"http://127.0.0.1:9/v1","api_key":"test-key","api_style":"OpenAiChatCompletions"}"#,
+                    ))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("endpoint save should respond");
+        assert_eq!(save_endpoint_response.status(), StatusCode::OK);
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/config/llm-healthcheck")
+                    .header(axum::http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"role_id":"kp"}"#))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("healthcheck should respond");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body should collect");
+        let payload: serde_json::Value = serde_json::from_slice(&body).expect("json payload");
+        assert_eq!(payload["ok"], false);
+        assert_eq!(payload["role_id"], "kp");
+        assert_eq!(payload["provider"], "local-test-provider");
+        assert_eq!(payload["model"], crate::config::DEFAULT_LLM_MODEL);
+        assert_eq!(payload["api_style"], "OpenAiChatCompletions");
     }
 
     #[test]

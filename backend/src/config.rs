@@ -21,7 +21,7 @@ const CONFIG_DIR: &str = "config";
 const LLM_CONFIG_FILE: &str = "llm.json";
 const LLM_ROLES_CONFIG_FILE: &str = "roles.json";
 const DEFAULT_ROLE_ID: &str = "default";
-const DEFAULT_LLM_MODEL: &str = "gpt-4o-mini";
+pub const DEFAULT_LLM_MODEL: &str = "generic-writer";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LlmEndpointConfig {
@@ -449,6 +449,21 @@ bind_address = "127.0.0.1:50041"
         assert_eq!(resolved.model, "generic-writer");
         assert!(temp.path().join("config/llm.json").exists());
         assert!(temp.path().join("config/roles.json").exists());
+    }
+
+    #[tokio::test]
+    async fn default_role_uses_supported_local_writer_model() {
+        let temp = tempdir().expect("tempdir should exist");
+        let storage = crate::storage::Storage::new(temp.path().to_path_buf());
+        let service = crate::config::LlmConfigService::new(std::sync::Arc::new(storage));
+
+        let role = service
+            .load_role("default")
+            .await
+            .expect("default role load should succeed")
+            .expect("default role should exist");
+
+        assert_eq!(role.model, "generic-writer");
     }
 
     #[tokio::test]

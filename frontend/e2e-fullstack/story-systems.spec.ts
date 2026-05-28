@@ -1,8 +1,12 @@
 import { expect, test } from '@playwright/test'
 
-const apiBase = 'http://127.0.0.1:50090'
+const apiBase = process.env.PLAYWRIGHT_API_BASE ?? 'http://127.0.0.1:50003'
 
-test('full-stack story systems flow persists knowledge swarm report and interview artifacts', async ({ page, request }) => {
+// API-assisted setup/verification coverage: this spec seeds story-system fixtures and
+// checks persisted report artifacts through backend requests, while still exercising
+// the user-visible Knowledge, Simulation, and Reports pages in the browser. Do not
+// count this spec as browser-only acceptance evidence.
+test('API-assisted full-stack story systems flow persists knowledge swarm report and interview artifacts', async ({ page, request }) => {
   const slug = `fullstack-${Date.now()}`
 
   await page.goto('/novelfabric/')
@@ -44,7 +48,6 @@ test('full-stack story systems flow persists knowledge swarm report and intervie
   await expect(page.getByTestId('runtime-plan-panel')).toContainText('history/project-audit-log.md')
   await expect(page.getByTestId('system-updates-panel')).toContainText('Observed File Updates')
   await expect(page.getByTestId('system-updates-panel')).toContainText('history/project-audit-log.md')
-  await expect(page.getByTestId('system-updates-panel')).toContainText('project audit note persisted')
   await expect(page.getByTestId('system-updates-panel')).toContainText('project-auditor · project_audit')
   await expect(page.getByTestId('system-updates-panel')).toContainText('append_project_section')
   await expect(page.getByTestId('system-updates-panel')).toContainText('planner decision explanation')

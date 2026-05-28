@@ -1113,15 +1113,15 @@ mod tests {
         assert!(world.contains("- role: world-maintainer"));
         assert!(world.contains("- summary: world maintenance note persisted"));
 
-        let rules = tokio::fs::read_to_string(
+        let skill_runtime_log = tokio::fs::read_to_string(
             temp.path()
-                .join("projects/swarm-runtime-project/cards/rules/runtime-kp-rulings.md"),
+                .join("projects/swarm-runtime-project/simulation/logs/skill-runtime.md"),
         )
         .await
-        .expect("kp rulings file should exist");
-        assert!(rules.contains("## KP Rulings") || rules.contains("## Runtime Notes"));
-        assert!(rules.contains("- role: kp"));
-        assert!(rules.contains("- summary: kp ruling persisted"));
+        .expect("skill runtime log should exist");
+        assert!(skill_runtime_log.contains("## KP Rulings"));
+        assert!(skill_runtime_log.contains("- role: kp"));
+        assert!(skill_runtime_log.contains("- summary: kp ruling persisted"));
 
         let audit_log = tokio::fs::read_to_string(
             temp.path()
@@ -1133,15 +1133,9 @@ mod tests {
         assert!(audit_log.contains("- role: project-auditor"));
         assert!(audit_log.contains("- summary: project audit note persisted"));
 
-        let random_events = tokio::fs::read_to_string(
-            temp.path()
-                .join("projects/swarm-runtime-project/simulation/random-events.md"),
-        )
-        .await
-        .expect("random events file should exist");
-        assert!(random_events.contains("## Random Events"));
-        assert!(random_events.contains("- role: random-event"));
-        assert!(random_events.contains("- summary: random event note persisted"));
+        assert!(skill_runtime_log.contains("## Random Events"));
+        assert!(skill_runtime_log.contains("- role: random-event"));
+        assert!(skill_runtime_log.contains("- summary: random event note persisted"));
     }
 
     #[tokio::test]

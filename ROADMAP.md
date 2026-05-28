@@ -37,3 +37,10 @@
 ## Phase 8 — Integration and acceptance
 - Add Docker deployment.
 - Run final browser-only Playwright acceptance with `test_novel.txt`.
+
+## Phase 9 — v3 usability repair
+- Use `docs/architecture/v3-usability-plan.md` as the v3 entry plan before starting ultragoal execution.
+- Replace semantic book-splitting fallback with LLM-first / LLM-required card, agent, and skill generation.
+- Add LLM healthcheck and user-visible provider/model diagnostics.
+- Prove agent skill-card invocation through parsed skill contracts and runtime evidence.
+- Ensure settings/import/card/agent/skill buttons provide loading, success, and error feedback.

@@ -58,17 +58,14 @@ describe('workspace library', () => {
     expect(slugify(' Mixed__Value 123 ')).toBe('mixed-value-123')
   })
 
-  it('createProject persists locally even when backend create fails', async () => {
+  it('createProject reports backend failure instead of creating local-only projects', async () => {
     fetchMock.mockResolvedValue(new Response('bad', { status: 400 }))
 
-    const project = await createProject('最终验收项目', 'fallback local persistence')
-
-    expect(project.slug).toMatch(/^project-/)
-    expect(loadProjects()).toHaveLength(1)
-    expect(getProject(project.slug)?.title).toBe('最终验收项目')
+    await expect(createProject('最终验收项目', 'backend-required persistence')).rejects.toThrow('request failed: 400 /api/projects')
+    expect(loadProjects()).toHaveLength(0)
   })
 
-  it('syncProjectsFromBackend merges remote metadata with local workspace state', async () => {
+  it('syncProjectsFromBackend hydrates remote metadata without inventing local-only projects', async () => {
     const localProject = {
       slug: 'alpha-project',
       title: 'Alpha Project',
@@ -106,7 +103,7 @@ describe('workspace library', () => {
     expect(merged.find((project) => project.slug === 'beta-project')?.cards.length).toBeGreaterThanOrEqual(0)
   })
 
-  it('ensureProject falls back to backend sync when local storage misses a slug', async () => {
+  it('ensureProject hydrates backend state when local storage misses a slug', async () => {
     fetchMock.mockImplementation(async (input) => {
       const url = String(input)
       if (url.endsWith('/api/projects/gamma-project')) {
@@ -153,6 +150,9 @@ describe('workspace library', () => {
           card_ids: ['ye-xiao-wei'],
           memory_keys: ['import-test-novel-summary'],
           timepoint_ids: ['tp-001'],
+          extraction_status: 'llm_succeeded',
+          extraction_message: 'LLM semantic extraction succeeded with 3 card(s).',
+          llm_model: 'generic-writer',
         }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
       if (url.endsWith('/api/projects/gbk-project')) {
@@ -165,6 +165,19 @@ describe('workspace library', () => {
     const updated = await importNovelText(base, 'test_novel.txt', file)
 
     expect(updated.importReport?.chapterCount).toBe(10)
+    expect(updated.importReport?.extractionStatus).toBe('llm_succeeded')
+    expect(updated.importReport?.preview).toContain('LLM semantic extraction: llm_succeeded')
+    expect(updated.importReport?.preview).toContain('generic-writer')
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/projects/gbk-project/import'), expect.objectContaining({ method: 'POST' }))
   })
+
+
+  it('syncProjectsFromBackend reports project-list failure instead of silently using local cache', async () => {
+    saveProjects([{ ...({} as NovelProject), slug: 'stale-local', title: 'Stale Local', description: 'must not be returned as success', createdAt: '2026-01-01T00:00:00.000Z', cards: [], memory: [], chapters: [], simulation: { sessionId: '', round: 0, possessedCharacterId: '', logs: [] }, branches: [] }])
+    fetchMock.mockResolvedValue(new Response('backend unavailable', { status: 500 }))
+
+    await expect(syncProjectsFromBackend()).rejects.toThrow('request failed: 500 /api/projects')
+    expect(loadProjects()).toHaveLength(1)
+  })
+
 })

@@ -30,6 +30,14 @@ pub struct AgentSummary {
     pub skill_count: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentSkillRecord {
+    pub project_slug: String,
+    pub agent_id: String,
+    pub file_name: String,
+    pub body: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateAgentAssetRequest {
     pub soul: String,
@@ -110,6 +118,32 @@ impl AgentAssetService {
         })
     }
 
+    pub async fn get_skill(
+        &self,
+        project_slug: &str,
+        agent_id: &str,
+        file_name: &str,
+    ) -> Result<AgentSkillRecord, AgentAssetError> {
+        validate_project_slug(project_slug)?;
+        validate_agent_id(agent_id)?;
+        validate_skill_file_name(file_name)?;
+        ensure_project_exists(self.storage.as_ref(), project_slug).await?;
+        self.ensure_agent(project_slug, agent_id).await?;
+        let path = agent_root(project_slug, agent_id)
+            .join(SKILLS_DIR)
+            .join(file_name);
+        if !self.storage.exists(&path).await? {
+            return Err(AgentAssetError::NotFound(file_name.to_string()));
+        }
+        let body = self.storage.read_text(&path).await?;
+        Ok(AgentSkillRecord {
+            project_slug: project_slug.to_string(),
+            agent_id: agent_id.to_string(),
+            file_name: file_name.to_string(),
+            body,
+        })
+    }
+
     pub async fn upsert_skill(
         &self,
         project_slug: &str,
@@ -118,14 +152,7 @@ impl AgentAssetService {
     ) -> Result<AgentAssetRecord, AgentAssetError> {
         validate_project_slug(project_slug)?;
         validate_agent_id(agent_id)?;
-        validate_segment(&request.file_name)
-            .map_err(|_| AgentAssetError::InvalidAgentId(request.file_name.clone()))?;
-        if !Path::new(&request.file_name)
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
-        {
-            return Err(AgentAssetError::InvalidAgentId(request.file_name));
-        }
+        validate_skill_file_name(&request.file_name)?;
         ensure_project_exists(self.storage.as_ref(), project_slug).await?;
         self.ensure_agent(project_slug, agent_id).await?;
         self.storage
@@ -147,8 +174,7 @@ impl AgentAssetService {
     ) -> Result<AgentAssetRecord, AgentAssetError> {
         validate_project_slug(project_slug)?;
         validate_agent_id(agent_id)?;
-        validate_segment(file_name)
-            .map_err(|_| AgentAssetError::InvalidAgentId(file_name.to_string()))?;
+        validate_skill_file_name(file_name)?;
         ensure_project_exists(self.storage.as_ref(), project_slug).await?;
         self.ensure_agent(project_slug, agent_id).await?;
         self.storage
@@ -257,6 +283,19 @@ fn file_name_string(path: &Path) -> Result<String, AgentAssetError> {
         .ok_or_else(|| AgentAssetError::InvalidAgentId(path.display().to_string()))
 }
 
+fn validate_skill_file_name(file_name: &str) -> Result<(), AgentAssetError> {
+    validate_segment(file_name)
+        .map_err(|_| AgentAssetError::InvalidAgentId(file_name.to_string()))?;
+    if Path::new(file_name)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+    {
+        Ok(())
+    } else {
+        Err(AgentAssetError::InvalidAgentId(file_name.to_string()))
+    }
+}
+
 fn validate_project_slug(slug: &str) -> Result<(), AgentAssetError> {
     validate_segment(slug).map_err(|_| AgentAssetError::InvalidProjectSlug(slug.to_string()))?;
     if !slug.chars().all(|character| {
@@ -308,7 +347,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{AgentAssetService, UpdateAgentAssetRequest};
+    use super::{AgentAssetService, UpdateAgentAssetRequest, UpsertAgentSkillRequest};
     use crate::{
         cards::{CardKind, CardService, CreateCardRequest},
         project::{CreateProjectRequest, ProjectService},
@@ -354,6 +393,42 @@ mod tests {
             .await
             .expect("aria should load");
         assert!(aria.soul.contains("# aria"));
+    }
+
+    #[tokio::test]
+    async fn get_skill_reads_actual_skill_body() {
+        let temp = tempdir().expect("tempdir should exist");
+        let storage = Arc::new(Storage::new(temp.path().to_path_buf()));
+        let projects = ProjectService::new(Arc::clone(&storage));
+        let agents = AgentAssetService::new(Arc::clone(&storage));
+
+        projects
+            .create(CreateProjectRequest {
+                slug: "agent-project".to_string(),
+                title: "Agent Project".to_string(),
+                description: "agent assets".to_string(),
+            })
+            .await
+            .expect("project create should succeed");
+        agents
+            .upsert_skill(
+                "agent-project",
+                "kp",
+                UpsertAgentSkillRequest {
+                    file_name: "kp-adjudicate.md".to_string(),
+                    body: "---\nintent: kp_adjudicate\ntarget: simulation/logs\n---\n# KP"
+                        .to_string(),
+                },
+            )
+            .await
+            .expect("skill should save");
+
+        let skill = agents
+            .get_skill("agent-project", "kp", "kp-adjudicate.md")
+            .await
+            .expect("skill should load");
+        assert_eq!(skill.file_name, "kp-adjudicate.md");
+        assert!(skill.body.contains("target: simulation/logs"));
     }
 
     #[tokio::test]
