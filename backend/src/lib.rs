@@ -4,6 +4,7 @@ pub mod agent_output;
 pub mod agents;
 pub mod cards;
 pub mod config;
+pub mod external_swarm;
 pub mod import;
 pub mod llm;
 pub mod memory;
@@ -47,6 +48,10 @@ use crate::{
     cards::{CardKind, CardRecord, CardService, CreateCardRequest, UpdateCardRequest},
     config::{
         LlmConfigService, LlmEndpointConfig, LlmRoleConfig, LlmRolesConfig, LlmSettingsError,
+    },
+    external_swarm::{
+        ExternalSwarmError, ExternalSwarmInferenceRequest, ExternalSwarmInferenceResponse,
+        ExternalSwarmService,
     },
     import::{ImportRecord, ImportService, ImportTxtRequest},
     llm::{ChatMessage, LlmApiStyle, LlmError, complete_chat},
@@ -120,6 +125,7 @@ pub struct AppState {
     pub runtime: AgentRuntimeService,
     pub story_graph: StoryGraphService,
     pub story_rag: StoryRagService,
+    pub external_swarm: ExternalSwarmService,
 }
 
 impl AppState {
@@ -138,6 +144,7 @@ impl AppState {
         let runtime = AgentRuntimeService::new(Arc::clone(&storage));
         let story_graph = StoryGraphService::new(Arc::clone(&storage));
         let story_rag = StoryRagService::new(Arc::clone(&storage));
+        let external_swarm = ExternalSwarmService::new(Arc::clone(&storage));
         Self {
             config,
             storage,
@@ -153,6 +160,7 @@ impl AppState {
             runtime,
             story_graph,
             story_rag,
+            external_swarm,
         }
     }
 }
@@ -315,6 +323,14 @@ pub fn app(config: ApplicationConfig) -> Router {
             post(create_interview_handler),
         )
         .route(
+            "/api/external/swarm-inferences",
+            post(create_external_swarm_inference_handler),
+        )
+        .route(
+            "/api/external/swarm-inferences/{inference_id}",
+            get(get_external_swarm_inference_handler),
+        )
+        .route(
             "/api/config/llm-endpoint",
             get(get_llm_endpoint_handler).put(put_llm_endpoint_handler),
         )
@@ -408,6 +424,31 @@ async fn shutdown_signal() {
     }
 
     tracing::info!("shutdown signal received");
+}
+
+async fn create_external_swarm_inference_handler(
+    State(state): State<AppState>,
+    Json(body): Json<ExternalSwarmInferenceRequest>,
+) -> Result<Json<ExternalSwarmInferenceResponse>, AppError> {
+    let response = state
+        .external_swarm
+        .create_or_get(body)
+        .await
+        .map_err(map_external_swarm_error)?;
+    Ok(Json(response))
+}
+
+async fn get_external_swarm_inference_handler(
+    State(state): State<AppState>,
+    AxumPath(inference_id): AxumPath<String>,
+) -> Result<Json<ExternalSwarmInferenceResponse>, AppError> {
+    let response = state
+        .external_swarm
+        .get(&inference_id)
+        .await
+        .map_err(map_external_swarm_error)?
+        .ok_or(AppError::NotFound)?;
+    Ok(Json(response))
 }
 
 async fn get_llm_endpoint_handler(
@@ -1950,6 +1991,22 @@ fn parse_report_kind(value: &str) -> Result<ReportKind, AppError> {
     }
 }
 
+fn map_external_swarm_error(error: ExternalSwarmError) -> AppError {
+    match error {
+        ExternalSwarmError::InvalidRequest(message) => AppError::BadRequest(message),
+        ExternalSwarmError::Project(error) => match error {
+            crate::project::ProjectError::NotFound(_) => AppError::NotFound,
+            crate::project::ProjectError::AlreadyExists(slug) => {
+                AppError::Conflict(format!("project already exists: {slug}"))
+            }
+            crate::project::ProjectError::InvalidSlug(slug) => AppError::BadRequest(slug),
+            crate::project::ProjectError::Storage(_) => AppError::Internal,
+        },
+        ExternalSwarmError::Simulation(error) => map_simulation_error(error),
+        ExternalSwarmError::Storage(_) => AppError::Internal,
+    }
+}
+
 fn map_report_error(error: crate::report::ReportError) -> AppError {
     match error {
         crate::report::ReportError::ProjectNotFound(_)
@@ -2603,6 +2660,72 @@ Original
         assert_eq!(payload["provider"], "local-test-provider");
         assert_eq!(payload["model"], crate::config::DEFAULT_LLM_MODEL);
         assert_eq!(payload["api_style"], "OpenAiChatCompletions");
+    }
+
+    #[tokio::test]
+    async fn external_swarm_inference_route_persists_and_reads_manifest() {
+        let temp = tempdir().expect("tempdir should exist");
+        let router = app(ApplicationConfig {
+            server: super::ServerConfig::default(),
+            data_dir: temp.path().to_path_buf(),
+        });
+
+        let body = serde_json::json!({
+            "client_request_id": "http-route-001",
+            "domain": "market-impact",
+            "title": "HTTP external inference",
+            "summary": "Route-level generic inference smoke.",
+            "items": [
+                {"id":"item-1","title":"Headline 1","content":"Real caller-provided content 1.","source":"test"},
+                {"id":"item-2","title":"Headline 2","content":"Real caller-provided content 2.","source":"test"},
+                {"id":"item-3","title":"Headline 3","content":"Real caller-provided content 3.","source":"test"},
+                {"id":"item-4","title":"Headline 4","content":"Real caller-provided content 4.","source":"test"},
+                {"id":"item-5","title":"Headline 5","content":"Real caller-provided content 5.","source":"test"}
+            ],
+            "questions": ["What impact is plausible?"],
+            "rounds": 1
+        });
+
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/external/swarm-inferences")
+                    .header(axum::http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body.to_string()))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        assert_eq!(response.status(), StatusCode::OK);
+        let response_body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body should collect");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&response_body).expect("response should be json");
+        assert_eq!(payload["item_count"], 5);
+        let inference_id = payload["inference_id"]
+            .as_str()
+            .expect("inference id should be a string");
+        assert!(
+            payload["artifact_paths"]["input_items"]
+                .as_array()
+                .is_some_and(|items| items.len() == 5),
+            "five input artifacts should be cited"
+        );
+
+        let read_response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/external/swarm-inferences/{inference_id}"))
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        assert_eq!(read_response.status(), StatusCode::OK);
     }
 
     #[test]
