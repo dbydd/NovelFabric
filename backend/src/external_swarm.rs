@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
+    config::{LlmConfigService, LlmSettingsError},
+    llm::{ChatMessage, LlmError, complete_chat},
     project::{CreateProjectRequest, ProjectError, ProjectService},
     simulation::{
         AdvanceRoundRequest, CharacterAction, CreateCharacterRequest, CreateSessionRequest,
@@ -26,6 +28,8 @@ pub struct ExternalSwarmInferenceRequest {
     pub summary: String,
     pub items: Vec<ExternalSwarmItem>,
     pub questions: Vec<String>,
+    #[serde(default)]
+    pub context: Option<ExternalSwarmContext>,
     #[serde(default = "default_rounds")]
     pub rounds: u32,
 }
@@ -42,6 +46,44 @@ pub struct ExternalSwarmItem {
     pub metadata: BTreeMap<String, serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct ExternalSwarmContext {
+    #[serde(default)]
+    pub entity_cards: Vec<ExternalEntityCard>,
+    pub background: Option<String>,
+    pub worldview: Option<String>,
+    #[serde(default)]
+    pub research_notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExternalEntityCard {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    pub summary: String,
+    #[serde(default)]
+    pub evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExternalContextRequirement {
+    pub key: String,
+    pub label: String,
+    pub question: String,
+    pub required: bool,
+    pub suggested_sources: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExternalContextRequirementsResponse {
+    pub domain: String,
+    pub title: String,
+    pub requirements: Vec<ExternalContextRequirement>,
+    pub missing_required_keys: Vec<String>,
+    pub is_ready: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExternalSwarmInferenceResponse {
     pub inference_id: String,
@@ -53,6 +95,8 @@ pub struct ExternalSwarmInferenceResponse {
     pub item_count: usize,
     pub artifact_paths: ExternalSwarmArtifacts,
     pub summary_markdown: String,
+    pub context_requirements: ExternalContextRequirementsResponse,
+    pub role_reasoning: Vec<ExternalRoleReasoning>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -62,6 +106,17 @@ pub struct ExternalSwarmArtifacts {
     pub input_items: Vec<String>,
     pub session: String,
     pub swarm_rounds: Vec<String>,
+    pub context: Option<String>,
+    pub role_reasoning: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExternalRoleReasoning {
+    pub role: String,
+    pub model: Option<String>,
+    pub status: String,
+    pub output_path: String,
+    pub summary: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -87,6 +142,10 @@ pub enum ExternalSwarmError {
     #[error(transparent)]
     Simulation(#[from] SimulationError),
     #[error(transparent)]
+    LlmSettings(#[from] LlmSettingsError),
+    #[error(transparent)]
+    Llm(#[from] LlmError),
+    #[error(transparent)]
     Storage(#[from] StorageError),
 }
 
@@ -100,6 +159,7 @@ impl ExternalSwarmService {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub async fn create_or_get(
         &self,
         request: ExternalSwarmInferenceRequest,
@@ -113,8 +173,26 @@ impl ExternalSwarmService {
         let project_slug = format!("external-{}", slugify(&request.domain));
         self.ensure_project(&project_slug, &request).await?;
 
+        let context_requirements = analyze_context_requirements(&request);
         let item_artifacts = self
             .write_input_items(&project_slug, &inference_id, &request.items)
+            .await?;
+        let context_path = self
+            .write_context_artifact(
+                &project_slug,
+                &inference_id,
+                &request,
+                &context_requirements,
+            )
+            .await?;
+        let role_reasoning = self
+            .run_role_reasoning(
+                &project_slug,
+                &inference_id,
+                &request,
+                &item_artifacts,
+                &context_requirements,
+            )
             .await?;
         let session_id = inference_id.clone();
         let characters = build_characters(&request, &item_artifacts);
@@ -173,8 +251,15 @@ impl ExternalSwarmService {
                     .collect(),
                 session: session_path,
                 swarm_rounds,
+                context: Some(context_path),
+                role_reasoning: role_reasoning
+                    .iter()
+                    .map(|reasoning| reasoning.output_path.clone())
+                    .collect(),
             },
             summary_markdown,
+            context_requirements,
+            role_reasoning,
         };
         let manifest = ExternalSwarmManifest {
             response: response.clone(),
@@ -228,6 +313,88 @@ impl ExternalSwarmService {
         }
     }
 
+    async fn write_context_artifact(
+        &self,
+        project_slug: &str,
+        inference_id: &str,
+        request: &ExternalSwarmInferenceRequest,
+        requirements: &ExternalContextRequirementsResponse,
+    ) -> Result<String, ExternalSwarmError> {
+        let path = project_context_path(project_slug, inference_id);
+        self.storage
+            .write_text(
+                Path::new(&path),
+                &render_context_markdown(request, requirements),
+            )
+            .await?;
+        Ok(path)
+    }
+
+    async fn run_role_reasoning(
+        &self,
+        project_slug: &str,
+        inference_id: &str,
+        request: &ExternalSwarmInferenceRequest,
+        artifacts: &[InputArtifact],
+        requirements: &ExternalContextRequirementsResponse,
+    ) -> Result<Vec<ExternalRoleReasoning>, ExternalSwarmError> {
+        let roles = [
+            "entity-analyst",
+            "world-context-analyst",
+            "impact-analyst",
+            "risk-auditor",
+        ];
+        let llm_config = LlmConfigService::new(Arc::clone(&self.storage))
+            .load_resolved("external-swarm")
+            .await?;
+        let mut outputs = Vec::with_capacity(roles.len());
+        for role in roles {
+            let output = match &llm_config {
+                Some(config) => {
+                    let model = Some(config.model.clone());
+                    match complete_chat(
+                        config,
+                        role_messages(role, request, artifacts, requirements),
+                    )
+                    .await
+                    {
+                        Ok(text) => (model, "llm_succeeded".to_string(), text),
+                        Err(error) => (
+                            model,
+                            "llm_failed_fallback".to_string(),
+                            fallback_role_reasoning(
+                                role,
+                                request,
+                                artifacts,
+                                requirements,
+                                Some(&error.to_string()),
+                            ),
+                        ),
+                    }
+                }
+                None => (
+                    None,
+                    "llm_not_configured_fallback".to_string(),
+                    fallback_role_reasoning(role, request, artifacts, requirements, None),
+                ),
+            };
+            let output_path = project_role_reasoning_path(project_slug, inference_id, role);
+            let body =
+                render_role_reasoning_markdown(role, output.0.as_deref(), &output.1, &output.2);
+            self.storage
+                .write_text(Path::new(&output_path), &body)
+                .await?;
+            outputs.push(ExternalRoleReasoning {
+                role: role.to_string(),
+                model: output.0,
+                status: output.1,
+                output_path,
+                summary: output.2,
+            });
+        }
+        Ok(outputs)
+    }
+
     async fn write_input_items(
         &self,
         project_slug: &str,
@@ -258,6 +425,70 @@ struct InputArtifact {
     path: String,
     title: String,
     content: String,
+}
+
+#[must_use]
+pub fn analyze_context_requirements(
+    request: &ExternalSwarmInferenceRequest,
+) -> ExternalContextRequirementsResponse {
+    let context = request.context.as_ref();
+    let has_entity_cards = context.is_some_and(|ctx| !ctx.entity_cards.is_empty());
+    let has_background = context
+        .and_then(|ctx| ctx.background.as_deref())
+        .is_some_and(|value| !value.trim().is_empty());
+    let has_worldview = context
+        .and_then(|ctx| ctx.worldview.as_deref())
+        .is_some_and(|value| !value.trim().is_empty());
+    let has_research_notes = context.is_some_and(|ctx| !ctx.research_notes.is_empty());
+    let mut requirements = vec![
+        ExternalContextRequirement {
+            key: "entity_cards".to_string(),
+            label: "人物/公司/组织卡".to_string(),
+            question: "请提供这次推演涉及的公司、人物、组织或资产卡：它是谁、业务/角色、利益暴露、已知风险、证据来源。".to_string(),
+            required: true,
+            suggested_sources: vec!["OpenAlice market/news tools".to_string(), "company filings or profile tools".to_string()],
+        },
+        ExternalContextRequirement {
+            key: "background".to_string(),
+            label: "背景设定".to_string(),
+            question: "请提供主体 agent 查到的背景设定：为什么这些新闻要放在同一场景里推演、近期上下文、关键因果假设。".to_string(),
+            required: true,
+            suggested_sources: vec!["OpenAlice news archive".to_string(), "market data context".to_string()],
+        },
+        ExternalContextRequirement {
+            key: "worldview".to_string(),
+            label: "世界观/市场机制".to_string(),
+            question: "请提供推演世界观：市场机制、政策/地缘/行业约束、哪些规则在这个场景里必须保持一致。".to_string(),
+            required: false,
+            suggested_sources: vec!["Alice macro/economy tools".to_string(), "agent research notes".to_string()],
+        },
+        ExternalContextRequirement {
+            key: "research_notes".to_string(),
+            label: "主体 agent 研究笔记".to_string(),
+            question: "请提供 Alice 主体 agent 已经整理的研究笔记、疑点、需要 NovelFabric 重点检验的假设。".to_string(),
+            required: false,
+            suggested_sources: vec!["workspace markdown notes".to_string(), "inbox/user instructions".to_string()],
+        },
+    ];
+    requirements.retain(|requirement| match requirement.key.as_str() {
+        "entity_cards" => !has_entity_cards,
+        "background" => !has_background,
+        "worldview" => !has_worldview,
+        "research_notes" => !has_research_notes,
+        _ => true,
+    });
+    let missing_required_keys = requirements
+        .iter()
+        .filter(|requirement| requirement.required)
+        .map(|requirement| requirement.key.clone())
+        .collect::<Vec<_>>();
+    ExternalContextRequirementsResponse {
+        domain: request.domain.clone(),
+        title: request.title.clone(),
+        requirements,
+        is_ready: missing_required_keys.is_empty(),
+        missing_required_keys,
+    }
 }
 
 fn validate_request(request: &ExternalSwarmInferenceRequest) -> Result<(), ExternalSwarmError> {
@@ -353,6 +584,80 @@ fn build_characters(
         .collect()
 }
 
+fn role_messages(
+    role: &str,
+    request: &ExternalSwarmInferenceRequest,
+    artifacts: &[InputArtifact],
+    requirements: &ExternalContextRequirementsResponse,
+) -> Vec<ChatMessage> {
+    vec![
+        ChatMessage {
+            role: "system".to_string(),
+            content: format!(
+                "You are NovelFabric role `{role}`. Think as a constrained text agent. Cite artifact paths. Separate evidence from speculation. Return concise markdown."
+            ),
+        },
+        ChatMessage {
+            role: "user".to_string(),
+            content: render_reasoning_prompt(role, request, artifacts, requirements),
+        },
+    ]
+}
+
+fn render_reasoning_prompt(
+    role: &str,
+    request: &ExternalSwarmInferenceRequest,
+    artifacts: &[InputArtifact],
+    requirements: &ExternalContextRequirementsResponse,
+) -> String {
+    format!(
+        "# Scenario\nDomain: {}\nTitle: {}\nSummary: {}\n\n# Role\n{}\n\n# Questions\n{}\n\n# Context\n{}\n\n# Missing context requests\n{}\n\n# Source artifacts\n{}\n",
+        request.domain,
+        request.title,
+        request.summary,
+        role,
+        request.questions.join("\n- "),
+        render_context_block(request.context.as_ref()),
+        requirements
+            .requirements
+            .iter()
+            .map(|requirement| format!("- {}: {}", requirement.key, requirement.question))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        artifacts
+            .iter()
+            .map(|artifact| format!("- {}: {}", artifact.path, artifact.title))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
+fn fallback_role_reasoning(
+    role: &str,
+    request: &ExternalSwarmInferenceRequest,
+    artifacts: &[InputArtifact],
+    requirements: &ExternalContextRequirementsResponse,
+    error: Option<&str>,
+) -> String {
+    let mut text = format!(
+        "# {role} fallback reasoning\n\nLLM role reasoning is unavailable{}; deterministic scaffold reasoning is provided.\n\n",
+        error.map_or(String::new(), |value| format!(" ({value})"))
+    );
+    let _ = writeln!(text, "Scenario: {} / {}", request.domain, request.title);
+    let _ = writeln!(text, "Items considered: {}", artifacts.len());
+    if !requirements.is_ready {
+        text.push_str("\n## Ask Alice for more context\n");
+        for requirement in &requirements.requirements {
+            let _ = writeln!(text, "- {}: {}", requirement.label, requirement.question);
+        }
+    }
+    text.push_str("\n## Evidence artifacts\n");
+    for artifact in artifacts {
+        let _ = writeln!(text, "- `{}` — {}", artifact.path, artifact.title);
+    }
+    text
+}
+
 fn build_character_actions(
     request: &ExternalSwarmInferenceRequest,
     artifacts: &[InputArtifact],
@@ -403,6 +708,80 @@ fn build_system_directives(
     ])
 }
 
+fn render_context_block(context: Option<&ExternalSwarmContext>) -> String {
+    let Some(context) = context else {
+        return "No caller-provided context yet.".to_string();
+    };
+    let mut text = String::new();
+    if !context.entity_cards.is_empty() {
+        text.push_str("## Entity cards\n");
+        for card in &context.entity_cards {
+            let _ = writeln!(
+                text,
+                "- {} ({}, id={}): {} Evidence: {}",
+                card.name,
+                card.kind,
+                card.id,
+                card.summary,
+                card.evidence.join(", ")
+            );
+        }
+    }
+    if let Some(background) = &context.background {
+        let _ = writeln!(text, "\n## Background\n{background}");
+    }
+    if let Some(worldview) = &context.worldview {
+        let _ = writeln!(text, "\n## Worldview\n{worldview}");
+    }
+    if !context.research_notes.is_empty() {
+        text.push_str("\n## Research notes\n");
+        for note in &context.research_notes {
+            let _ = writeln!(text, "- {note}");
+        }
+    }
+    if text.trim().is_empty() {
+        "No caller-provided context yet.".to_string()
+    } else {
+        text
+    }
+}
+
+fn render_context_markdown(
+    request: &ExternalSwarmInferenceRequest,
+    requirements: &ExternalContextRequirementsResponse,
+) -> String {
+    let mut text = format!(
+        "# External inference context\n\n- Domain: `{}`\n- Title: {}\n- Ready: {}\n\n",
+        request.domain, request.title, requirements.is_ready
+    );
+    text.push_str("## Provided context\n\n");
+    text.push_str(&render_context_block(request.context.as_ref()));
+    if !requirements.requirements.is_empty() {
+        text.push_str("\n## Context NovelFabric asks Alice to provide\n");
+        for requirement in &requirements.requirements {
+            let _ = writeln!(
+                text,
+                "- **{}** (`{}`): {}",
+                requirement.label, requirement.key, requirement.question
+            );
+        }
+    }
+    text
+}
+
+fn render_role_reasoning_markdown(
+    role: &str,
+    model: Option<&str>,
+    status: &str,
+    output: &str,
+) -> String {
+    format!(
+        "# Role reasoning: {role}\n\n- Status: `{status}`\n- Model: `{}`\n\n{}\n",
+        model.unwrap_or("n/a"),
+        output
+    )
+}
+
 fn render_item_markdown(index: usize, item: &ExternalSwarmItem) -> String {
     let metadata =
         serde_json::to_string_pretty(&item.metadata).unwrap_or_else(|_| "{}".to_string());
@@ -441,6 +820,18 @@ fn render_report(
     for artifact in artifacts {
         let _ = writeln!(report, "- `{}` — {}", artifact.path, artifact.title);
     }
+    report.push_str("\n## Context status\n\n");
+    let requirements = analyze_context_requirements(request);
+    if requirements.is_ready {
+        report.push_str("Provided context satisfies required NovelFabric context gates.\n");
+    } else {
+        report.push_str(
+            "NovelFabric asked Alice for more context before/while running this inference:\n",
+        );
+        for requirement in &requirements.requirements {
+            let _ = writeln!(report, "- {}: {}", requirement.label, requirement.question);
+        }
+    }
     report.push_str("\n## Swarm rounds\n\n");
     for path in swarm_rounds {
         let _ = writeln!(report, "- `{path}`");
@@ -466,6 +857,14 @@ fn project_manifest_path(project_slug: &str, inference_id: &str) -> String {
 
 fn project_report_path(project_slug: &str, inference_id: &str) -> String {
     format!("{PROJECTS_DIR}/{project_slug}/external/reports/{inference_id}.md")
+}
+
+fn project_context_path(project_slug: &str, inference_id: &str) -> String {
+    format!("{PROJECTS_DIR}/{project_slug}/external/context/{inference_id}.md")
+}
+
+fn project_role_reasoning_path(project_slug: &str, inference_id: &str, role: &str) -> String {
+    format!("{PROJECTS_DIR}/{project_slug}/external/role-reasoning/{inference_id}/{role}.md")
 }
 
 fn project_session_path(project_slug: &str, session_id: &str) -> String {
@@ -610,6 +1009,7 @@ mod tests {
                 "What impacts are plausible?".to_string(),
                 "What uncertainty remains?".to_string(),
             ],
+            context: None,
             rounds: 1,
         }
     }

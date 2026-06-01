@@ -3,12 +3,14 @@ use serde_json::{Value, json};
 
 use crate::external_swarm::{
     ExternalSwarmError, ExternalSwarmInferenceRequest, ExternalSwarmService,
+    analyze_context_requirements,
 };
 
 const JSONRPC_VERSION: &str = "2.0";
 const SERVER_NAME: &str = "novelfabric";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const TOOL_EXTERNAL_SWARM_INFER: &str = "external_swarm_infer";
+const TOOL_EXTERNAL_SWARM_REQUIREMENTS: &str = "external_swarm_require_context";
 const TOOL_EXTERNAL_SWARM_GET: &str = "external_swarm_get";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -110,6 +112,17 @@ async fn handle_tools_call(
                 }
             }
         }
+        TOOL_EXTERNAL_SWARM_REQUIREMENTS => {
+            match serde_json::from_value::<ExternalSwarmInferenceRequest>(arguments) {
+                Ok(inference_request) => ok_response(
+                    id,
+                    tool_result(&json!(analyze_context_requirements(&inference_request))),
+                ),
+                Err(error) => {
+                    error_response(id, -32_602, format!("invalid tool arguments: {error}"))
+                }
+            }
+        }
         TOOL_EXTERNAL_SWARM_GET => {
             let inference_id = arguments
                 .get("inference_id")
@@ -153,6 +166,11 @@ fn tools_list_result() -> Value {
             {
                 "name": TOOL_EXTERNAL_SWARM_INFER,
                 "description": "Run NovelFabric's generic external StorySwarm inference over caller-provided source items. This is a generic tool; callers express business meaning through domain, items, questions, and metadata.",
+                "inputSchema": external_swarm_infer_schema()
+            },
+            {
+                "name": TOOL_EXTERNAL_SWARM_REQUIREMENTS,
+                "description": "Inspect a proposed external swarm inference request and ask the caller for missing entity cards, background, worldview, or research notes before inference.",
                 "inputSchema": external_swarm_infer_schema()
             },
             {
@@ -273,7 +291,37 @@ mod tests {
             .map(|tool| tool["name"].as_str().unwrap_or_default().to_string())
             .collect::<Vec<_>>();
         assert!(tools.contains(&TOOL_EXTERNAL_SWARM_INFER.to_string()));
+        assert!(tools.contains(&TOOL_EXTERNAL_SWARM_REQUIREMENTS.to_string()));
         assert!(tools.contains(&TOOL_EXTERNAL_SWARM_GET.to_string()));
+    }
+
+    #[tokio::test]
+    async fn tools_call_returns_context_requirements() {
+        let temp = tempdir().expect("tempdir should exist");
+        let service = ExternalSwarmService::new(Arc::new(Storage::new(temp.path().to_path_buf())));
+        let mut request = sample_request();
+        request.context = None;
+        let arguments = serde_json::to_value(request).expect("request serializes");
+        let response = handle_json_rpc(
+            &service,
+            json!({
+                "jsonrpc":"2.0",
+                "id":"ctx-1",
+                "method":"tools/call",
+                "params": {"name": TOOL_EXTERNAL_SWARM_REQUIREMENTS, "arguments": arguments}
+            }),
+        )
+        .await
+        .expect("tools/call should respond");
+        let result = response.result.expect("result should exist");
+        assert_eq!(result["structuredContent"]["is_ready"], false);
+        assert!(
+            result["structuredContent"]["missing_required_keys"]
+                .as_array()
+                .expect("missing keys should be array")
+                .iter()
+                .any(|value| value == "entity_cards")
+        );
     }
 
     #[tokio::test]
@@ -323,6 +371,7 @@ mod tests {
                 })
                 .collect(),
             questions: vec!["What changes?".to_string()],
+            context: None,
             rounds: 1,
         }
     }

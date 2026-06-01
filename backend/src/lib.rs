@@ -2016,7 +2016,9 @@ fn map_external_swarm_error(error: ExternalSwarmError) -> AppError {
             crate::project::ProjectError::Storage(_) => AppError::Internal,
         },
         ExternalSwarmError::Simulation(error) => map_simulation_error(error),
-        ExternalSwarmError::Storage(_) => AppError::Internal,
+        ExternalSwarmError::LlmSettings(_)
+        | ExternalSwarmError::Llm(_)
+        | ExternalSwarmError::Storage(_) => AppError::Internal,
     }
 }
 
