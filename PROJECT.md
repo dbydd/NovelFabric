@@ -12,6 +12,7 @@ NovelFabric v1 is a web-based LLM-assisted literary creation platform built with
 - StoryGraph / StoryRAG constraints: `docs/architecture/story-graph-rag.md`
 - StorySwarm / ReportAgent constraints: `docs/architecture/story-swarm-runtime.md`
 - Story systems implementation roadmap: `docs/architecture/implementation-roadmap-story-systems.md`
+- Generic external swarm API boundary: `docs/architecture/external-swarm-api.md`
 - v3 usability repair plan: `docs/architecture/v3-usability-plan.md`
 - Canonical fixture for import and browser acceptance: `test_novel.txt`
 
@@ -66,6 +67,9 @@ data/projects/{project-slug}/
 ├─ history/
 └─ .git/
 ```
+
+## External integration boundary
+External callers use NovelFabric through generic HTTP APIs, scripts, and skills. They must not import backend code or write directly into the data directory. External source material is accepted as caller-provided text/JSON, persisted under the target project, and then processed by StoryRAG / StorySwarm / ReportAgent.
 
 ## Definition of done
 A phase is complete only when:
