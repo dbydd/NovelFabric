@@ -306,17 +306,22 @@ const fn default_rounds() -> u32 {
 }
 
 fn build_inference_id(request: &ExternalSwarmInferenceRequest) -> String {
-    let seed = request
-        .client_request_id
-        .as_deref()
-        .unwrap_or(&request.title);
-    let slug = slugify(seed);
-    let hash = stable_hash(&format!(
-        "{}:{}:{}",
-        request.domain,
-        seed,
-        request.items.len()
-    ));
+    if let Some(client_request_id) = request.client_request_id.as_deref() {
+        let slug = slugify(client_request_id);
+        let hash = stable_hash(&format!("{}:{client_request_id}", request.domain));
+        return format!("external-{slug}-{hash:08x}");
+    }
+
+    let slug = slugify(&request.title);
+    let request_fingerprint = serde_json::to_string(request).unwrap_or_else(|_| {
+        format!(
+            "{}:{}:{}",
+            request.domain,
+            request.title,
+            request.items.len()
+        )
+    });
+    let hash = stable_hash(&request_fingerprint);
     format!("external-{slug}-{hash:08x}")
 }
 
@@ -511,9 +516,24 @@ fn preview(value: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn build_inference_id_differs_without_client_request_id() {
+        let mut first = sample_request(5);
+        first.client_request_id = None;
+        first.title = "Daily market brief A".to_string();
+        first.summary = "Summary A".to_string();
+        let mut second = first.clone();
+        second.summary = "Summary B".to_string();
+        second.items[0].content = "Different body".to_string();
+
+        assert_ne!(build_inference_id(&first), build_inference_id(&second));
+    }
 
     #[tokio::test]
     async fn creates_text_first_inference_and_is_idempotent() {
