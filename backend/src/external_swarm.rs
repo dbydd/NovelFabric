@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt::Write as _, hash::Hasher, path::Path, sync::Arc};
+use std::{collections::BTreeMap, fmt::Write as _, path::Path, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -321,9 +321,12 @@ fn build_inference_id(request: &ExternalSwarmInferenceRequest) -> String {
 }
 
 fn stable_hash(value: &str) -> u64 {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    hasher.write(value.as_bytes());
-    hasher.finish()
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 fn build_characters(
