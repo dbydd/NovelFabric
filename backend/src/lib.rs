@@ -7,6 +7,7 @@ pub mod config;
 pub mod external_swarm;
 pub mod import;
 pub mod llm;
+pub mod mcp;
 pub mod memory;
 pub mod project;
 pub mod report;
@@ -55,6 +56,7 @@ use crate::{
     },
     import::{ImportRecord, ImportService, ImportTxtRequest},
     llm::{ChatMessage, LlmApiStyle, LlmError, complete_chat},
+    mcp::handle_json_rpc,
     memory::{
         CreateMemoryEntryRequest, MemoryEntry, MemoryEntrySummary, MemoryScope, MemoryService,
         UpdateMemoryEntryRequest,
@@ -182,6 +184,7 @@ pub fn app(config: ApplicationConfig) -> Router {
 
     Router::new()
         .route("/health", get(health_handler))
+        .route("/mcp", post(mcp_handler))
         .route(
             "/api/projects",
             get(list_projects_handler).post(create_project_handler),
@@ -424,6 +427,16 @@ async fn shutdown_signal() {
     }
 
     tracing::info!("shutdown signal received");
+}
+
+async fn mcp_handler(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Response, AppError> {
+    Ok(match handle_json_rpc(&state.external_swarm, body).await {
+        Some(response) => Json(response).into_response(),
+        None => StatusCode::ACCEPTED.into_response(),
+    })
 }
 
 async fn create_external_swarm_inference_handler(
@@ -2660,6 +2673,38 @@ Original
         assert_eq!(payload["provider"], "local-test-provider");
         assert_eq!(payload["model"], crate::config::DEFAULT_LLM_MODEL);
         assert_eq!(payload["api_style"], "OpenAiChatCompletions");
+    }
+
+    #[tokio::test]
+    async fn mcp_route_lists_tools() {
+        let temp = tempdir().expect("tempdir should exist");
+        let router = app(ApplicationConfig {
+            server: super::ServerConfig::default(),
+            data_dir: temp.path().to_path_buf(),
+        });
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/mcp")
+                    .header(axum::http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+                    ))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body should collect");
+        let payload: serde_json::Value = serde_json::from_slice(&body).expect("json payload");
+        assert_eq!(
+            payload["result"]["tools"][0]["name"],
+            "external_swarm_infer"
+        );
     }
 
     #[tokio::test]
