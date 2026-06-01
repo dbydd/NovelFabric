@@ -13,6 +13,7 @@ NovelFabric v1 is a web-based LLM-assisted literary creation platform built with
 - StorySwarm / ReportAgent constraints: `docs/architecture/story-swarm-runtime.md`
 - Story systems implementation roadmap: `docs/architecture/implementation-roadmap-story-systems.md`
 - Generic external swarm API boundary: `docs/architecture/external-swarm-api.md`
+- Remote MCP tool boundary for external swarm: `docs/architecture/external-swarm-mcp.md`
 - v3 usability repair plan: `docs/architecture/v3-usability-plan.md`
 - Canonical fixture for import and browser acceptance: `test_novel.txt`
 

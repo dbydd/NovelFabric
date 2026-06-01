@@ -86,7 +86,7 @@ NovelFabric 对 MiroFish 的吸收，不叫“把 MiroFish 接进来”，而叫
 StoryGraph → StoryRAG → StorySwarm → ReportAgent → optional external adapters
 ```
 
-外部 adapter 的默认形态是通用 HTTP / 脚本 / skill 边界，不是把某个上游系统的代码耦合进 NovelFabric。外部事件、新闻、事故、研究材料等输入应先落为 NovelFabric 项目内文本/结构化文件，再进入 StoryRAG / StorySwarm / ReportAgent；接口命名保持 caller-neutral（例如 `external swarm inference`），具体业务语义通过 `domain`、items、questions 和 metadata 表达。
+外部 adapter 的默认形态是通用 MCP / HTTP / 脚本 / skill 边界，不是把某个上游系统的代码耦合进 NovelFabric。面向 agent 的调用优先走 remote MCP 工具（例如 `external_swarm_infer`），避免让 agent 直接调裸 `/api/*`；外部事件、新闻、事故、研究材料等输入应先落为 NovelFabric 项目内文本/结构化文件，再进入 StoryRAG / StorySwarm / ReportAgent；接口命名保持 caller-neutral（例如 `external swarm inference`），具体业务语义通过 `domain`、items、questions 和 metadata 表达。
 
 ## 5. 后续开发必须遵守的模块边界
 
