@@ -1,8 +1,8 @@
 # NovelFabric V4 Workspace-Style Backend Plan
 
-> Status: V4 planning draft. No runtime code has been implemented in `backend_v2` yet.
+> Status: V4 construction active. `backend_v2` now contains the first TypeScript CLI foundation.
 >
-> Scope: redesign NovelFabric so a project can be directly taken over by pi / Hermes style agents. The backend becomes a set of small Rust CLI primitives plus a thin optional web bridge, while character reasoning and scheduling move to external agents and skills.
+> Scope: redesign NovelFabric so a project can be directly taken over by pi / Hermes style agents. The backend becomes a set of small TypeScript CLI primitives plus a thin optional web bridge, while character reasoning and scheduling move to external agents and skills.
 
 ## 1. V4 Direction
 
@@ -19,6 +19,8 @@ V4 target direction:
 ```text
 pi / Hermes / web pi SDK agent -> NovelFabric skills -> small NovelFabric CLI tools -> text-first workspace files
 ```
+
+The V4 backend is implemented in TypeScript under `backend_v2/`. Older Rust planning language in this document is historical migration context and should be interpreted as shared-service/CLI intent, not as an instruction to add Cargo crates in `backend_v2`.
 
 The backend no longer owns character intelligence, role scheduling, model routing, or provider health checks. It owns the things a writing workspace needs to be safe and repeatable:
 
@@ -167,7 +169,7 @@ The current `backend/` tree already contains most domain concepts, but they are 
 
 ## 5. Functions To Split Into Minimal CLI Units
 
-V4 should initialize `backend_v2` as a Rust workspace with one shared library and one preferred user-facing `novelfabric` binary. Use capability-scoped subcommands rather than many unrelated binaries; subcommands should stay thin wrappers over shared Rust services. Skill-facing verbs should be coarse and stable so skill contracts do not become brittle.
+V4 initializes `backend_v2` as a TypeScript workspace with one shared service layer and one preferred user-facing `novelfabric` CLI entry. Use capability-scoped subcommands rather than many unrelated binaries; subcommands should stay thin wrappers over shared TypeScript services. Skill-facing verbs should be coarse and stable so skill contracts do not become brittle.
 
 ### 5.1 Workspace and Template Management
 
@@ -742,22 +744,26 @@ Verification:
 - files exist under `backend_v2`
 - document explicitly lists split functions, deprecated paths, and phases
 
-### Phase V4.1 - Rust Workspace Skeleton
+### Phase V4.1 - TypeScript Workspace Skeleton
 
 Deliverables:
 
-- `backend_v2/Cargo.toml`
-- shared crate for config/storage/path validation
-- root `novelfabric` CLI with `--help`, `config path`, `workspace doctor`
-- XDG config loading where config file wins and env is fallback-only
-- initial capability manifest parser and deny-by-default role-agent policy model
+- `backend_v2/package.json`, `package-lock.json`, `tsconfig.json`, `tsconfig.build.json`, and strict lint/test configuration
+- shared TypeScript services for config resolution, safe path validation, and workspace layout inspection
+- root `novelfabric` CLI with `config path`, `config print`, `workspace print-layout`, and `workspace doctor`
+- XDG/HOME config root resolution to `~/.config/novelfabric` by default, with `XDG_CONFIG_HOME` support and explicit failure when neither path source is present
+- fixture-backed workspace layout doctor and CLI JSON envelope tests
 
 Verification:
 
 ```bash
-cargo fmt --manifest-path backend_v2/Cargo.toml --all --check
-cargo test --manifest-path backend_v2/Cargo.toml -q
-cargo clippy --manifest-path backend_v2/Cargo.toml --all-targets -- -D warnings
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run format:check
+HOME=/Users/dbydd XDG_CONFIG_HOME= npm run cli -- config path --json
+npm run cli -- workspace doctor --path fixtures/workspaces/valid-basic --json
 ```
 
 ### Phase V4.2 - Project and Safe File CLI
@@ -880,9 +886,9 @@ Verification:
 
 After this planning stage is accepted, move development into `backend_v2/` and start Phase V4.1:
 
-1. Initialize Rust crate/workspace.
-2. Port and simplify `storage.rs` and app config.
-3. Implement `novelfabric config path`, `novelfabric config print`, and `novelfabric workspace doctor`.
-4. Add tests for XDG config precedence and env fallback behavior.
+1. Continue from the TypeScript CLI foundation already committed in `backend_v2`.
+2. Port deterministic storage/path/config behavior into shared TypeScript services.
+3. Extend the existing `novelfabric config path`, `config print`, `workspace print-layout`, and `workspace doctor` commands toward project creation and protected file primitives.
+4. Keep tests aligned with XDG config precedence, env fallback behavior, JSON envelopes, path safety, and workspace layout validation.
 
-Until then, this directory contains planning artifacts only.
+This directory is no longer planning-only; it contains active TypeScript V4 runtime code.

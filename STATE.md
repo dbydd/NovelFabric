@@ -1,10 +1,10 @@
 # STATE
 
 ## Current phase
-Phase 27 — v3 usability: LLM/provider error reporting narrow slice active
+Phase 28 — V4 TypeScript backend workspace foundation active
 
 ## Current cycle
-research → plan → execute → validate
+contract sync → TypeScript CLI foundation → clean-context tests → review hardening → verifier acceptance
 
 ## Verified findings
 - `test_novel.txt` is GBK/GB18030 encoded; browser upload path preserves raw file bytes and backend GBK fallback normalizes to UTF-8 without visible乱码.
@@ -30,11 +30,16 @@ research → plan → execute → validate
 - Generic external swarm inference API is available at `/api/external/swarm-inferences`, persists caller-provided items as text artifacts, advances StorySwarm over HTTP without caller code coupling, and was verified from an OpenAlice workspace harness with five real OpenAlice news-framework items on 2026-06-01.
 
 ## Current implementation status
-- Backend tests cover GBK fixture import, LLM-required import failure behavior, invalid LLM import schema reporting, rich LLM success schema parsing/rendering, project deletion, split LLM endpoint/role config persistence, role-specific healthcheck default-model fallback, provider status/timeout healthcheck classification, StoryGraph artifacts with edges, skill body reads, structured skill invocation evidence serialization, legacy swarm JSON compatibility, invalid skill frontmatter warning evidence, and generic external swarm inference creation/readback.
+- `backend_v2/` has entered V4 TypeScript construction. It now contains a Volta-managed npm workspace, strict TypeScript config, ESLint/type-aware linting, Vitest, a `novelfabric` CLI entry, config root resolution, safe path validation, canonical workspace layout data, workspace doctor, and fixture-backed tests.
+- `backend_v2` CLI currently supports `config path`, `config print`, `workspace print-layout`, and `workspace doctor`, with JSON envelopes and default config root resolution to `~/.config/novelfabric` via HOME or `$XDG_CONFIG_HOME/novelfabric` when XDG is present.
+- Existing legacy backend tests still cover GBK fixture import, LLM-required import failure behavior, invalid LLM import schema reporting, rich LLM success schema parsing/rendering, project deletion, split LLM endpoint/role config persistence, role-specific healthcheck default-model fallback, provider status/timeout healthcheck classification, StoryGraph artifacts with edges, skill body reads, structured skill invocation evidence serialization, legacy swarm JSON compatibility, invalid skill frontmatter warning evidence, and generic external swarm inference creation/readback.
 - Frontend exposes project deletion, card deletion, memory deletion, skill body read/upsert/delete, split LLM endpoint/default/role override settings, per-role LLM healthcheck feedback, import extraction status/message/model, GraphRAG visualization, skill invocation evidence in Simulation, numeric N-round simulation, and writing-page text export.
 - Browser-only acceptance specs are verified through Playwright Chromium using real UI interactions only; API-assisted fullstack coverage is labelled separately and is not counted as browser-only acceptance evidence.
 
 ## Global quality gates
+- `backend_v2` V4 TypeScript gates pass: `npm run typecheck`, `npm run lint`, `npm test` (4 files / 26 tests), `npm run build`, and `npm run format:check`.
+- `backend_v2` CLI smoke passes: `HOME=/Users/dbydd XDG_CONFIG_HOME= npm run cli -- config path --json` reports `/Users/dbydd/.config/novelfabric`; `npm run cli -- workspace doctor --path fixtures/workspaces/valid-basic --json` reports `valid: true`, `presentCount: 24`, `missingCount: 0`.
+- `backend_v2` phase commits exist for contract update, TS initialization, CLI foundation, tests, review hardening, acceptance wording hardening, and doc sync.
 - `HOME=/Users/dbydd CARGO_HOME=/Users/dbydd/.cargo RUSTC=/opt/homebrew/bin/rustc RUSTDOC=/opt/homebrew/bin/rustdoc /opt/homebrew/bin/cargo test --manifest-path backend/Cargo.toml -q` passes: 69 tests.
 - `HOME=/Users/dbydd CARGO_HOME=/Users/dbydd/.cargo RUSTC=/opt/homebrew/bin/rustc RUSTDOC=/opt/homebrew/bin/rustdoc /opt/homebrew/bin/cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings` passes.
 - `npm run test:unit -- --run` passes: 9 files / 27 tests.
@@ -49,8 +54,10 @@ research → plan → execute → validate
 - Full frontend unit tests now pass in this environment; keep running `npm run test:unit -- --run` before changing frontend test configuration.
 
 ## Next actions
-1. Continue LLM/provider error reporting hardening with deeper invalid-schema diagnostics and practical browser timeout coverage if the provider/client behavior can make it deterministic without slowing the suite.
-2. Keep `npm run test:e2e:fullstack` green when changing fullstack specs or shared LLM config behavior.
+1. Continue V4 TypeScript backend construction from `backend_v2`: project create/list/inspect/validate and protected file primitives should build on the existing config/path/workspace services.
+2. Keep `backend_v2` strict gates green: `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, and `npm run format:check`.
+3. Preserve old external swarm HTTP/MCP compatibility while V4 TypeScript services grow equivalent coverage.
+4. Keep `npm run test:e2e:fullstack` green when changing legacy fullstack specs or shared LLM config behavior.
 
 ## V3 Goal 1 accepted — LLM healthcheck and visible settings feedback
 - Current status: accepted after full-access browser verification on 2026-05-27.

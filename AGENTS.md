@@ -11,7 +11,7 @@ NovelFabric 是一个**文本优先**的小说创作与推演平台。
 
 V4 的方向不是继续扩大旧后端 agent runtime，而是：
 
-- Rust 后端产物先在 `backend_v2/` 下重新规划与实现
+- V4 后端产物先在 `backend_v2/` 下按 TypeScript 重新规划与实现；旧 Rust 后端只作为迁移输入
 - Vue 前端保留，但网页端的 agent 操作应转向 pi agent SDK / 本地 agent bridge
 - 一切项目内可变资源继续基于文本文件
 - 角色调度、角色推理、KP/世界维护/项目审核等智能工作移交给外部 agent + skill
@@ -46,7 +46,8 @@ V4 的方向不是继续扩大旧后端 agent runtime，而是：
 
 ### 3.1 架构约束
 
-- 后端必须保持 Rust 主导，不把 NovelFabric 主后端改造成 Python 拼装壳。
+- V4 `backend_v2/` 新实现必须使用 TypeScript；不得新增 Rust crate/Cargo workspace 作为 V4 后端主线。
+- 旧 `backend/` Rust 能力是迁移输入，未被 V4 TypeScript CLI/bridge 覆盖前不要破坏其兼容面。
 - 前后端分离保持不变。
 - NovelFabric 主架构必须继续遵守“文本优先、文件优先、可审计”。
 - 不允许把核心项目状态藏进不可追踪的黑盒数据库作为唯一真相源。
@@ -110,7 +111,7 @@ V4 的方向不是继续扩大旧后端 agent runtime，而是：
 - `POST /api/external/swarm-inferences`、`GET /api/external/swarm-inferences/{inference_id}`、`POST /mcp` 下的 `external_swarm_infer` / `external_swarm_require_context` / `external_swarm_get` 是 V4 冻结兼容面。
 - 不允许在 V4 重构中破坏 external swarm 的请求字段、响应字段、artifact path 语义、idempotency 行为、MCP `structuredContent` 形状；需要新增能力时采用 additive fields 或新 endpoint/tool name。
 - 兼容性必须有 golden fixture / serializer / HTTP / MCP 单元测试覆盖，至少包含 Hermes / TraderAlice 舆情或市场影响推演风格的请求。
-- V4 CLI 形态优先采用一个 `novelfabric` 主二进制与少数稳定子命令；子命令只是入口，权限、路径保护、审计必须在共享 Rust 服务层执行。
+- V4 CLI 形态优先采用一个 `novelfabric` 主入口与少数稳定子命令；子命令只是入口，权限、路径保护、审计必须在共享 TypeScript 服务层执行。
 - skill -> tool 调用必须经过显式 capability manifest，而不是靠 skill 自觉或靠命令名猜权限。
 - 主 agent 默认拥有项目管理、知识库管理、集群推演/session 管理、报告生成、模板物化等管理能力。
 - 角色 subagent 默认只拥有受限上下文读取、自己的记忆 recall、行动草案、记忆更新 proposal 等能力；不得直接管理项目、重建全局知识库、运行 external swarm、写其它角色私有记忆或改关键资产。
@@ -218,7 +219,7 @@ ReportAgent 不是普通摘要器。
 
 1. 改了哪些文档 / 文件
 2. 数据结构或 API 是否已落盘
-3. `cargo fmt` / `clippy` / `test` 证据（若涉及 Rust 代码）
+3. V4 TypeScript 代码需提供 `npm run typecheck` / `npm run lint` / `npm test` / `npm run build` 证据；旧 Rust 代码变更才需要 cargo/clippy 证据
 4. 若只是设计文档阶段，要明确写清尚未实现的边界
 
 ## 8. 文档维护规则

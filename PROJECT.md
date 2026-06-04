@@ -19,23 +19,22 @@ NovelFabric v1 is a web-based LLM-assisted literary creation platform built with
 
 ## Locked architectural decisions
 - Frontend/backend separated web architecture.
-- Backend implemented in Rust.
+- V4 backend construction under `backend_v2/` is TypeScript. The existing Rust backend is legacy migration input until V4 coverage replaces it.
 - Frontend implemented in Vue.
 - All mutable project resources persisted as text files on disk.
 - Backend-first delivery.
-- No `unsafe` in application code.
-- Clippy warnings/errors must be zero.
-- Final acceptance must be browser-only via Playwright.
+- No unchecked type-system escape hatches in new TypeScript backend code (`any`, `unknown`, wildcard types, lint suppressions, or unchecked casts).
+- TypeScript backend gates (`npm run typecheck`, `npm run lint`, `npm test`, `npm run build`) must be clean for V4 work.
+- Final acceptance must be browser-only via Playwright when browser/UI behavior is in scope.
 
 ## Recommended stacks
 ### Backend
-- axum 0.8.x
-- tokio
-- serde + serde_json
-- tower-http
-- thiserror
-- tracing + tracing-subscriber
-- cargo-chef for Docker build caching
+- TypeScript for V4 `backend_v2/`
+- Volta-managed Node/npm
+- commander for CLI entry points
+- zod for schema validation at dynamic boundaries
+- vitest for tests
+- eslint + typescript-eslint + prettier for diagnostics
 
 ### Frontend
 - Vue 3

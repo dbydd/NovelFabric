@@ -1,8 +1,8 @@
 # NovelFabric V4 工作区风格后端规划案
 
-> 状态：V4 规划草案。`backend_v2` 目前尚未实现运行时代码。
+> 状态：V4 已进入实际构建。`backend_v2` 目前包含第一阶段 TypeScript CLI foundation。
 >
-> 范围：把 NovelFabric 改造成可以被 pi / Hermes 这类 agent 直接接管的文本工作区。后端收缩为一组小型 Rust CLI 原语和可选的薄 Web bridge；人物推理、人物调度、KP/世界维护/项目审核等智能工作移交给外部 agent 与 skill。
+> 范围：把 NovelFabric 改造成可以被 pi / Hermes 这类 agent 直接接管的文本工作区。后端收缩为一组小型 TypeScript CLI 原语和可选的薄 Web bridge；人物推理、人物调度、KP/世界维护/项目审核等智能工作移交给外部 agent 与 skill。
 
 ## 1. V4 总方向
 
@@ -19,6 +19,8 @@ V4 目标路线：
 ```text
 pi / Hermes / Web pi SDK agent -> NovelFabric skills -> 小型 NovelFabric CLI 工具 -> 文本优先工作区文件
 ```
+
+V4 后端在 `backend_v2/` 下使用 TypeScript 实现。本文旧有 Rust 表述属于历史迁移语境，应理解为共享 service / CLI 原语意图，不再作为在 `backend_v2` 新增 Cargo crate 的指令。
 
 后端不再拥有以下职责：
 
@@ -710,25 +712,30 @@ V4 后端废弃：
 - `backend_v2/novelfabric_v2backend_workspace_style_backend.zh.md`
 - 尚未实现运行时代码
 
-### V4.1 Rust workspace skeleton
+### V4.1 TypeScript workspace skeleton
 
 目标：
 
-- `backend_v2/Cargo.toml`
-- shared config/storage/path validation crate
+- `backend_v2/package.json`、`package-lock.json`、`tsconfig.json`、`tsconfig.build.json` 与严格 lint/test 配置
+- shared config / safe path / workspace layout TypeScript services
 - root `novelfabric` CLI
 - `config path`
 - `config print`
+- `workspace print-layout`
 - `workspace doctor`
-- XDG config 优先，env fallback
-- 初版 capability manifest parser 与角色 agent deny-by-default policy model
+- 默认解析 `~/.config/novelfabric`，支持 `XDG_CONFIG_HOME`，缺少 HOME/XDG 时显式失败
+- fixture-backed workspace doctor 与 CLI JSON envelope 测试
 
 验证：
 
 ```bash
-cargo fmt --manifest-path backend_v2/Cargo.toml --all --check
-cargo test --manifest-path backend_v2/Cargo.toml -q
-cargo clippy --manifest-path backend_v2/Cargo.toml --all-targets -- -D warnings
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run format:check
+HOME=/Users/dbydd XDG_CONFIG_HOME= npm run cli -- config path --json
+npm run cli -- workspace doctor --path fixtures/workspaces/valid-basic --json
 ```
 
 ### V4.2 Project + safe file CLI
@@ -821,9 +828,9 @@ cargo clippy --manifest-path backend_v2/Cargo.toml --all-targets -- -D warnings
 
 规划阶段接受后，正式进入 `backend_v2/` 开发：
 
-1. 初始化 Rust crate/workspace。
-2. 迁移并简化 `storage.rs` 与 app config。
-3. 实现 `novelfabric config path`、`novelfabric config print`、`novelfabric workspace doctor`。
-4. 增加 XDG config precedence 与 env fallback 测试。
+1. 从已经提交的 TypeScript CLI foundation 继续推进。
+2. 将确定性的 storage / path / config 行为迁入共享 TypeScript services。
+3. 在现有 `novelfabric config path`、`config print`、`workspace print-layout`、`workspace doctor` 基础上扩展 project create 与 protected file primitives。
+4. 持续补充 XDG config precedence、env fallback、JSON envelope、路径安全、workspace layout validation 测试。
 
-在此之前，`backend_v2` 只包含规划与 agent handoff 文档。
+`backend_v2` 已不再是纯规划目录；它包含 V4 TypeScript runtime code。
