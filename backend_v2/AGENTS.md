@@ -77,7 +77,7 @@ V4 should absorb the proven workspace patterns from OpenAlice, autogal/RPG-Harne
 - Use planning, review, and verification subagents for multi-step implementation. The parent agent may implement code, but clean-context subagents should verify the behavior against this file and the V4 planning documents.
 - Code-related tests should be designed or reviewed by a clean-context testing subagent before final acceptance. Do not rely on the same implementation pass to self-certify behavior.
 - Continue hardening while reviewer or verifier agents identify actionable usability, correctness, typing, or contract issues.
-- Avoid the phrase `minimal viable` and do not treat a thin skeleton as acceptable if known improvements remain for the current phase.
+- Do not use wording that implies a barely-usable target, and do not treat a thin skeleton as acceptable if known improvements remain for the current phase.
 
 ## 8. Verification Expectations
 
