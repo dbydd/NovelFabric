@@ -7,10 +7,10 @@
     "novelfabric": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
-    "format:check": "prettier --check package.json tsconfig.json eslint.config.js src/**/*.ts",
+    "format:check": "prettier --check package.json tsconfig.json tsconfig.build.json eslint.config.js vitest.config.ts src/**/*.ts test/**/*.ts",
     "test": "vitest run --passWithNoTests",
     "cli": "tsx src/cli.ts"
   },
