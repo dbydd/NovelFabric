@@ -36,7 +36,10 @@ try {
     writeJson({ ok: false, error: { code: "unexpected_error", message: error.message } });
     process.exitCode = 1;
   } else {
-    writeJson({ ok: false, error: { code: "unexpected_non_error", message: "Unexpected non-error throw." } });
+    writeJson({
+      ok: false,
+      error: { code: "unexpected_non_error", message: "Unexpected non-error throw." }
+    });
     process.exitCode = 1;
   }
 }

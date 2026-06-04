@@ -68,5 +68,9 @@ async function inspectEntry(rootPath: string, entry: LayoutEntry): Promise<Layou
 }
 
 function isNodeFileMissingError(error: Error): error is Error & { readonly code: "ENOENT" } {
-  return "code" in error && error.code === "ENOENT";
+  return hasStringCode(error) && error.code === "ENOENT";
+}
+
+function hasStringCode(error: Error): error is Error & { readonly code: string } {
+  return "code" in error && typeof error.code === "string";
 }
