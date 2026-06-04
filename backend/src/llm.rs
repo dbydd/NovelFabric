@@ -106,7 +106,7 @@ pub enum LlmError {
     EmptyChoice,
 }
 
-const LLM_REQUEST_TIMEOUT_SECS: u64 = 3;
+const LLM_REQUEST_TIMEOUT_SECS: u64 = 60;
 
 pub async fn complete_chat(
     config: &LlmConfig,
