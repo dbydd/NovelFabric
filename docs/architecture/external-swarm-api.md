@@ -43,6 +43,20 @@ Request shape:
     "What impacts are plausible?",
     "Which uncertainties should be monitored?"
   ],
+  "context": {
+    "entity_cards": [
+      {
+        "id": "entity-aapl",
+        "kind": "company",
+        "name": "Example Corp",
+        "summary": "Caller-provided entity card summary.",
+        "evidence": ["source-item-id"]
+      }
+    ],
+    "background": "Caller-provided scenario background.",
+    "worldview": "Market, policy, social, or domain mechanisms that should constrain inference.",
+    "research_notes": ["Caller-side hypotheses or uncertainties."]
+  },
   "rounds": 1
 }
 ```
@@ -52,9 +66,10 @@ Validation:
 - `domain`, `title`, `summary`, at least one `item`, and at least one `question` are required.
 - `rounds` defaults to `1` and is capped by the backend service limit.
 - Item `metadata` is arbitrary JSON and is persisted as caller-provided context.
+- `context` is optional but recommended. When missing required context, the response includes `context_requirements` asking the caller for entity cards or background before trusting the inference.
 - The request must contain real caller-provided source items; the backend does not fabricate fallback items.
 
-Response shape:
+Response shape (v1 compatibility contract):
 
 ```json
 {
@@ -70,11 +85,39 @@ Response shape:
     "report": "projects/.../external/reports/....md",
     "input_items": ["projects/.../external/items/...md"],
     "session": "projects/.../simulation/sessions/....json",
-    "swarm_rounds": ["projects/.../simulation/swarm/.../round-0001.json"]
+    "swarm_rounds": ["projects/.../simulation/swarm/.../round-0001.json"],
+    "context": "projects/.../external/context/....md",
+    "role_reasoning": ["projects/.../external/role-reasoning/.../entity-analyst.md"]
   },
-  "summary_markdown": "# ..."
+  "summary_markdown": "# ...",
+  "context_requirements": {
+    "domain": "market-impact",
+    "title": "Scenario title",
+    "requirements": [
+      {
+        "key": "entity_cards",
+        "label": "人物/公司/组织卡",
+        "question": "Please provide entity cards...",
+        "required": true,
+        "suggested_sources": ["OpenAlice market/news tools"]
+      }
+    ],
+    "missing_required_keys": ["entity_cards"],
+    "is_ready": false
+  },
+  "role_reasoning": [
+    {
+      "role": "entity-analyst",
+      "model": null,
+      "status": "llm_not_configured_fallback",
+      "output_path": "projects/.../external/role-reasoning/.../entity-analyst.md",
+      "summary": "# entity-analyst fallback reasoning..."
+    }
+  ]
 }
 ```
+
+Compatibility note: `context_requirements`, `role_reasoning`, `artifact_paths.context`, and `artifact_paths.role_reasoning` are part of the current v1 response shape and must not be removed in V4.
 
 ### `GET /api/external/swarm-inferences/{inference_id}`
 
@@ -87,9 +130,11 @@ For a request with `domain = market-impact`, NovelFabric creates/reuses project 
 ```text
 projects/external-market-impact/
 ├─ external/
+│  ├─ context/<inference-id>.md
 │  ├─ items/<inference-id>/<item-id>.md
 │  ├─ inferences/<inference-id>.json
-│  └─ reports/<inference-id>.md
+│  ├─ reports/<inference-id>.md
+│  └─ role-reasoning/<inference-id>/*.md
 ├─ memory/global/external/<inference-id>/entries/*.md
 ├─ simulation/sessions/<session-id>.json
 ├─ simulation/logs/<session-id>.md
@@ -109,9 +154,30 @@ The service maps a batch of external items to a short deterministic StorySwarm s
 
 This mapping is a generic inference adapter. Application-specific interpretation belongs in the caller's `domain`, item metadata, questions, and downstream report reading.
 
+## Compatibility and tests
+
+This API is already consumed by local agent profiles, including Hermes/OpenAlice/TraderAlice-style workflows for market, sentiment, public-opinion, and external-event inference. V4 must preserve this v1 shape even if the internal implementation moves from the old backend service to `backend_v2` shared services or CLI-backed adapters.
+
+Compatibility rules:
+
+- Do not remove or rename request fields, response fields, artifact path fields, or MCP tool names.
+- Do not change `client_request_id` idempotency behavior.
+- Do not change the meaning of `project_slug`, `session_id`, or `artifact_paths` values.
+- Additive fields are allowed if old clients can ignore them.
+- Breaking changes require a new endpoint/tool version and migration notes.
+
+Required test coverage before replacing internals:
+
+- golden JSON fixture for a Hermes/TraderAlice-style request and response
+- serializer test for the full `ExternalSwarmInferenceResponse`
+- HTTP `POST /api/external/swarm-inferences` shape test
+- HTTP `GET /api/external/swarm-inferences/{inference_id}` shape test
+- artifact path tests for manifest/report/items/session/swarm rounds/context/role reasoning
+- MCP parity tests in `docs/architecture/external-swarm-mcp.md`
+
 ## Idempotency and audit
 
-If `client_request_id` is provided, the service derives a stable inference id from it. Reposting the same `client_request_id` returns the existing manifest instead of creating a duplicate run. The manifest records request metadata, item artifact paths, session id, completed rounds, and report path so callers can audit or replay the run.
+If `client_request_id` is provided, the service derives a stable inference id from it. Reposting the same `client_request_id` returns the existing manifest instead of creating a duplicate run. The manifest records request metadata, item artifact paths, context requirement output, role reasoning output paths, session id, completed rounds, and report path so callers can audit or replay the run. Reused runs must keep the same response shape and artifact path semantics.
 
 ## Example clients
 

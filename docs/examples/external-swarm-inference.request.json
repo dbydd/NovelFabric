@@ -20,5 +20,21 @@
     "What impacts are plausible from these source items?",
     "Which uncertainties should be monitored before acting?"
   ],
+  "context": {
+    "entity_cards": [
+      {
+        "id": "entity-example",
+        "kind": "company",
+        "name": "Example Entity",
+        "summary": "Caller-provided entity profile used to ground the inference.",
+        "evidence": ["source-system-item-id"]
+      }
+    ],
+    "background": "Caller-provided background explaining why these items belong in one scenario.",
+    "worldview": "Caller-provided market, policy, social, or domain mechanisms that should constrain inference.",
+    "research_notes": [
+      "Caller-side hypothesis or uncertainty that NovelFabric should inspect."
+    ]
+  },
   "rounds": 1
 }

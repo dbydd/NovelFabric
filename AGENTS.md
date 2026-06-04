@@ -7,13 +7,18 @@
 
 NovelFabric 是一个**文本优先**的小说创作与推演平台。
 
-当前主线不是去“拼一个外部多 Agent 演示系统”，而是继续把 **NovelFabric v2** 做成：
+当前主线已经进入 **NovelFabric V4**：把 NovelFabric 适配成可以被 pi / Hermes 这类 agent 直接接管的文本工作区。
 
-- Rust 后端
-- Vue 前端
-- 一切项目内可变资源基于文本文件
-- 角色 agent 运行在**受限 runtime**中，而不是完整 shell agent
-- 推演、记忆、时间线、文书、审计都要可落盘、可回滚、可复盘
+V4 的方向不是继续扩大旧后端 agent runtime，而是：
+
+- Rust 后端产物先在 `backend_v2/` 下重新规划与实现
+- Vue 前端保留，但网页端的 agent 操作应转向 pi agent SDK / 本地 agent bridge
+- 一切项目内可变资源继续基于文本文件
+- 角色调度、角色推理、KP/世界维护/项目审核等智能工作移交给外部 agent + skill
+- 文件管理、导入、推演状态机、检索、报告等后端能力拆成最小 CLI 可执行单元
+- 工作区模板、技能模板、默认配置放到 XDG 配置目录，默认 `~/.config/novelfabric`
+- 环境变量配置降级为缺失配置项的 fallback 或显式自动化 override
+- 推演、记忆、时间线、文书、审计仍必须可落盘、可回滚、可复盘
 
 ## 2. 最高优先级文档读取顺序
 
@@ -31,8 +36,11 @@ NovelFabric 是一个**文本优先**的小说创作与推演平台。
 | 8 | `docs/architecture/story-swarm-runtime.md` | StorySwarm / ReportAgent 轮次、结构化输出、一致性检查 | simulation / swarm / report / interview 任务 |
 | 9 | `docs/architecture/implementation-roadmap-story-systems.md` | 文件级实现路线图、milestone、测试命令 | 实现 StoryGraph/RAG/Swarm/ReportAgent 时 |
 | 10 | `docs/architecture/v3-usability-plan.md` | v3 可用性阶段入口：LLM 拆书、LLM 健康检查、技能卡调用证据、按钮反馈 | v3 / usability / 拆书 / LLM / provider / model / skill invocation 任务 |
+| 11 | `backend_v2/AGENTS.md` | V4 后端工作区本地约束 | V4 / backend_v2 / CLI / workspace 任务 |
+| 12 | `backend_v2/novelfabric_v2backend_workspace_style_backend.md` | V4 workspace-style backend 规划案 | V4 架构/实现任务 |
+| 13 | `backend_v2/novelfabric_v2backend_workspace_style_backend.zh.md` | V4 规划案中文版 | V4 架构/实现任务 |
 
-如果任务与 MiroFish 融合、群体智能、RAG、推演增强、报告 agent 有关，**第 6-9 份文档必读**。如果任务与 v3 可用性、LLM 拆书、provider/model 配置、技能卡调用证据或按钮反馈有关，**第 10 份文档必读**。不要假设可以靠搜索补齐这些约束。
+如果任务与 MiroFish 融合、群体智能、RAG、推演增强、报告 agent 有关，**第 6-9 份文档必读**。如果任务与 v3 可用性、LLM 拆书、provider/model 配置、技能卡调用证据或按钮反馈有关，**第 10 份文档必读**。如果任务与 V4、pi/Hermes 工作区化、CLI 拆分、XDG 模板配置、backend_v2 有关，**第 11-13 份文档必读**。不要假设可以靠搜索补齐这些约束。
 
 ## 3. 项目级硬约束
 
@@ -44,12 +52,15 @@ NovelFabric 是一个**文本优先**的小说创作与推演平台。
 - 不允许把核心项目状态藏进不可追踪的黑盒数据库作为唯一真相源。
 - 即使引入索引/向量/图，也只能作为**派生索引**；源事实仍需落文本或结构化可审计文件。
 
-### 3.2 agent 约束
+### 3.2 agent / workspace 约束
 
-- v2 agent 是**受限文本智能体**，不是完整系统代理。
-- 不默认给 agent shell / 进程 / 任意网络 / 任意路径权限。
-- agent 能力主线保持：`read` / `glob` / `patch/write` / 结构化输出。
+- V4 中，NovelFabric 项目本身必须成为 pi / Hermes 可直接接管的 agent workspace。
+- 小说角色、KP、世界维护、项目审核、作者、审稿等智能调度不再由后端 LLM runtime 拥有，而由外部 agent 通过 skill 执行。
+- NovelFabric 提供给 agent 的能力主线保持：`read` / `glob` / `patch/write` / context-pack / validate / report。
+- 不默认给 NovelFabric 管理的角色资产隐式 shell / 任意网络 / 任意路径权限；即使外部 agent 有系统能力，也必须通过 NovelFabric CLI 原语写入项目事实。
 - 关键资产必须有保护：`soul.md`、`memory.md`、核心卡片、关键时间点记忆。
+- 后端 LLM provider 适配、role model config、healthcheck 在 V4 中视为旧路径，不继续扩展为主线。
+- 集群推演 / external swarm inference 是已有外部依赖面，不等同于旧 LLM adapter；V4 必须保持其 HTTP/MCP API 兼容。
 
 ### 3.3 融合 MiroFish 的边界
 
@@ -70,6 +81,40 @@ NovelFabric 是一个**文本优先**的小说创作与推演平台。
 - `MiroFish` 为 AGPL-3.0。
 - 默认策略：**只借鉴架构，不直接复制实现代码。**
 - 如需做兼容层，应优先作为可选 adapter / 外部进程集成，而不是内嵌主链路。
+
+### 3.5 V4 workspace 参考项目吸收边界
+
+用户明确认可并要求参考这些已跑通的 workspace 模式：
+
+- `github.com/TraderAlice/OpenAlice`
+- `github.com/luokerenx4/autogal`
+- `github.com/Ame-X/Auto-PPT`
+
+可吸收的共性：
+
+- workspace 是能力边界，新能力优先做模板、skill、外部/卫星工作区，而不是继续膨胀核心后端。
+- 工作区由文件、模板、agent 指令、CLI harness 和验证命令组成，agent 可以直接读懂并操作。
+- 核心引擎保持小而确定，只做状态转移、校验、索引、报告等可复盘原语。
+- 内容/资源采用“一项事实一个文件或少数固定文件”的布局，顺序/可见性/状态由显式配置文件管理。
+- AI/agent 工作流要有 headless CLI 读态、单步执行、测试 fixture、可视/产物验证等闭环。
+- 文档/skill 是 harness 的一部分，改变工作区契约时必须同改对应 AGENTS/SKILL/规划文档。
+
+不可吸收为主线的内容：
+
+- 不把 NovelFabric 改成交易系统、GalGame 引擎或 PPT 工具。
+- 不直接复制参考项目实现代码。
+- 不因为参考 OpenAlice workspace launcher 就把 NovelFabric 核心变成通用 PTY 管理器；NovelFabric 的核心仍是小说文本工作区和安全 CLI 原语。
+
+### 3.6 V4 API 兼容与 tool 鉴权约束
+
+- `POST /api/external/swarm-inferences`、`GET /api/external/swarm-inferences/{inference_id}`、`POST /mcp` 下的 `external_swarm_infer` / `external_swarm_require_context` / `external_swarm_get` 是 V4 冻结兼容面。
+- 不允许在 V4 重构中破坏 external swarm 的请求字段、响应字段、artifact path 语义、idempotency 行为、MCP `structuredContent` 形状；需要新增能力时采用 additive fields 或新 endpoint/tool name。
+- 兼容性必须有 golden fixture / serializer / HTTP / MCP 单元测试覆盖，至少包含 Hermes / TraderAlice 舆情或市场影响推演风格的请求。
+- V4 CLI 形态优先采用一个 `novelfabric` 主二进制与少数稳定子命令；子命令只是入口，权限、路径保护、审计必须在共享 Rust 服务层执行。
+- skill -> tool 调用必须经过显式 capability manifest，而不是靠 skill 自觉或靠命令名猜权限。
+- 主 agent 默认拥有项目管理、知识库管理、集群推演/session 管理、报告生成、模板物化等管理能力。
+- 角色 subagent 默认只拥有受限上下文读取、自己的记忆 recall、行动草案、记忆更新 proposal 等能力；不得直接管理项目、重建全局知识库、运行 external swarm、写其它角色私有记忆或改关键资产。
+- 工作区内的“回忆/recall”必须按 workspace + actor/profile/card 解析权限，默认只读本角色记忆和被授权的共享记忆；跨 profile 读取必须显式授权并在输出中保留来源路径和 redaction 信息。
 
 ## 4. 当前已确定的融合方向
 
