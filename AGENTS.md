@@ -24,23 +24,25 @@ V4 的方向不是继续扩大旧后端 agent runtime，而是：
 
 进入仓库后，不要自行搜索猜测上下文，按下面的显式索引读：
 
-| 顺序 | 文件 | 用途 | 何时必须读 |
-|---|---|---|---|
-| 1 | `PROJECT.md` | 项目总览、技术栈、source of truth 索引 | 所有任务 |
-| 2 | `PRODUCT_SPEC.md` | 原始产品规格、文本优先与小说创作核心需求 | 所有架构/功能任务 |
-| 3 | `PRODUCT_SPEC_2.md` | v2 agent runtime 收束：受限文本智能体、skill-first、安全一致性 | 所有 agent/runtime/simulation 任务 |
-| 4 | `CODEX_INFO.md` | 当前真实状态、历史坑点、端口/LLM/provider 约束 | 所有继续开发任务 |
-| 5 | `STATE.md` | 当前状态摘要与质量门禁提示 | 所有继续开发任务 |
-| 6 | `docs/architecture/mirofish-fusion-plan.md` | MiroFish 融合边界、模块映射、禁止路线 | MiroFish / RAG / 群体智能 / 报告相关任务 |
-| 7 | `docs/architecture/story-graph-rag.md` | StoryGraph / StoryRAG 数据模型、检索工具、派生索引约束 | graph / rag / knowledge / memory 检索任务 |
-| 8 | `docs/architecture/story-swarm-runtime.md` | StorySwarm / ReportAgent 轮次、结构化输出、一致性检查 | simulation / swarm / report / interview 任务 |
-| 9 | `docs/architecture/implementation-roadmap-story-systems.md` | 文件级实现路线图、milestone、测试命令 | 实现 StoryGraph/RAG/Swarm/ReportAgent 时 |
-| 10 | `docs/architecture/v3-usability-plan.md` | v3 可用性阶段入口：LLM 拆书、LLM 健康检查、技能卡调用证据、按钮反馈 | v3 / usability / 拆书 / LLM / provider / model / skill invocation 任务 |
-| 11 | `novelfabric_v4_mono/AGENTS.md`（改名前为 `backend_v2/AGENTS.md`） | V4 mono app 本地约束 | V4 / mono app / CLI / workspace / web shell 任务 |
-| 12 | `novelfabric_v4_mono/novelfabric_v2backend_workspace_style_backend.md`（改名前为 `backend_v2/...`） | V4 workspace/mono app 规划案 | V4 架构/实现任务 |
-| 13 | `novelfabric_v4_mono/novelfabric_v2backend_workspace_style_backend.zh.md`（改名前为 `backend_v2/...`） | V4 规划案中文版 | V4 架构/实现任务 |
+| 顺序 | 文件                                                                                                   | 用途                                                                | 何时必须读                                                             |
+| ---- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| 1    | `PROJECT.md`                                                                                           | 项目总览、技术栈、source of truth 索引                              | 所有任务                                                               |
+| 2    | `PRODUCT_SPEC.md`                                                                                      | 原始产品规格、文本优先与小说创作核心需求                            | 所有架构/功能任务                                                      |
+| 3    | `PRODUCT_SPEC_2.md`                                                                                    | v2 agent runtime 收束：受限文本智能体、skill-first、安全一致性      | 所有 agent/runtime/simulation 任务                                     |
+| 4    | `CODEX_INFO.md`                                                                                        | 当前真实状态、历史坑点、端口/LLM/provider 约束                      | 所有继续开发任务                                                       |
+| 5    | `STATE.md`                                                                                             | 当前状态摘要与质量门禁提示                                          | 所有继续开发任务                                                       |
+| 6    | `docs/architecture/mirofish-fusion-plan.md`                                                            | MiroFish 融合边界、模块映射、禁止路线                               | MiroFish / RAG / 群体智能 / 报告相关任务                               |
+| 7    | `docs/architecture/story-graph-rag.md`                                                                 | StoryGraph / StoryRAG 数据模型、检索工具、派生索引约束              | graph / rag / knowledge / memory 检索任务                              |
+| 8    | `docs/architecture/story-swarm-runtime.md`                                                             | StorySwarm / ReportAgent 轮次、结构化输出、一致性检查               | simulation / swarm / report / interview 任务                           |
+| 9    | `docs/architecture/implementation-roadmap-story-systems.md`                                            | 文件级实现路线图、milestone、测试命令                               | 实现 StoryGraph/RAG/Swarm/ReportAgent 时                               |
+| 10   | `docs/architecture/v3-usability-plan.md`                                                               | v3 可用性阶段入口：LLM 拆书、LLM 健康检查、技能卡调用证据、按钮反馈 | v3 / usability / 拆书 / LLM / provider / model / skill invocation 任务 |
+| 11   | `novelfabric_v4_mono/AGENTS.md`（改名前为 `backend_v2/AGENTS.md`）                                     | V4 mono app 本地约束                                                | V4 / mono app / CLI / workspace / web shell 任务                       |
+| 12   | `novelfabric_v4_mono/docs/architecture/v4-cli-workspace-harness-plan.md`                               | V4 当前 CLI-first workspace harness 主规划                          | V4 架构/实现任务                                                       |
+| 13   | `novelfabric_v4_mono/docs/architecture/v4-cli-command-contract.md`                                     | V4 当前 CLI 命令契约、capability、错误码                            | V4 CLI / bridge / Web shell 任务                                       |
+| 14   | `novelfabric_v4_mono/novelfabric_v2backend_workspace_style_backend.md`（改名前为 `backend_v2/...`）    | V4 workspace/mono app 历史规划输入                                  | V4 架构/实现任务                                                       |
+| 15   | `novelfabric_v4_mono/novelfabric_v2backend_workspace_style_backend.zh.md`（改名前为 `backend_v2/...`） | V4 历史规划输入中文版                                               | V4 架构/实现任务                                                       |
 
-如果任务与 MiroFish 融合、群体智能、RAG、推演增强、报告 agent 有关，**第 6-9 份文档必读**。如果任务与 v3 可用性、LLM 拆书、provider/model 配置、技能卡调用证据或按钮反馈有关，**第 10 份文档必读**。如果任务与 V4、pi/Hermes 工作区化、CLI 拆分、XDG 模板配置、`novelfabric_v4_mono`（旧称 `backend_v2`）有关，**第 11-13 份文档必读**。不要假设可以靠搜索补齐这些约束。
+如果任务与 MiroFish 融合、群体智能、RAG、推演增强、报告 agent 有关，**第 6-9 份文档必读**。如果任务与 v3 可用性、LLM 拆书、provider/model 配置、技能卡调用证据或按钮反馈有关，**第 10 份文档必读**。如果任务与 V4、pi/Hermes 工作区化、CLI 拆分、XDG 模板配置、`novelfabric_v4_mono`（旧称 `backend_v2`）有关，**第 11-15 份文档必读**，其中第 12-13 份是当前 active 规划，第 14-15 份只作为历史规划输入。不要假设可以靠搜索补齐这些约束。
 
 ## 3. 项目级硬约束
 
