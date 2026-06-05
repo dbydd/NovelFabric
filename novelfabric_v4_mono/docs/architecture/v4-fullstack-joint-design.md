@@ -1,3 +1,5 @@
+> Superseded note (2026-06-05): this document is retained as historical gap-design context. Its custom `src/llm/*` / provider-adapter direction is superseded by `v4-cli-workspace-harness-plan.md` and `v4-cli-command-contract.md`. V4 should use pi agent SDK / external agents for semantic execution and expose NovelFabric capabilities as CLI-first workspace harness commands.
+
 # NovelFabric V4 前后端联合实现设计文档
 
 > 状态：设计阶段文档，尚未实现。基于 2026-06-05 的 gap 分析编写。

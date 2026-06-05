@@ -1,3 +1,5 @@
+> Superseded note (2026-06-05): the gap inventory remains useful, but any "LLM provider" or custom backend-runtime wording should be read as "pi agent SDK / skill-driven agent execution". The active implementation direction is `v4-cli-workspace-harness-plan.md`.
+
 # V4 Real Business Workflow Gap Plan
 
 > Status: next-phase plan after browser workflow acceptance correction. The 10-round Playwright loop verified UI controls, bridge writes, and artifact visibility, but it did **not** prove real NovelFabric business logic because no LLM / agent / external swarm backend performed semantic work.

@@ -1,3 +1,5 @@
+> Correction (2026-06-05): this run is UI/file-persistence acceptance only. It does not count as real business workflow acceptance because no pi/LLM agent performed semantic import, role reasoning, StorySwarm inference, ReportAgent analysis, or chapter drafting.
+
 # Browser Workflow Acceptance — 2026-06-05
 
 ## Scope
