@@ -102,14 +102,29 @@ Port policy:
 
 `web bridge` sets the only workspace and actor the local bridge may use. Browser requests cannot switch to a different workspace or actor.
 
-## 6. Import and Graph Integration
+## 6. Agent Runtime Boundary
+
+The Web shell is for nontechnical users and must not expose raw pi/bash controls. When Web actions need semantic work, the mono app should use the NovelFabric-wrapped pi SDK runtime described in `v4-cli-workspace-harness-plan.md`:
+
+```text
+Web control → bridge → NovelFabric runtime policy → pi SDK session → NovelFabric CLI/custom tools → workspace files + audit
+```
+
+Runtime requirements:
+
+- use NovelFabric-owned pi config paths under `~/.config/novelfabric/pi/` or `$XDG_CONFIG_HOME/novelfabric/pi/`;
+- load NovelFabric-approved extensions such as sandbox/path guard, permission gate, and CLI-only write tools;
+- default-deny unrestricted `bash`, raw `write`, raw `edit`, arbitrary network, and arbitrary path access for Web sessions;
+- show runtime policy, job/task state, evidence, validation errors, and audit paths in the UI.
+
+## 7. Import and Graph Integration
 
 - `imports/source` upload writes to the selected workspace through the bridge when live.
 - Without a bridge, uploaded source text remains an offline buffer and is not written to disk.
 - Successful bridge writes refresh the workspace tree.
 - Cluster graph node editing reuses the same file draft/save pipeline as editor tabs.
 
-## 7. External Swarm Compatibility
+## 8. External Swarm Compatibility
 
 The UI may visualize but must not rename or redefine:
 
@@ -120,7 +135,7 @@ The UI may visualize but must not rename or redefine:
 - `external_swarm_require_context`
 - `external_swarm_get`
 
-## 8. Implementation Files
+## 9. Implementation Files
 
 - `src/web/App.vue` — shell state, file editor, tab UX, graph/chat surfaces.
 - `src/web/styles.css` — Tokyo Night workspace shell styling.
@@ -131,7 +146,7 @@ The UI may visualize but must not rename or redefine:
 - `src/workspace/capabilities.ts` — capability manifest parsing/checks.
 - `src/workspace/protection.ts` — protected path policy.
 
-## 9. Verification
+## 10. Verification
 
 Minimum checks after UI work:
 

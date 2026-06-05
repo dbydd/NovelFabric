@@ -9,6 +9,7 @@ This directory is the V4 mono app direction after being renamed from the old `ba
 - NovelFabric projects must be directly operable by pi / Hermes style coding agents.
 - Character scheduling and role reasoning are no longer owned by the backend runtime.
 - Core responsibilities shrink to text-first workspace management, protected file operations, deterministic simulation/state primitives, reports, indexes, small CLI tools, and optional web surfaces in the same package.
+- The mono app wraps the pi agent SDK as its LLM runtime. For nontechnical Web users, the wrapped runtime must use NovelFabric-owned config paths under `~/.config/novelfabric/pi/`, NovelFabric-controlled extensions (sandbox/path-guard/permission-gate/CLI-only-write-tools), and must default-deny raw `bash`, raw `write`, raw `edit`, arbitrary network, and arbitrary path access.
 - The optional web UI is started explicitly through CLI/web scripts. Durable workspace edits must use the CLI-backed bridge/shared services; any offline buffer mode is for layout review only and must not imply persistence.
 - LLM provider adaptation in the backend is deprecated. CLI users should invoke their own agent client; web users should go through a pi SDK/local bridge that still routes mutations through NovelFabric CLI primitives.
 - Templates and workspace defaults live in the XDG config directory, normally `~/.config/novelfabric`. Environment variables are fallback-only overrides.

@@ -17,7 +17,7 @@ Every command must:
 - write auditable artifacts or audit records for state changes;
 - be safe for pi/Hermes agents to call repeatedly.
 
-Semantic reasoning should be performed by pi agent SDK / external agents using skills and context packs. NovelFabric CLI commands own context preparation, validation, apply, audit, and reporting.
+Semantic reasoning should be performed by the NovelFabric mono app's wrapped pi agent SDK runtime or by external agents using NovelFabric skills and context packs. NovelFabric CLI commands own runtime policy, context preparation, validation, apply, audit, and reporting. For Web users, the wrapped runtime must use NovelFabric-owned pi config/extension paths and must not expose raw dangerous tools such as unrestricted `bash`, `write`, or `edit`.
 
 ## 2. Error Codes
 
@@ -62,6 +62,8 @@ external_swarm.run
 report.render
 report.apply
 chapter.apply
+runtime.manage
+runtime.extension.manage
 agent.task.run
 ```
 
@@ -106,7 +108,29 @@ novelfabric files protect-check --workspace <workspace> --path <path> --actor <a
 
 All mutations require `files.write` or `project.manage`; protected paths require `files.patch_protected`.
 
-## 6. Agent / Skill Commands
+## 6. Runtime Config / Extension Commands
+
+```bash
+novelfabric runtime doctor --json
+novelfabric runtime config path --json
+novelfabric runtime config inspect --json
+novelfabric runtime materialize --actor main_agent --json
+novelfabric runtime extensions list --json
+novelfabric runtime extensions validate --json
+novelfabric runtime policy inspect --profile web-safe --json
+```
+
+Runtime commands manage the NovelFabric-owned pi SDK envelope, not a separate LLM provider stack. They resolve configuration under:
+
+```text
+$XDG_CONFIG_HOME/novelfabric/pi/
+# or
+$HOME/.config/novelfabric/pi/
+```
+
+They may materialize bundled settings, prompts, skills, and extensions such as sandbox/path guards, permission gates, and CLI-only write tools. Web-safe policy must default-deny raw `bash`, raw `write`, raw `edit`, arbitrary network, and arbitrary path access.
+
+## 7. Agent / Skill Commands
 
 ```bash
 novelfabric agents list --workspace <workspace> --json
@@ -121,7 +145,7 @@ novelfabric skills validate --workspace <workspace> --json
 
 These commands inspect or materialize text constraints. They do not run LLM reasoning.
 
-## 7. pi Agent SDK Boundary Commands
+## 8. pi Agent SDK Boundary Commands
 
 ```bash
 novelfabric agent task create --workspace <workspace> --kind <kind> --actor <actor> --context-pack <path> --json
@@ -132,7 +156,7 @@ novelfabric agent status --workspace <workspace> --task <task-id> --json
 novelfabric agent abort --workspace <workspace> --task <task-id> --json
 ```
 
-`agent run` uses pi agent SDK. It must not route through a NovelFabric-owned provider adapter. Durable outputs should land as proposals and be applied by domain commands.
+`agent run` uses the NovelFabric-wrapped pi agent SDK runtime. It must not route through a NovelFabric-owned provider adapter. Durable outputs should land as proposals and be applied by domain commands. The command must record runtime config root, enabled extensions, tool policy, actor, task id, session id, and output artifact paths.
 
 Recommended task package:
 
@@ -147,7 +171,7 @@ Recommended task package:
   events.jsonl
 ```
 
-## 8. Import / Chapterize Commands
+## 9. Import / Chapterize Commands
 
 ```bash
 novelfabric import inbox --workspace <workspace> --json
@@ -162,7 +186,7 @@ novelfabric import extraction apply --workspace <workspace> --proposal <path> --
 
 `normalize`, `chunk`, and basic `chapterize` are deterministic. Semantic extraction is produced by pi agent skills and applied through `import extraction apply` or cards commands.
 
-## 9. Cards / Memory Commands
+## 10. Cards / Memory Commands
 
 ```bash
 novelfabric cards list --workspace <workspace> --kind character --json
@@ -179,7 +203,7 @@ novelfabric memory apply-proposal --workspace <workspace> --proposal <path> --ac
 
 Card and memory apply commands must validate citations before writing.
 
-## 10. Knowledge / StoryRAG Commands
+## 11. Knowledge / StoryRAG Commands
 
 ```bash
 novelfabric knowledge sources list --workspace <workspace> --json
@@ -198,7 +222,7 @@ novelfabric context-pack validate --workspace <workspace> --path <path> --json
 
 Indexes under `knowledge/` are derived artifacts and must be rebuildable from source files.
 
-## 11. Simulation / StorySwarm Commands
+## 12. Simulation / StorySwarm Commands
 
 ```bash
 novelfabric simulation session create --workspace <workspace> --objective <text> --timeline main --actor main_agent --json
@@ -223,7 +247,7 @@ characters -> random-event -> world-maintainer -> kp -> project-auditor
 
 The semantic output comes from pi agent skills; CLI validates and applies.
 
-## 12. Report / Writing Commands
+## 13. Report / Writing Commands
 
 ```bash
 novelfabric report task create --workspace <workspace> --session <id> --kind consistency --json
@@ -241,7 +265,7 @@ novelfabric writing export --workspace <workspace> --format markdown --json
 
 `writing draft` creates or invokes a pi agent task. `apply-draft` is deterministic and audited.
 
-## 13. Workflow Wrapper Commands
+## 14. Workflow Wrapper Commands
 
 Workflow commands compose the domain commands above; they must not create a second business runtime.
 
@@ -267,7 +291,7 @@ Recommended job files:
 .novelfabric/jobs/<job-id>/artifacts.json
 ```
 
-## 14. External Swarm Compatibility Commands
+## 15. External Swarm Compatibility Commands
 
 ```bash
 novelfabric external-swarm infer --workspace <workspace> --actor <actor> --request <request.json> --json
@@ -287,7 +311,7 @@ external_swarm_require_context
 external_swarm_get
 ```
 
-## 15. Web Bridge Rule
+## 16. Web Bridge Rule
 
 Web routes should be thin adapters over the same command/service layer. A browser feature is incomplete until its equivalent CLI command exists.
 
@@ -295,9 +319,12 @@ Future bridge groups:
 
 ```text
 /api/bridge/files/*
+/api/bridge/runtime/*
 /api/bridge/workflow/*
 /api/bridge/agent/*
 /api/bridge/context-pack/*
 ```
+
+Web bridge runtime routes must apply the Web-safe pi policy: NovelFabric config root, bundled/approved extensions, actor-bound capabilities, and no raw dangerous tools for nontechnical sessions.
 
 No Web route may write files directly or run semantic generation without pi agent SDK/task evidence.

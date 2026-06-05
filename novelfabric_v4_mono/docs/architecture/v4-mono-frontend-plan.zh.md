@@ -102,14 +102,29 @@ npm run cli -- web bridge --workspace <workspace> --port 50023 --actor main_agen
 
 `web bridge` 启动时固定允许访问的 workspace 与 actor。浏览器请求不能临时切换到其它 workspace 或 actor。
 
-## 6. 导入与图谱落地
+## 6. Agent Runtime 边界
+
+Web shell 面向非技术用户，不得暴露 raw pi/bash 控制。当 Web action 需要语义工作时，mono app 应使用 `v4-cli-workspace-harness-plan.md` 中定义的 NovelFabric-wrapped pi SDK runtime：
+
+```text
+Web control → bridge → NovelFabric runtime policy → pi SDK session → NovelFabric CLI/custom tools → workspace files + audit
+```
+
+Runtime 要求：
+
+- 使用 NovelFabric-owned pi config paths：`~/.config/novelfabric/pi/` 或 `$XDG_CONFIG_HOME/novelfabric/pi/`；
+- 加载 NovelFabric-approved extensions，例如 sandbox/path guard、permission gate、CLI-only write tools；
+- Web session 默认 deny unrestricted `bash`、raw `write`、raw `edit`、任意网络和任意路径访问；
+- UI 需要展示 runtime policy、job/task state、evidence、validation errors 和 audit paths。
+
+## 7. 导入与图谱落地
 
 - `imports/source` 上传在 bridge live 时会写入真实 workspace。
 - 未连接 bridge 时，上传文本只进入离线 buffer，不写磁盘。
 - bridge 写入成功后刷新 workspace tree。
 - Cluster graph 节点编辑复用文件草稿 / 保存管线，而不是单独维护 UI-only 状态。
 
-## 7. External Swarm 兼容性
+## 8. External Swarm 兼容性
 
 UI 可以可视化兼容面，但不得重命名或重定义：
 
@@ -120,7 +135,7 @@ UI 可以可视化兼容面，但不得重命名或重定义：
 - `external_swarm_require_context`
 - `external_swarm_get`
 
-## 8. 实现文件
+## 9. 实现文件
 
 - `src/web/App.vue` — shell 状态、文件编辑器、tab UX、图谱 / 聊天界面。
 - `src/web/styles.css` — Tokyo Night 工作区样式。
@@ -131,7 +146,7 @@ UI 可以可视化兼容面，但不得重命名或重定义：
 - `src/workspace/capabilities.ts` — capability manifest 解析与检查。
 - `src/workspace/protection.ts` — protected path policy。
 
-## 9. 验证
+## 10. 验证
 
 UI 相关变更后的最低验证：
 

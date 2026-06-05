@@ -63,6 +63,7 @@ V4 的方向不是继续扩大旧后端 agent runtime，而是：
 - 不默认给 NovelFabric 管理的角色资产隐式 shell / 任意网络 / 任意路径权限；即使外部 agent 有系统能力，也必须通过 NovelFabric CLI 原语写入项目事实。
 - 关键资产必须有保护：`soul.md`、`memory.md`、核心卡片、关键时间点记忆。
 - 后端 LLM provider 适配、role model config、healthcheck 在 V4 中视为旧路径，不继续扩展为主线。
+- V4 mono app 仍需要面向非技术网页用户的 LLM 运行时，但该运行时应是对 pi agent SDK 的受控包装：使用 NovelFabric 自己约定的配置路径（默认 `~/.config/novelfabric/pi/`）、NovelFabric 安装/管理的 sandbox/permission/CLI-only-write extensions，并默认阻止 raw `bash`、raw `write/edit`、任意网络和任意路径访问。
 - 集群推演 / external swarm inference 是已有外部依赖面，不等同于旧 LLM adapter；V4 必须保持其 HTTP/MCP API 兼容。
 
 ### 3.3 融合 MiroFish 的边界
