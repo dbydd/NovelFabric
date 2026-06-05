@@ -2136,7 +2136,7 @@ async function stageSourceImport(event: Event): Promise<void> {
   const targetPath = `imports/source/${fileName}`;
   let sourceText = "";
   try {
-    sourceText = await file.text();
+    sourceText = await decodeSourceFileText(file);
   } catch {
     sourceText = "文件已选择；当前浏览器无法生成文本预览。";
   }
@@ -2313,6 +2313,18 @@ async function writeWorkflowArtifact(pathValue: string, content: string): Promis
       kind: "file"
     });
   }
+}
+
+async function decodeSourceFileText(file: File): Promise<string> {
+  const bytes = await file.arrayBuffer();
+  const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  const gb18030 = new TextDecoder("gb18030", { fatal: false }).decode(bytes);
+  return replacementScore(gb18030) < replacementScore(utf8) ? gb18030 : utf8;
+}
+
+function replacementScore(text: string): number {
+  const replacements = [...text].filter((character) => character === "�").length;
+  return replacements / Math.max(text.length, 1);
 }
 
 function normalizeWorkspaceFileName(name: string): string {
