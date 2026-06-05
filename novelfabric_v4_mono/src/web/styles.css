@@ -1397,6 +1397,24 @@ select:focus-visible {
   line-height: 1.5;
 }
 
+.workflow-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  color: #a9b7cc;
+  font-size: 12px;
+}
+
+.workflow-field input,
+.workflow-field select {
+  min-height: 34px;
+  border: 1px solid #243041;
+  border-radius: 8px;
+  background: #0f1726;
+  color: #d9e4f5;
+  padding: 7px 9px;
+}
+
 .upload-button {
   display: inline-grid;
   min-height: 42px;

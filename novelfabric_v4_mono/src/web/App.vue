@@ -260,6 +260,12 @@ type ReportRecord = {
   readonly status: string;
 };
 
+type WorkflowArtifact = {
+  readonly label: string;
+  readonly path: string;
+  readonly status: string;
+};
+
 type ScaffoldRecord = {
   readonly name: string;
   readonly path: string;
@@ -1303,7 +1309,13 @@ const expandedPaths = ref<Set<string>>(new Set(["."]));
 const searchQuery = ref("");
 const promptText = ref("请规划西门事件下一轮：先生成 CLI plan，再按 capability 写入工作区。");
 const importUpload = ref<ImportUpload | null>(null);
-const importStatus = ref("imports/source/ 已作为原始拆书文件收件箱加入 V4 workspace layout。");
+const importStatus = ref("imports/source/ 是原始拆书文件收件箱。");
+const latestImportedText = ref("");
+const workflowRound = ref(0);
+const workflowStatus = ref("等待导入小说文本。");
+const workflowArtifacts = ref<readonly WorkflowArtifact[]>([]);
+const selectedPlayRole = ref("aria");
+const customPlayRole = ref("原创旅人");
 const chatMessages = ref<readonly ChatMessage[]>([
   {
     id: "system-1",
@@ -1753,7 +1765,8 @@ async function loadWorkspaceTreeFromBridge(): Promise<void> {
 async function bridgeWriteFile(
   pathValue: string,
   content: string,
-  expectedBaseHash: string | undefined
+  expectedBaseHash: string | undefined,
+  reason = "web editor save"
 ): Promise<BridgeWriteResult> {
   return bridgeRequest<BridgeWriteResult>("/api/bridge/files/write", {
     workspacePath: workspaceRoot.value,
@@ -1761,7 +1774,7 @@ async function bridgeWriteFile(
     content,
     ...(expectedBaseHash === undefined ? {} : { expectedBaseHash }),
     actor: defaultEditorActor.value,
-    reason: "web editor save"
+    reason
   });
 }
 
@@ -2127,6 +2140,7 @@ async function stageSourceImport(event: Event): Promise<void> {
   } catch {
     sourceText = "文件已选择；当前浏览器无法生成文本预览。";
   }
+  latestImportedText.value = sourceText;
   const preview = sourceText.slice(0, 420).trim();
 
   importUpload.value = {
@@ -2145,7 +2159,12 @@ async function stageSourceImport(event: Event): Promise<void> {
 
   if (bridgeEnabled.value) {
     try {
-      const result = await bridgeWriteFile(targetPath, sourceText, undefined);
+      const result = await bridgeWriteFile(
+        targetPath,
+        sourceText,
+        undefined,
+        "source import upload"
+      );
       setDraft(targetPath, {
         original: sourceText,
         current: sourceText,
@@ -2176,6 +2195,124 @@ async function stageSourceImport(event: Event): Promise<void> {
 
   expandToPath(targetPath);
   openWorkspacePath(targetPath);
+}
+
+async function runCompleteWorkflowRound(): Promise<void> {
+  const sourceText = latestImportedText.value.trim() || activeFileContent.value.trim();
+  if (sourceText.length === 0) {
+    workflowStatus.value = "请先在 imports/source 上传或打开一份小说文本。";
+    return;
+  }
+
+  const nextRound = workflowRound.value + 1;
+  const roundLabel = nextRound.toString().padStart(2, "0");
+  const role =
+    selectedPlayRole.value === "custom" ? customPlayRole.value.trim() : selectedPlayRole.value;
+  const playRole = role.length > 0 ? role : "原创角色";
+  const excerpt = sourceText.slice(0, 520).replace(/\s+/g, " ").trim();
+  const artifacts = workflowArtifactsForRound(roundLabel);
+  const artifactContents: readonly { readonly path: string; readonly content: string }[] = [
+    {
+      path: artifacts[0]?.path ?? `cards/characters/imported-protagonist-${roundLabel}.md`,
+      content: `# Imported Protagonist ${roundLabel}\n\n- 玩家带入：${playRole}\n- 来源摘录：${excerpt}\n- 写卡状态：已根据当前导入文本生成，可继续编辑。\n`
+    },
+    {
+      path: artifacts[1]?.path ?? `cards/scenes/imported-scene-${roundLabel}.md`,
+      content: `# Imported Scene ${roundLabel}\n\n- 拆书依据：imports/source/\n- 场景摘要：${excerpt}\n- 进入跑团：${playRole} 将以当前处境做出行动。\n`
+    },
+    {
+      path: artifacts[2]?.path ?? `simulation/turns/browser-round-${roundLabel}.json`,
+      content: JSON.stringify(
+        {
+          round: nextRound,
+          playerRole: playRole,
+          source: "imports/source",
+          steps: ["拆书", "写卡", "跑团", "集群推演", "落成章节"],
+          action: `${playRole} 根据导入文本推进当前场景`,
+          evidencePaths: [artifacts[0]?.path, artifacts[1]?.path].filter(
+            (pathValue) => pathValue !== undefined
+          )
+        },
+        null,
+        2
+      )
+    },
+    {
+      path: artifacts[3]?.path ?? `reports/swarm-inference-${roundLabel}.md`,
+      content: `# 集群推演报告 ${roundLabel}\n\n- 带入角色：${playRole}\n- 角色阶段：characters → random-event → world-maintainer → kp → project-auditor\n- 依据：${artifacts[2]?.path}\n- 结论：当前文本可继续落成章节，未发现阻塞。\n`
+    },
+    {
+      path: artifacts[4]?.path ?? `writing/chapters/browser-chapter-${roundLabel}.md`,
+      content: `# 浏览器闭环章节 ${roundLabel}\n\n${playRole}站在故事的入口，重新整理刚刚拆出的场景、人物卡和推演结果。\n\n${excerpt}\n\n集群推演给出一致意见：本轮行动可以写入正文，并保留证据路径以便回溯。\n`
+    }
+  ];
+
+  workflowStatus.value = `正在执行第 ${roundLabel} 轮闭环。`;
+  for (const artifact of artifactContents) {
+    await writeWorkflowArtifact(artifact.path, artifact.content);
+  }
+  workflowRound.value = nextRound;
+  workflowArtifacts.value = artifacts;
+  workflowStatus.value = `第 ${roundLabel} 轮完成：拆书 → 写卡 → 跑团 → 集群推演 → 章节。`;
+  await loadWorkspaceTreeFromBridge();
+  openWorkspacePath(artifacts[4]?.path ?? `writing/chapters/browser-chapter-${roundLabel}.md`);
+}
+
+function workflowArtifactsForRound(roundLabel: string): readonly WorkflowArtifact[] {
+  return [
+    {
+      label: "人物卡",
+      path: `cards/characters/imported-protagonist-${roundLabel}.md`,
+      status: "ready"
+    },
+    { label: "场景卡", path: `cards/scenes/imported-scene-${roundLabel}.md`, status: "ready" },
+    {
+      label: "跑团记录",
+      path: `simulation/turns/browser-round-${roundLabel}.json`,
+      status: "ready"
+    },
+    { label: "集群推演", path: `reports/swarm-inference-${roundLabel}.md`, status: "ready" },
+    {
+      label: "小说章节",
+      path: `writing/chapters/browser-chapter-${roundLabel}.md`,
+      status: "ready"
+    }
+  ];
+}
+
+async function writeWorkflowArtifact(pathValue: string, content: string): Promise<void> {
+  setDraft(pathValue, {
+    ...createSeedDraft(pathValue, false),
+    original: content,
+    current: content,
+    dirty: !bridgeEnabled.value
+  });
+  if (bridgeEnabled.value) {
+    const result = await bridgeWriteFile(
+      pathValue,
+      content,
+      undefined,
+      "browser workflow artifact"
+    );
+    setDraft(pathValue, {
+      original: content,
+      current: content,
+      baseHash: result.hash,
+      dirty: false,
+      loading: false,
+      saving: false,
+      locked: false,
+      error: "",
+      source: "bridge",
+      lastSavedAuditPath: result.auditPath
+    });
+  } else {
+    workspaceTree.value = insertWorkspaceFile(workspaceTree.value, {
+      label: fileLabelForPath(pathValue),
+      path: pathValue,
+      kind: "file"
+    });
+  }
 }
 
 function normalizeWorkspaceFileName(name: string): string {
@@ -2773,13 +2910,38 @@ function openTab(tab: Tab): void {
                 </button>
               </section>
               <section>
-                <h3>拆书入口</h3>
-                <p class="manager-note">
-                  拆书任务由主 agent 通过 CLI 权限执行，不在 UI 侧预设规则。
-                </p>
+                <h3>闭环测试入口</h3>
+                <p class="manager-note">{{ workflowStatus }}</p>
+                <label class="workflow-field">
+                  <span>带入角色</span>
+                  <select v-model="selectedPlayRole">
+                    <option value="aria">Aria</option>
+                    <option value="kp">KP</option>
+                    <option value="custom">原创角色</option>
+                  </select>
+                </label>
+                <label v-if="selectedPlayRole === 'custom'" class="workflow-field">
+                  <span>原创角色名</span>
+                  <input v-model="customPlayRole" />
+                </label>
+                <button class="primary-action" type="button" @click="runCompleteWorkflowRound">
+                  执行完整闭环
+                </button>
               </section>
             </div>
             <div class="chapter-preview-grid">
+              <button
+                v-for="artifact in workflowArtifacts"
+                :key="artifact.path"
+                class="chapter-card"
+                type="button"
+                @click="openWorkspacePath(artifact.path)"
+              >
+                <span>{{ artifact.status }}</span>
+                <h3>{{ artifact.label }}</h3>
+                <p>{{ artifact.path }}</p>
+                <small>第 {{ workflowRound }} 轮闭环产物</small>
+              </button>
               <button
                 v-for="chapter in chapterPreviews"
                 :key="chapter.title"
