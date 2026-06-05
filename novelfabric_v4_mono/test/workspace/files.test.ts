@@ -6,9 +6,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { CommandFailure } from "../../src/errors.js";
 import {
+  appendWorkspaceFile,
+  checkWorkspaceFileProtection,
   contentHash,
+  globWorkspaceFiles,
   readWorkspaceFile,
   readWorkspaceTree,
+  statWorkspaceFile,
   writeWorkspaceFile
 } from "../../src/workspace/files.js";
 
@@ -44,6 +48,37 @@ describe("workspace file services", () => {
     expect(novelfabric?.protected).toBe(true);
   });
 
+  it("globs files under a safe workspace base", async () => {
+    await fs.writeFile(path.join(workspacePath, "cards", "world", "city.md"), "# City\n", "utf8");
+    await fs.writeFile(
+      path.join(workspacePath, "cards", "scenes", "arrival.md"),
+      "# Arrival\n",
+      "utf8"
+    );
+
+    const result = await globWorkspaceFiles({ workspacePath, base: "cards", pattern: "**/*.md" });
+
+    expect(result.base).toBe("cards");
+    expect(result.pattern).toBe("**/*.md");
+    expect(result.matches.map((match) => match.path)).toEqual([
+      "cards/scenes/arrival.md",
+      "cards/world/city.md"
+    ]);
+  });
+
+  it("stats files and directories with protected metadata", async () => {
+    const projectStat = await statWorkspaceFile({ workspacePath, path: "project.md" });
+    expect(projectStat.path).toBe("project.md");
+    expect(projectStat.kind).toBe("file");
+    expect(projectStat.bytes).toBeGreaterThan(0);
+    expect(projectStat.protected).toBe(false);
+    expect(Date.parse(projectStat.modifiedTime)).not.toBeNaN();
+
+    const protectedStat = await statWorkspaceFile({ workspacePath, path: ".novelfabric" });
+    expect(protectedStat.kind).toBe("directory");
+    expect(protectedStat.protected).toBe(true);
+  });
+
   it("writes normal files through capability-checked atomic service and audit log", async () => {
     const content = "# Editor Smoke\n\nSaved through shared service.\n";
     const result = await writeWorkspaceFile({
@@ -68,6 +103,52 @@ describe("workspace file services", () => {
     const audit = await fs.readFile(path.join(workspacePath, result.auditPath), "utf8");
     expect(audit).toContain("unit test save");
     expect(audit).toContain("writing/drafts/editor-smoke.md");
+  });
+
+  it("appends normal files through the shared write path and audit log", async () => {
+    const targetPath = "writing/drafts/append-smoke.md";
+    const first = await appendWorkspaceFile({
+      workspacePath,
+      path: targetPath,
+      content: "first\n",
+      actor: "main_agent",
+      reason: "append create"
+    });
+    const second = await appendWorkspaceFile({
+      workspacePath,
+      path: targetPath,
+      content: "second\n",
+      actor: "main_agent",
+      expectedBaseHash: first.hash,
+      reason: "append update"
+    });
+
+    expect(second.previousHash).toBe(first.hash);
+    expect(await fs.readFile(path.join(workspacePath, targetPath), "utf8")).toBe("first\nsecond\n");
+
+    const audit = await fs.readFile(path.join(workspacePath, second.auditPath), "utf8");
+    expect(audit).toContain('"action":"file.append"');
+    expect(audit).toContain("append update");
+  });
+
+  it("checks actor write permission for protected and normal paths", async () => {
+    const normal = await checkWorkspaceFileProtection({
+      workspacePath,
+      path: "project.md",
+      actor: "main_agent"
+    });
+    expect(normal.protected).toBe(false);
+    expect(normal.allowed).toBe(true);
+    expect(normal.requiredCapabilities).toEqual(["files.write", "project.manage"]);
+
+    const protectedResult = await checkWorkspaceFileProtection({
+      workspacePath,
+      path: ".novelfabric/capabilities.toml",
+      actor: "main_agent"
+    });
+    expect(protectedResult.protected).toBe(true);
+    expect(protectedResult.allowed).toBe(false);
+    expect(protectedResult.requiredCapabilities).toEqual(["files.patch_protected"]);
   });
 
   it("rejects stale expectedBaseHash writes with file_conflict", async () => {

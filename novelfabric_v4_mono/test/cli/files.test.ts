@@ -80,6 +80,91 @@ describe("novelfabric files CLI", () => {
     );
   });
 
+  it("runs files glob, stat, append, and protect-check commands", async () => {
+    await fs.writeFile(
+      path.join(workspacePath, "cards", "world", "cli-city.md"),
+      "# CLI City\n",
+      "utf8"
+    );
+
+    const globResult = await runCli([
+      "files",
+      "glob",
+      "--workspace",
+      workspacePath,
+      "--base",
+      "cards",
+      "--pattern",
+      "**/*.md",
+      "--json"
+    ]);
+    expect(globResult.exitCode).toBe(0);
+    expect(globResult.envelope.ok).toBe(true);
+    if (globResult.envelope.ok) {
+      expect(globResult.envelope.command).toBe("files glob");
+      expect(globResult.envelope.data).toMatchObject({ base: "cards", pattern: "**/*.md" });
+    }
+
+    const statResult = await runCli([
+      "files",
+      "stat",
+      "--workspace",
+      workspacePath,
+      "--path",
+      "cards/world/cli-city.md",
+      "--json"
+    ]);
+    expect(statResult.exitCode).toBe(0);
+    expect(statResult.envelope.ok).toBe(true);
+    if (statResult.envelope.ok) {
+      expect(statResult.envelope.command).toBe("files stat");
+      expect(statResult.envelope.data).toMatchObject({
+        path: "cards/world/cli-city.md",
+        protected: false
+      });
+    }
+
+    const appendResult = await runCli([
+      "files",
+      "append",
+      "--workspace",
+      workspacePath,
+      "--path",
+      "writing/drafts/cli-append.md",
+      "--actor",
+      "main_agent",
+      "--content",
+      "appended\n",
+      "--json"
+    ]);
+    expect(appendResult.exitCode).toBe(0);
+    expect(appendResult.envelope.ok).toBe(true);
+    expect(
+      await fs.readFile(path.join(workspacePath, "writing/drafts/cli-append.md"), "utf8")
+    ).toBe("appended\n");
+
+    const protectResult = await runCli([
+      "files",
+      "protect-check",
+      "--workspace",
+      workspacePath,
+      "--path",
+      ".novelfabric/capabilities.toml",
+      "--actor",
+      "main_agent",
+      "--json"
+    ]);
+    expect(protectResult.exitCode).toBe(0);
+    expect(protectResult.envelope.ok).toBe(true);
+    if (protectResult.envelope.ok) {
+      expect(protectResult.envelope.command).toBe("files protect-check");
+      expect(protectResult.envelope.data).toMatchObject({
+        path: ".novelfabric/capabilities.toml",
+        protected: true
+      });
+    }
+  });
+
   it("reports protected write denial as structured JSON", async () => {
     const result = await runCli([
       "files",
