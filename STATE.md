@@ -1,10 +1,10 @@
 # STATE
 
 ## Current phase
-Phase 28 — V4 TypeScript backend workspace foundation active
+Phase 29 — V4 TypeScript mono app layout foundation active
 
 ## Current cycle
-contract sync → TypeScript CLI foundation → clean-context tests → review hardening → verifier acceptance
+reference study → mono app design → optional web shell layout demo → docs sync → verifier acceptance
 
 ## Verified findings
 - `test_novel.txt` is GBK/GB18030 encoded; browser upload path preserves raw file bytes and backend GBK fallback normalizes to UTF-8 without visible乱码.
@@ -30,16 +30,16 @@ contract sync → TypeScript CLI foundation → clean-context tests → review h
 - Generic external swarm inference API is available at `/api/external/swarm-inferences`, persists caller-provided items as text artifacts, advances StorySwarm over HTTP without caller code coupling, and was verified from an OpenAlice workspace harness with five real OpenAlice news-framework items on 2026-06-01.
 
 ## Current implementation status
-- `backend_v2/` has entered V4 TypeScript construction. It now contains a Volta-managed npm workspace, strict TypeScript config, ESLint/type-aware linting, Vitest, a `novelfabric` CLI entry, config root resolution, safe path validation, canonical workspace layout data, workspace doctor, and fixture-backed tests.
-- `backend_v2` CLI currently supports `config path`, `config print`, `workspace print-layout`, and `workspace doctor`, with JSON envelopes and default config root resolution to `~/.config/novelfabric` via HOME or `$XDG_CONFIG_HOME/novelfabric` when XDG is present.
+- `novelfabric_v4_mono/` has entered V4 TypeScript mono app construction after being renamed from the old `backend_v2/` staging directory. It now contains a Volta-managed npm workspace, strict TypeScript config, ESLint/type-aware linting, Vitest, a `novelfabric` CLI entry, config root resolution, safe path validation, canonical workspace layout data, workspace doctor, fixture-backed tests, a layout-only Vue/Vite web shell, and a future pi SDK bridge boundary.
+- `novelfabric_v4_mono` CLI currently supports `config path`, `config print`, `workspace print-layout`, `workspace doctor`, and `web demo`, with JSON envelopes and default config root resolution to `~/.config/novelfabric` via HOME or `$XDG_CONFIG_HOME/novelfabric` when XDG is present. `web demo` defaults to a 50000+ port and rejects reserved ports such as 3000/8080.
 - Existing legacy backend tests still cover GBK fixture import, LLM-required import failure behavior, invalid LLM import schema reporting, rich LLM success schema parsing/rendering, project deletion, split LLM endpoint/role config persistence, role-specific healthcheck default-model fallback, provider status/timeout healthcheck classification, StoryGraph artifacts with edges, skill body reads, structured skill invocation evidence serialization, legacy swarm JSON compatibility, invalid skill frontmatter warning evidence, and generic external swarm inference creation/readback.
 - Frontend exposes project deletion, card deletion, memory deletion, skill body read/upsert/delete, split LLM endpoint/default/role override settings, per-role LLM healthcheck feedback, import extraction status/message/model, GraphRAG visualization, skill invocation evidence in Simulation, numeric N-round simulation, and writing-page text export.
 - Browser-only acceptance specs are verified through Playwright Chromium using real UI interactions only; API-assisted fullstack coverage is labelled separately and is not counted as browser-only acceptance evidence.
 
 ## Global quality gates
-- `backend_v2` V4 TypeScript gates pass: `npm run typecheck`, `npm run lint`, `npm test` (4 files / 26 tests), `npm run build`, and `npm run format:check`.
-- `backend_v2` CLI smoke passes: `HOME=/Users/dbydd XDG_CONFIG_HOME= npm run cli -- config path --json` reports `/Users/dbydd/.config/novelfabric`; `npm run cli -- workspace doctor --path fixtures/workspaces/valid-basic --json` reports `valid: true`, `presentCount: 24`, `missingCount: 0`.
-- `backend_v2` phase commits exist for contract update, TS initialization, CLI foundation, tests, review hardening, acceptance wording hardening, and doc sync.
+- `novelfabric_v4_mono` V4 TypeScript/mono app gates pass: `npm run typecheck`, `npm run lint`, `npm test` (4 files / 33 tests), `npm run build`, `npm run web:build`, `npm run format:check`, and `npm run cli -- web demo --port 50021 --dry-run --json`.
+- `novelfabric_v4_mono` CLI smoke passes: `HOME=/Users/dbydd XDG_CONFIG_HOME= npm run cli -- config path --json` reports `/Users/dbydd/.config/novelfabric`; `npm run cli -- workspace doctor --path fixtures/workspaces/valid-basic --json` reports `valid: true`, `presentCount: 24`, `missingCount: 0`.
+- Historical `backend_v2` phase commits exist for contract update, TS initialization, CLI foundation, tests, review hardening, acceptance wording hardening, and doc sync.
 - `HOME=/Users/dbydd CARGO_HOME=/Users/dbydd/.cargo RUSTC=/opt/homebrew/bin/rustc RUSTDOC=/opt/homebrew/bin/rustdoc /opt/homebrew/bin/cargo test --manifest-path backend/Cargo.toml -q` passes: 69 tests.
 - `HOME=/Users/dbydd CARGO_HOME=/Users/dbydd/.cargo RUSTC=/opt/homebrew/bin/rustc RUSTDOC=/opt/homebrew/bin/rustdoc /opt/homebrew/bin/cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings` passes.
 - `npm run test:unit -- --run` passes: 9 files / 27 tests.
@@ -54,8 +54,8 @@ contract sync → TypeScript CLI foundation → clean-context tests → review h
 - Full frontend unit tests now pass in this environment; keep running `npm run test:unit -- --run` before changing frontend test configuration.
 
 ## Next actions
-1. Continue V4 TypeScript backend construction from `backend_v2`: project create/list/inspect/validate and protected file primitives should build on the existing config/path/workspace services.
-2. Keep `backend_v2` strict gates green: `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, and `npm run format:check`.
+1. Continue V4 TypeScript mono app construction from `novelfabric_v4_mono`: project create/list/inspect/validate and protected file primitives should build on the existing config/path/workspace services.
+2. Keep mono app strict gates green: `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, `npm run web:build`, and `npm run format:check`.
 3. Preserve old external swarm HTTP/MCP compatibility while V4 TypeScript services grow equivalent coverage.
 4. Keep `npm run test:e2e:fullstack` green when changing legacy fullstack specs or shared LLM config behavior.
 

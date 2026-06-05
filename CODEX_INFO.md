@@ -8,7 +8,7 @@
 
 NovelFabric 是文本优先的小说创作与推演平台：
 
-- Rust 后端，Vue 前端。
+- 旧主线为 Rust 后端 + Vue 前端；V4 新主线正在收束为 TypeScript `novelfabric_v4_mono`（旧 staging 名 `backend_v2`）CLI-first mono app + 可选 Vue Web shell。
 - 所有项目内可变资源以文本/结构化文件落盘。
 - 角色 agent 是受限文本智能体，不是完整 shell/coding agent。
 - 图谱、RAG、索引、报告都属于文本事实的派生层，不能替代源文件。
@@ -273,7 +273,15 @@ npm run test:e2e:fullstack
 
 ---
 
-## 9. 文档维护规则
+## 9. V4 mono app staging
+
+- `novelfabric_v4_mono/` 已由旧 `backend_v2/` staging 改名而来。
+- 新 V4 代码仍坚持 TypeScript strict、文本优先、CLI 原语优先。
+- 可选 Web shell 位于同一包内，通过显式 CLI/script 启动，默认 50000+ 端口。
+- 当前 Web demo 仅用于布局评审，不连接后端 API，不承担 external swarm 兼容实现。
+- 未来内置 `@earendil-works/pi-coding-agent` 时，pi SDK 只能作为 bridge；项目事实写入仍需通过 NovelFabric CLI/capability manifest/protected path checks/audit。
+
+## 10. 文档维护规则
 
 - `PROJECT.md`：只放 source-of-truth 索引、架构锁定和 definition of done。
 - `AGENTS.md`：只放 agent 必须遵守的项目级常驻约束。
@@ -283,9 +291,9 @@ npm run test:e2e:fullstack
 
 ---
 
-## 10. 继续开发时的优先级
+## 11. 继续开发时的优先级
 
-1. 继续强化 LLM/provider 错误报告端到端覆盖：auth failure、model-not-found、provider_5xx、network 与 invalid import schema 已有 browser 窄切片，timeout 已有 backend 分类覆盖；下一步补更细的 schema diagnostics，并在可保持 suite 稳定时补 browser timeout 覆盖。
+1. 继续推进 `novelfabric_v4_mono`：在当前 layout-only Web shell 之后，优先补 CLI-backed project/fs primitives、capability manifest、external swarm compatibility fixture，再接真实 Web bridge。
 2. 继续把 split LLM config 接入更多 import/runtime 路径。
 3. 强化 StoryGraph 关系抽取，不要只依赖简单字符串提及。
 4. 保持 browser-only acceptance，不要用 API 直调冒充完整验收。

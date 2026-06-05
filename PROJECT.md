@@ -19,31 +19,31 @@ NovelFabric v1 is a web-based LLM-assisted literary creation platform built with
 
 ## Locked architectural decisions
 - Frontend/backend separated web architecture.
-- V4 backend construction under `backend_v2/` is TypeScript. The existing Rust backend is legacy migration input until V4 coverage replaces it.
-- Frontend implemented in Vue.
+- V4 TypeScript construction is moving from `backend_v2/` into the mono app directory `novelfabric_v4_mono/`. The existing Rust backend is legacy migration input until V4 coverage replaces it.
+- V4 web UI remains Vue but lives in the mono app package as an optional CLI-started shell instead of a separate new package.
 - All mutable project resources persisted as text files on disk.
 - Backend-first delivery.
 - No unchecked type-system escape hatches in new TypeScript backend code (`any`, `unknown`, wildcard types, lint suppressions, or unchecked casts).
-- TypeScript backend gates (`npm run typecheck`, `npm run lint`, `npm test`, `npm run build`) must be clean for V4 work.
+- TypeScript mono app gates (`npm run typecheck`, `npm run lint`, `npm test`, `npm run build`) must be clean for V4 work; optional web changes also require `npm run web:build`.
 - Final acceptance must be browser-only via Playwright when browser/UI behavior is in scope.
 
 ## Recommended stacks
-### Backend
-- TypeScript for V4 `backend_v2/`
+### V4 mono app
+- TypeScript for V4 `novelfabric_v4_mono/` (old staging name: `backend_v2/`)
 - Volta-managed Node/npm
 - commander for CLI entry points
 - zod for schema validation at dynamic boundaries
 - vitest for tests
 - eslint + typescript-eslint + prettier for diagnostics
 
-### Frontend
+### Frontend / optional web shell
 - Vue 3
 - Vite
 - TypeScript
-- Vue Router 4
-- Pinia
+- Optional CLI startup through `novelfabric web ...`
+- Vue Router 4 / Pinia when routing/state complexity requires them
 - Vitest
-- Playwright
+- Playwright for browser behavior once the UI is connected beyond layout-only demo
 
 ## Canonical project data layout
 ```text

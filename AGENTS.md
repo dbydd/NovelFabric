@@ -11,8 +11,8 @@ NovelFabric 是一个**文本优先**的小说创作与推演平台。
 
 V4 的方向不是继续扩大旧后端 agent runtime，而是：
 
-- V4 后端产物先在 `backend_v2/` 下按 TypeScript 重新规划与实现；旧 Rust 后端只作为迁移输入
-- Vue 前端保留，但网页端的 agent 操作应转向 pi agent SDK / 本地 agent bridge
+- V4 TypeScript 产物从旧 `backend_v2/` staging 升级为计划改名后的 `novelfabric_v4_mono/` mono app：CLI、可选 Web shell、pi agent bridge 边界同目录演进；旧 Rust 后端只作为迁移输入
+- Vue 前端保留为 V4 mono app 内的可选 CLI 启动项；网页端的 agent 操作应转向 pi agent SDK / 本地 agent bridge，并仍通过 NovelFabric CLI 原语写入项目事实
 - 一切项目内可变资源继续基于文本文件
 - 角色调度、角色推理、KP/世界维护/项目审核等智能工作移交给外部 agent + skill
 - 文件管理、导入、推演状态机、检索、报告等后端能力拆成最小 CLI 可执行单元
@@ -36,19 +36,19 @@ V4 的方向不是继续扩大旧后端 agent runtime，而是：
 | 8 | `docs/architecture/story-swarm-runtime.md` | StorySwarm / ReportAgent 轮次、结构化输出、一致性检查 | simulation / swarm / report / interview 任务 |
 | 9 | `docs/architecture/implementation-roadmap-story-systems.md` | 文件级实现路线图、milestone、测试命令 | 实现 StoryGraph/RAG/Swarm/ReportAgent 时 |
 | 10 | `docs/architecture/v3-usability-plan.md` | v3 可用性阶段入口：LLM 拆书、LLM 健康检查、技能卡调用证据、按钮反馈 | v3 / usability / 拆书 / LLM / provider / model / skill invocation 任务 |
-| 11 | `backend_v2/AGENTS.md` | V4 后端工作区本地约束 | V4 / backend_v2 / CLI / workspace 任务 |
-| 12 | `backend_v2/novelfabric_v2backend_workspace_style_backend.md` | V4 workspace-style backend 规划案 | V4 架构/实现任务 |
-| 13 | `backend_v2/novelfabric_v2backend_workspace_style_backend.zh.md` | V4 规划案中文版 | V4 架构/实现任务 |
+| 11 | `novelfabric_v4_mono/AGENTS.md`（改名前为 `backend_v2/AGENTS.md`） | V4 mono app 本地约束 | V4 / mono app / CLI / workspace / web shell 任务 |
+| 12 | `novelfabric_v4_mono/novelfabric_v2backend_workspace_style_backend.md`（改名前为 `backend_v2/...`） | V4 workspace/mono app 规划案 | V4 架构/实现任务 |
+| 13 | `novelfabric_v4_mono/novelfabric_v2backend_workspace_style_backend.zh.md`（改名前为 `backend_v2/...`） | V4 规划案中文版 | V4 架构/实现任务 |
 
-如果任务与 MiroFish 融合、群体智能、RAG、推演增强、报告 agent 有关，**第 6-9 份文档必读**。如果任务与 v3 可用性、LLM 拆书、provider/model 配置、技能卡调用证据或按钮反馈有关，**第 10 份文档必读**。如果任务与 V4、pi/Hermes 工作区化、CLI 拆分、XDG 模板配置、backend_v2 有关，**第 11-13 份文档必读**。不要假设可以靠搜索补齐这些约束。
+如果任务与 MiroFish 融合、群体智能、RAG、推演增强、报告 agent 有关，**第 6-9 份文档必读**。如果任务与 v3 可用性、LLM 拆书、provider/model 配置、技能卡调用证据或按钮反馈有关，**第 10 份文档必读**。如果任务与 V4、pi/Hermes 工作区化、CLI 拆分、XDG 模板配置、`novelfabric_v4_mono`（旧称 `backend_v2`）有关，**第 11-13 份文档必读**。不要假设可以靠搜索补齐这些约束。
 
 ## 3. 项目级硬约束
 
 ### 3.1 架构约束
 
-- V4 `backend_v2/` 新实现必须使用 TypeScript；不得新增 Rust crate/Cargo workspace 作为 V4 后端主线。
+- V4 `novelfabric_v4_mono/`（旧称 `backend_v2/`）新实现必须使用 TypeScript；不得新增 Rust crate/Cargo workspace 作为 V4 mono app 主线。
 - 旧 `backend/` Rust 能力是迁移输入，未被 V4 TypeScript CLI/bridge 覆盖前不要破坏其兼容面。
-- 前后端分离保持不变。
+- V4 新主线不再把 CLI 与 Web shell 做成两个包；可选 Web UI、CLI、pi agent bridge 边界应同目录演进。旧 `frontend/` 在迁移完成前作为历史输入保留。
 - NovelFabric 主架构必须继续遵守“文本优先、文件优先、可审计”。
 - 不允许把核心项目状态藏进不可追踪的黑盒数据库作为唯一真相源。
 - 即使引入索引/向量/图，也只能作为**派生索引**；源事实仍需落文本或结构化可审计文件。
@@ -112,6 +112,7 @@ V4 的方向不是继续扩大旧后端 agent runtime，而是：
 - 不允许在 V4 重构中破坏 external swarm 的请求字段、响应字段、artifact path 语义、idempotency 行为、MCP `structuredContent` 形状；需要新增能力时采用 additive fields 或新 endpoint/tool name。
 - 兼容性必须有 golden fixture / serializer / HTTP / MCP 单元测试覆盖，至少包含 Hermes / TraderAlice 舆情或市场影响推演风格的请求。
 - V4 CLI 形态优先采用一个 `novelfabric` 主入口与少数稳定子命令；子命令只是入口，权限、路径保护、审计必须在共享 TypeScript 服务层执行。
+- V4 可选 Web shell 必须通过显式 CLI/script 启动，默认使用 50000+ 端口；layout-only demo 不得调用后端 API。
 - skill -> tool 调用必须经过显式 capability manifest，而不是靠 skill 自觉或靠命令名猜权限。
 - 主 agent 默认拥有项目管理、知识库管理、集群推演/session 管理、报告生成、模板物化等管理能力。
 - 角色 subagent 默认只拥有受限上下文读取、自己的记忆 recall、行动草案、记忆更新 proposal 等能力；不得直接管理项目、重建全局知识库、运行 external swarm、写其它角色私有记忆或改关键资产。
@@ -219,7 +220,7 @@ ReportAgent 不是普通摘要器。
 
 1. 改了哪些文档 / 文件
 2. 数据结构或 API 是否已落盘
-3. V4 TypeScript 代码需提供 `npm run typecheck` / `npm run lint` / `npm test` / `npm run build` 证据；旧 Rust 代码变更才需要 cargo/clippy 证据
+3. V4 TypeScript 代码需提供 `npm run typecheck` / `npm run lint` / `npm test` / `npm run build` 证据；涉及可选 Web shell 时还需提供 `npm run web:build` 与 `npm run cli -- web demo --port 50021 --dry-run --json` 证据；旧 Rust 代码变更才需要 cargo/clippy 证据
 4. 若只是设计文档阶段，要明确写清尚未实现的边界
 
 ## 8. 文档维护规则

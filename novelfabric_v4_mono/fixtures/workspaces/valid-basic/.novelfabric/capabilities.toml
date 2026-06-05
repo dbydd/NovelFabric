@@ -1,0 +1,6 @@
+[main_agent]
+allow = ["project.manage", "report.render", "knowledge.query"]
+
+[role_agent]
+allow = ["memory.recall", "simulation.append_turn"]
+deny = ["files.patch_protected", "external_swarm.run"]
