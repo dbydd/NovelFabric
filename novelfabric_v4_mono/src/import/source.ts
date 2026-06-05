@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import type { Dirent } from "node:fs";
-import { mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { mkdir, readFile, readdir, lstat } from "node:fs/promises";
 import path from "node:path";
 
 import { CommandFailure } from "../errors.js";
 import { resolveInsideRoot } from "../fs/safe-path.js";
 import {
   contentHash,
+  readWorkspaceBinaryFile,
   writeWorkspaceFile,
   type WorkspaceFileWriteResult
 } from "../workspace/files.js";
@@ -534,20 +535,10 @@ async function readWorkspaceBuffer(
   workspacePath: string,
   requestedPath: string
 ): Promise<ResolvedWorkspaceRead> {
-  const resolved = resolveInsideRoot(workspacePath, requestedPath);
-  if (resolved.relativePath.length === 0) {
-    throw new CommandFailure(
-      "cannot_read_workspace_root",
-      "Cannot read workspace root as import text."
-    );
-  }
-  const fileStat = await stat(resolved.target);
-  if (!fileStat.isFile()) {
-    throw new CommandFailure("not_a_file", `Path '${requestedPath}' is not a file.`);
-  }
+  const binary = await readWorkspaceBinaryFile({ workspacePath, path: requestedPath });
   return {
-    normalizedPath: normalizeWorkspacePath(resolved.relativePath),
-    buffer: await readFile(resolved.target)
+    normalizedPath: binary.path,
+    buffer: binary.buffer
   };
 }
 
@@ -931,7 +922,7 @@ async function listFilesUnder(
 ): Promise<readonly string[]> {
   const resolved = resolveInsideRoot(workspacePath, directory);
   try {
-    const directoryStat = await stat(resolved.target);
+    const directoryStat = await lstat(resolved.target);
     if (!directoryStat.isDirectory()) return [];
   } catch (error) {
     if (isNodeErrorCode(error, "ENOENT")) return [];

@@ -1,16 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import {
-  access,
-  lstat,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  writeFile
-} from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import fastGlob from "fast-glob";
@@ -34,6 +24,13 @@ export type WorkspaceFileReadResult = {
   readonly path: string;
   readonly content: string;
   readonly hash: string;
+  readonly bytes: number;
+  readonly protected: boolean;
+};
+
+export type WorkspaceBinaryFileReadResult = {
+  readonly path: string;
+  readonly buffer: Buffer;
   readonly bytes: number;
   readonly protected: boolean;
 };
@@ -135,18 +132,31 @@ type WorkspaceFileAuditAction = "file.write" | "file.append";
 export async function readWorkspaceFile(
   request: WorkspaceFileReadRequest
 ): Promise<WorkspaceFileReadResult> {
+  const binary = await readWorkspaceBinaryFile(request);
+  const content = binary.buffer.toString("utf8");
+  return {
+    path: binary.path,
+    content,
+    hash: contentHash(content),
+    bytes: Buffer.byteLength(content, "utf8"),
+    protected: binary.protected
+  };
+}
+
+export async function readWorkspaceBinaryFile(
+  request: WorkspaceFileReadRequest
+): Promise<WorkspaceBinaryFileReadResult> {
   const resolved = resolveInsideRoot(request.workspacePath, request.path);
   if (resolved.relativePath.length === 0) {
     throw new CommandFailure("cannot_read_workspace_root", "Cannot read workspace root as a file.");
   }
 
-  await requireReadableFile(resolved.target, request.path);
-  const content = await readFile(resolved.target, "utf8");
+  await requireReadableFile(resolved.root, resolved.relativePath, request.path);
+  const buffer = await readFile(resolved.target);
   return {
     path: normalizeWorkspacePath(resolved.relativePath),
-    content,
-    hash: contentHash(content),
-    bytes: Buffer.byteLength(content, "utf8"),
+    buffer,
+    bytes: buffer.byteLength,
     protected: isProtectedWorkspacePath(resolved.relativePath)
   };
 }
@@ -173,7 +183,7 @@ export async function globWorkspaceFiles(
   assertSafeGlobPattern(request.pattern);
   const baseResolved = resolveInsideRoot(request.workspacePath, request.base);
   if (baseResolved.relativePath.length > 0) {
-    await requireReadableDirectory(baseResolved.target, request.base);
+    await requireReadableDirectory(baseResolved.root, baseResolved.relativePath, request.base);
   }
 
   const entries = await fastGlob(request.pattern, {
@@ -192,6 +202,7 @@ export async function globWorkspaceFiles(
         baseResolved.relativePath.length === 0 ? entry : path.join(baseResolved.relativePath, entry)
       );
       const targetPath = resolveInsideRoot(baseResolved.root, combinedPath).target;
+      await assertNoSymlinkInWorkspacePath(baseResolved.root, combinedPath, combinedPath);
       const fileStat = await lstat(targetPath);
       if (fileStat.isSymbolicLink()) return null;
       return {
@@ -216,7 +227,7 @@ export async function statWorkspaceFile(
   request: WorkspaceFileStatRequest
 ): Promise<WorkspaceFileStatResult> {
   const resolved = resolveInsideRoot(request.workspacePath, request.path);
-  const fileStat = await statWorkspaceTarget(resolved.target, request.path);
+  const fileStat = await statWorkspaceTarget(resolved.root, resolved.relativePath, request.path);
   if (!fileStat.isFile() && !fileStat.isDirectory()) {
     throw new CommandFailure(
       "unsupported_file_kind",
@@ -249,7 +260,19 @@ export async function appendWorkspaceFile(
   const manifest = await readCapabilityManifest(resolved.root);
   requireWriteCapability(manifest, request.actor, protectedTarget);
 
-  const previousContent = await readExistingFileForConflict(resolved.target, request.path);
+  await assertNoSymlinkInWorkspacePath(
+    resolved.root,
+    path.dirname(resolved.relativePath),
+    request.path,
+    {
+      allowMissingAncestors: true
+    }
+  );
+  const previousContent = await readExistingFileForConflict(
+    resolved.root,
+    resolved.relativePath,
+    request.path
+  );
   const previousHash = previousContent === null ? null : contentHash(previousContent);
   const expectedBaseHash = request.expectedBaseHash ?? previousHash;
   return writeWorkspaceFile({
@@ -293,7 +316,19 @@ export async function writeWorkspaceFile(
   const manifest = await readCapabilityManifest(resolved.root);
   requireWriteCapability(manifest, request.actor, protectedTarget);
 
-  const previousContent = await readExistingFileForConflict(resolved.target, request.path);
+  await assertNoSymlinkInWorkspacePath(
+    resolved.root,
+    path.dirname(resolved.relativePath),
+    request.path,
+    {
+      allowMissingAncestors: true
+    }
+  );
+  const previousContent = await readExistingFileForConflict(
+    resolved.root,
+    resolved.relativePath,
+    request.path
+  );
   const previousHash = previousContent === null ? null : contentHash(previousContent);
   if (request.expectedBaseHash !== undefined && previousHash !== request.expectedBaseHash) {
     throw new CommandFailure(
@@ -436,23 +471,36 @@ function assertSafeGlobPattern(pattern: string): void {
   }
 }
 
-async function requireReadableFile(targetPath: string, requestedPath: string): Promise<void> {
-  const fileStat = await statWorkspaceTarget(targetPath, requestedPath);
+async function requireReadableFile(
+  workspaceRoot: string,
+  relativePath: string,
+  requestedPath: string
+): Promise<void> {
+  const fileStat = await statWorkspaceTarget(workspaceRoot, relativePath, requestedPath);
   if (!fileStat.isFile()) {
     throw new CommandFailure("not_a_file", `Path '${requestedPath}' is not a file.`);
   }
 }
 
-async function requireReadableDirectory(targetPath: string, requestedPath: string): Promise<void> {
-  const fileStat = await statWorkspaceTarget(targetPath, requestedPath);
+async function requireReadableDirectory(
+  workspaceRoot: string,
+  relativePath: string,
+  requestedPath: string
+): Promise<void> {
+  const fileStat = await statWorkspaceTarget(workspaceRoot, relativePath, requestedPath);
   if (!fileStat.isDirectory()) {
     throw new CommandFailure("not_a_directory", `Path '${requestedPath}' is not a directory.`);
   }
 }
 
-async function statWorkspaceTarget(targetPath: string, requestedPath: string) {
+async function statWorkspaceTarget(
+  workspaceRoot: string,
+  relativePath: string,
+  requestedPath: string
+) {
   try {
-    return await stat(targetPath);
+    await assertNoSymlinkInWorkspacePath(workspaceRoot, relativePath, requestedPath);
+    return await lstat(path.join(workspaceRoot, relativePath));
   } catch (error) {
     if (isNodeErrorCode(error, "ENOENT")) {
       throw new CommandFailure("file_not_found", `Path '${requestedPath}' does not exist.`);
@@ -462,9 +510,11 @@ async function statWorkspaceTarget(targetPath: string, requestedPath: string) {
 }
 
 async function readExistingFileForConflict(
-  targetPath: string,
+  workspaceRoot: string,
+  relativePath: string,
   requestedPath: string
 ): Promise<string | null> {
+  const targetPath = path.join(workspaceRoot, relativePath);
   try {
     await access(targetPath, constants.F_OK);
   } catch (error) {
@@ -472,11 +522,50 @@ async function readExistingFileForConflict(
     throw error;
   }
 
-  const fileStat = await stat(targetPath);
+  await assertNoSymlinkInWorkspacePath(workspaceRoot, relativePath, requestedPath);
+  const fileStat = await lstat(targetPath);
   if (!fileStat.isFile()) {
     throw new CommandFailure("not_a_file", `Path '${requestedPath}' is not a file.`);
   }
   return readFile(targetPath, "utf8");
+}
+
+type SymlinkCheckOptions = {
+  /** If true, non-existent path segments stop the walk instead of throwing. */
+  readonly allowMissingAncestors?: boolean;
+};
+
+async function assertNoSymlinkInWorkspacePath(
+  workspaceRoot: string,
+  relativePath: string,
+  requestedPath: string,
+  options: SymlinkCheckOptions = {}
+): Promise<void> {
+  const normalizedRelativePath = normalizeWorkspacePath(relativePath);
+  if (normalizedRelativePath.length === 0 || normalizedRelativePath === ".") return;
+
+  const segments = normalizedRelativePath.split("/").filter((segment) => segment.length > 0);
+  let currentPath = workspaceRoot;
+  for (const [, segment] of segments.entries()) {
+    currentPath = path.join(currentPath, segment);
+    try {
+      const entryStat = await lstat(currentPath);
+      if (entryStat.isSymbolicLink()) {
+        throw new CommandFailure(
+          "path_symlink_forbidden",
+          `Path '${requestedPath}' includes a symbolic link, which is not allowed in NovelFabric workspace operations.`
+        );
+      }
+    } catch (error) {
+      if (isNodeErrorCode(error, "ENOENT")) {
+        if (options.allowMissingAncestors === true) {
+          return;
+        }
+        throw error;
+      }
+      throw error;
+    }
+  }
 }
 
 type AuditLogEntry = {

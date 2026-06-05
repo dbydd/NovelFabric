@@ -203,4 +203,43 @@ describe("workspace file services", () => {
     expect(result.protected).toBe(true);
     expect(await fs.readFile(manifestPath, "utf8")).toBe(nextManifest);
   });
+
+  it("rejects symlink traversal for read, stat, write, and append operations and hides symlinks from glob", async () => {
+    const externalPath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-files-external-"));
+    await fs.writeFile(path.join(externalPath, "secret.md"), "# Secret\n", "utf8");
+    await fs.symlink(externalPath, path.join(workspacePath, "imports", "source", "outside"));
+
+    await expect(
+      readWorkspaceFile({ workspacePath, path: "imports/source/outside/secret.md" })
+    ).rejects.toMatchObject({ code: "path_symlink_forbidden" } satisfies Partial<CommandFailure>);
+    await expect(
+      statWorkspaceFile({ workspacePath, path: "imports/source/outside/secret.md" })
+    ).rejects.toMatchObject({ code: "path_symlink_forbidden" } satisfies Partial<CommandFailure>);
+    const globResult = await globWorkspaceFiles({
+      workspacePath,
+      base: "imports/source",
+      pattern: "**/*.md"
+    });
+    expect(globResult.matches.map((match) => match.path)).not.toContain(
+      "imports/source/outside/secret.md"
+    );
+    await expect(
+      writeWorkspaceFile({
+        workspacePath,
+        path: "imports/source/outside/created.md",
+        content: "# Created\n",
+        actor: "main_agent"
+      })
+    ).rejects.toMatchObject({ code: "path_symlink_forbidden" } satisfies Partial<CommandFailure>);
+    await expect(
+      appendWorkspaceFile({
+        workspacePath,
+        path: "imports/source/outside/secret.md",
+        content: "leak\n",
+        actor: "main_agent"
+      })
+    ).rejects.toMatchObject({ code: "path_symlink_forbidden" } satisfies Partial<CommandFailure>);
+
+    await fs.rm(externalPath, { recursive: true, force: true });
+  });
 });
