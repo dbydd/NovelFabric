@@ -492,6 +492,18 @@ export async function stepWorkflow(request: WorkflowStepRequest): Promise<Workfl
       `Workflow job '${request.jobId}' has no next stage.`
     );
   }
+  const missingCompletionIssues = missingCompletedStageIssues(
+    runtime.plan,
+    runtime.state,
+    jobPaths(runtime.job.jobId).statePath
+  );
+  if (missingCompletionIssues.length > 0) {
+    const firstIssue = missingCompletionIssues[0];
+    throw new CommandFailure(
+      firstIssue?.code ?? "workflow_stage_completion_missing",
+      firstIssue?.message ?? "Workflow state is missing completed stage records."
+    );
+  }
   assertStepInputMatchesStage(request.input, stage.id);
 
   const startedAt = new Date().toISOString();
@@ -770,9 +782,10 @@ export async function verifyWorkflow(
       });
     }
   }
-  const completedStageIds = new Set(runtime.state.completedStages.map((item) => item.stage));
-  for (const stage of runtime.plan.stages) {
-    if (stage.semanticRuntime !== "pi-task" || !completedStageIds.has(stage.id)) continue;
+  const expectedCompletedStages = runtime.plan.stages.slice(0, runtime.state.nextStageIndex);
+  issues.push(...missingCompletedStageIssues(runtime.plan, runtime.state, paths.statePath));
+  for (const stage of expectedCompletedStages) {
+    if (stage.semanticRuntime !== "pi-task") continue;
     const issue = await verifyPiTaskEvidence({
       workspacePath: request.workspacePath,
       artifacts: runtime.artifacts,
@@ -800,6 +813,23 @@ export async function verifyWorkflow(
 
 export function workflowStages(): readonly WorkflowStageDefinition[] {
   return WORKFLOW_STAGES;
+}
+
+function missingCompletedStageIssues(
+  plan: WorkflowPlanArtifact,
+  state: WorkflowStateArtifact,
+  statePath: string
+): readonly WorkflowVerifyIssue[] {
+  const completedStageIds = new Set(state.completedStages.map((item) => item.stage));
+  return plan.stages
+    .slice(0, state.nextStageIndex)
+    .filter((stage) => !completedStageIds.has(stage.id))
+    .map((stage) => ({
+      severity: "error" as const,
+      code: "workflow_stage_completion_missing",
+      path: statePath,
+      message: `Workflow state advanced past '${stage.id}' without recording it in completedStages.`
+    }));
 }
 
 function jobPaths(jobId: string): WorkflowJobPaths {

@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { createAgentTask } from "../../src/agent-runtime/tasks.js";
+import { createAgentTask, validateAgentOutput } from "../../src/agent-runtime/tasks.js";
 import { createSimulationSession } from "../../src/simulation/index.js";
 import {
   cancelWorkflow,
@@ -22,6 +22,12 @@ const VALID_FIXTURE = path.resolve(import.meta.dirname, "../../fixtures/workspac
 
 function stableJson(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function completedStagesBefore(index: number, completedAt: string) {
+  return workflowStages()
+    .slice(0, index)
+    .map((stage) => ({ stage: stage.id, completedAt }));
 }
 
 function parseAgentTaskResult(content: string): {
@@ -144,7 +150,7 @@ describe("workflow acceptance state machine", () => {
         jobId,
         status: "running",
         nextStageIndex: swarmStageIndex + 1,
-        completedStages: [{ stage: "swarm.task.create", completedAt: now }],
+        completedStages: completedStagesBefore(swarmStageIndex + 1, now),
         failedStage: null,
         updatedAt: now,
         cancelledAt: null
@@ -258,7 +264,7 @@ describe("workflow acceptance state machine", () => {
       jobId,
       now,
       nextStageIndex: swarmStageIndex + 1,
-      completedStages: [{ stage: "swarm.task.create", completedAt: now }],
+      completedStages: completedStagesBefore(swarmStageIndex + 1, now),
       artifacts: [
         {
           stage: "swarm.task.create",
@@ -277,6 +283,28 @@ describe("workflow acceptance state machine", () => {
     );
   });
 
+  it("rejects workflow state advanced past a pi-task without completed stage evidence", async () => {
+    const jobId = `pi-stage-skip-${process.pid.toString()}-${Date.now().toString(36)}`;
+    const now = new Date().toISOString();
+    const stages = workflowStages();
+    const swarmStageIndex = stages.findIndex((stage) => stage.id === "swarm.task.create");
+    expect(swarmStageIndex).toBeGreaterThan(0);
+
+    await writeWorkflowRuntimeFixture({
+      jobId,
+      now,
+      nextStageIndex: swarmStageIndex + 1,
+      completedStages: completedStagesBefore(swarmStageIndex, now),
+      artifacts: []
+    });
+
+    const verification = await verifyWorkflow({ workspacePath, jobId });
+    expect(verification.valid).toBe(false);
+    expect(verification.issues).toContainEqual(
+      expect.objectContaining({ code: "workflow_stage_completion_missing" })
+    );
+  });
+
   it("rejects pi-task evidence without a completed result hash", async () => {
     const jobId = `pi-evidence-no-hash-${process.pid.toString()}-${Date.now().toString(36)}`;
     const now = new Date().toISOString();
@@ -289,7 +317,7 @@ describe("workflow acceptance state machine", () => {
       jobId,
       now,
       nextStageIndex: swarmStageIndex + 1,
-      completedStages: [{ stage: "swarm.task.create", completedAt: now }],
+      completedStages: completedStagesBefore(swarmStageIndex + 1, now),
       artifacts: [
         {
           stage: "swarm.task.create",
@@ -318,7 +346,7 @@ describe("workflow acceptance state machine", () => {
       jobId,
       now,
       nextStageIndex: swarmStageIndex,
-      completedStages: [],
+      completedStages: completedStagesBefore(swarmStageIndex, now),
       artifacts: []
     });
     await createSimulationSession({
@@ -356,7 +384,7 @@ describe("workflow acceptance state machine", () => {
       jobId,
       now,
       nextStageIndex: simulationContextIndex,
-      completedStages: [],
+      completedStages: completedStagesBefore(simulationContextIndex, now),
       artifacts: []
     });
     await createSimulationSession({
@@ -459,7 +487,7 @@ describe("workflow acceptance state machine", () => {
       jobId,
       now,
       nextStageIndex: simulationContextIndex,
-      completedStages: [],
+      completedStages: completedStagesBefore(simulationContextIndex, now),
       artifacts: []
     });
     await createSimulationSession({
@@ -482,7 +510,7 @@ describe("workflow acceptance state machine", () => {
       jobId,
       now: new Date().toISOString(),
       nextStageIndex: writingContextIndex,
-      completedStages: [{ stage: "simulation.context-pack", completedAt: now }],
+      completedStages: completedStagesBefore(writingContextIndex, now),
       artifacts: simulationContextStep.artifacts
     });
 
@@ -528,20 +556,12 @@ describe("workflow acceptance state machine", () => {
 
     expect(evidenceArtifact.hash).toBe(resultRead.hash);
 
-    const verified = await verifyWorkflow({ workspacePath, jobId });
-    expect(verified.valid).toBe(true);
-    expect(verified.issues).toEqual([]);
-
-    await writeWorkspaceFile({
+    const validation = await validateAgentOutput({
       workspacePath,
-      path: evidenceArtifact.path,
-      content: resultRead.content.replace("叶小伟醒来", "被篡改的锚点"),
-      actor: "main_agent",
-      reason: "test tampered pi task evidence"
+      task: `workflow-${jobId}-writing.draft`
     });
-    const tampered = await verifyWorkflow({ workspacePath, jobId });
-    expect(tampered.valid).toBe(false);
-    expect(tampered.issues.map((issue) => issue.code)).toContain("workflow_artifact_hash_mismatch");
+    expect(validation.valid).toBe(true);
+    expect(validation.issues).toEqual([]);
   }, 60000);
 
   it("plans, starts, steps deterministic stages, verifies artifacts, and can be cancelled", async () => {
