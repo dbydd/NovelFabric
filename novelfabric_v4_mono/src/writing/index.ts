@@ -181,7 +181,7 @@ export async function buildWritingContextPack(
     sourceExcerpt,
     relevantEntities:
       relevantEntityCandidates.length > 0
-        ? [...new Set(relevantEntityCandidates)].slice(0, 8)
+        ? [...new Set(relevantEntityCandidates)]
         : extractAnchors(sourceExcerpt.length > 0 ? sourceExcerpt : request.session),
     chapterPaths,
     reportPaths,
@@ -485,6 +485,9 @@ function isWritingContextPack(value: unknown): value is NovelFabricWritingContex
     typeof value["session"] === "string" &&
     Array.isArray(value["citations"]) &&
     value["citations"].every(isArtifactCitation) &&
+    typeof value["sourceExcerpt"] === "string" &&
+    Array.isArray(value["relevantEntities"]) &&
+    value["relevantEntities"].every((item) => typeof item === "string") &&
     Array.isArray(value["chapterPaths"]) &&
     value["chapterPaths"].every((item) => typeof item === "string") &&
     Array.isArray(value["reportPaths"]) &&
@@ -547,7 +550,7 @@ function extractAnchors(content: string): readonly string[] {
     .split(/[\n，。,.!?！？；;：:]+/u)
     .map((item) => item.trim())
     .filter((item) => item.length >= 3 && item.length <= 24);
-  return [...new Set([...chapterAnchors, ...phraseAnchors])].slice(0, 5);
+  return [...new Set([...chapterAnchors, ...phraseAnchors])];
 }
 
 function structuredCitationExcerpt(content: string): string {

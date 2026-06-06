@@ -283,7 +283,7 @@ function extractAnchors(content: string): readonly string[] {
     .split(/[\n，。,.!?！？；;：:]+/u)
     .map((item) => item.trim())
     .filter((item) => item.length >= 3 && item.length <= 24);
-  return [...new Set([...chapterAnchors, ...phraseAnchors])].slice(0, 5);
+  return [...new Set([...chapterAnchors, ...phraseAnchors])];
 }
 
 export async function appendSimulationTurn(

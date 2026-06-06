@@ -373,6 +373,7 @@ describe("workflow acceptance state machine", () => {
     );
     expect(evidenceArtifact).toBeDefined();
     if (evidenceArtifact === undefined) throw new Error("Missing evidence artifact.");
+    expect(evidenceArtifact.hash).toMatch(/^sha256:/u);
 
     const resultRead = await readWorkspaceFile({
       workspacePath,
@@ -388,6 +389,22 @@ describe("workflow acceptance state machine", () => {
     const verified = await verifyWorkflow({ workspacePath, jobId });
     expect(verified.valid).toBe(true);
     expect(verified.issues).toEqual([]);
+
+    await writeWorkspaceFile({
+      workspacePath,
+      path: evidenceArtifact.path,
+      actor: "main_agent",
+      content: resultRead.content.replace("completed", "completed-tampered"),
+      reason: "test result evidence tamper"
+    });
+    const tampered = await verifyWorkflow({ workspacePath, jobId });
+    expect(tampered.valid).toBe(false);
+    expect(tampered.issues).toContainEqual(
+      expect.objectContaining({
+        code: "workflow_artifact_hash_mismatch",
+        path: evidenceArtifact.path
+      })
+    );
   }, 60000);
 
   it("executes generated writing context through a workflow pi-task stage", async () => {
@@ -472,9 +489,22 @@ describe("workflow acceptance state machine", () => {
       expect(resultJson.sourceAnchors).toContain(term);
     }
 
+    expect(evidenceArtifact.hash).toBe(resultRead.hash);
+
     const verified = await verifyWorkflow({ workspacePath, jobId });
     expect(verified.valid).toBe(true);
     expect(verified.issues).toEqual([]);
+
+    await writeWorkspaceFile({
+      workspacePath,
+      path: evidenceArtifact.path,
+      content: resultRead.content.replace("叶小伟醒来", "被篡改的锚点"),
+      actor: "main_agent",
+      reason: "test tampered pi task evidence"
+    });
+    const tampered = await verifyWorkflow({ workspacePath, jobId });
+    expect(tampered.valid).toBe(false);
+    expect(tampered.issues.map((issue) => issue.code)).toContain("workflow_artifact_hash_mismatch");
   }, 60000);
 
   it("plans, starts, steps deterministic stages, verifies artifacts, and can be cancelled", async () => {

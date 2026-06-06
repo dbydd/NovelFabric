@@ -1471,8 +1471,7 @@ async function deriveRequiredSourceAnchors(
   if (Array.isArray(entities)) {
     const anchors = entities
       .filter((item): item is string => typeof item === "string" && item.trim().length >= 2)
-      .map((item) => item.trim())
-      .slice(0, 8);
+      .map((item) => item.trim());
     if (anchors.length > 0) return anchors;
   }
   const excerpt = parsed["sourceExcerpt"];
@@ -1480,8 +1479,7 @@ async function deriveRequiredSourceAnchors(
     const anchors = excerpt
       .split(/[\s，。,.!?！？；;：:\n]+/u)
       .map((item) => item.trim())
-      .filter((item) => item.length >= 2)
-      .slice(0, 8);
+      .filter((item) => item.length >= 2);
     if (anchors.length > 0) return anchors;
   }
   throw new CommandFailure(
@@ -1525,6 +1523,7 @@ function agentTaskEvidenceArtifact(
     stage,
     name: "agent-task-result",
     path: evidence.resultPath,
+    hash: evidence.resultWrite.hash,
     artifactKind: "novelfabric.agent.task.result"
   };
 }
