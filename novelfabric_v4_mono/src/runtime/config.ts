@@ -25,6 +25,13 @@ export type RuntimeSettings = JsonObject & {
   readonly actor: string;
   readonly policyProfile: "web-safe";
   readonly allowGlobalPiConfig: false;
+  readonly modelsFile?: string;
+  readonly modelDefaults?: {
+    readonly provider: string;
+    readonly model: string;
+    readonly thinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+    readonly purpose: "testing" | "production";
+  };
   readonly directories: {
     readonly extensions: "extensions";
     readonly skills: "skills";
@@ -464,13 +471,39 @@ function parseJsonObject(content: string): JsonObject {
 }
 
 function isRuntimeSettingsFile(value: JsonObject): boolean {
+  const modelDefaults = value["modelDefaults"];
   return (
     value["schemaVersion"] === "novelfabric.pi.runtime.settings.v1" &&
     value["runtime"] === "pi-agent-sdk" &&
     value["owner"] === "novelfabric" &&
     typeof value["actor"] === "string" &&
     value["policyProfile"] === WEB_SAFE_POLICY_PROFILE &&
-    value["allowGlobalPiConfig"] === false
+    value["allowGlobalPiConfig"] === false &&
+    (value["modelsFile"] === undefined || typeof value["modelsFile"] === "string") &&
+    (modelDefaults === undefined || isRuntimeModelDefaults(modelDefaults))
+  );
+}
+
+function isRuntimeModelDefaults(value: unknown): boolean {
+  if (!isJsonObject(value)) return false;
+  return (
+    typeof value["provider"] === "string" &&
+    typeof value["model"] === "string" &&
+    isThinkingLevel(value["thinking"]) &&
+    (value["purpose"] === "testing" || value["purpose"] === "production")
+  );
+}
+
+function isThinkingLevel(
+  value: unknown
+): value is NonNullable<RuntimeSettings["modelDefaults"]>["thinking"] {
+  return (
+    value === "off" ||
+    value === "minimal" ||
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh"
   );
 }
 

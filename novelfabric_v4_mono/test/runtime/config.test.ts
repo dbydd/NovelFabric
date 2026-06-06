@@ -113,6 +113,34 @@ describe("NovelFabric pi runtime config services", () => {
     expect(after.invalidCount).toBe(0);
   });
 
+  it("accepts NovelFabric-owned model defaults for pi acceptance", async () => {
+    const environment = makeEnvironment({ xdgConfigHome: tempRoot });
+    const materialized = await materializeRuntimeConfig({ environment, actor: "main_agent" });
+    const settings = await readJsonObject(materialized.settingsPath);
+    await fs.writeFile(
+      materialized.settingsPath,
+      `${JSON.stringify(
+        {
+          ...settings,
+          modelsFile: "models.json",
+          modelDefaults: {
+            provider: "axonhub",
+            model: "flash-vibe",
+            thinking: "medium",
+            purpose: "testing"
+          }
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const after = await doctorRuntimeConfig(environment);
+    expect(after.valid).toBe(true);
+    expect(after.invalidCount).toBe(0);
+  });
+
   it("validates extension metadata after materialization", async () => {
     const environment = makeEnvironment({ xdgConfigHome: tempRoot });
     await materializeRuntimeConfig({ environment, actor: "main_agent" });

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -226,25 +226,17 @@ async function loadNovelFabricPiRuntimeConfig() {
 async function runPi(runtime, workspacePath, contextContent) {
   const prompt = [
     "You are running NovelFabric V4 hard pi acceptance.",
-    "Read the supplied workflow context. Return ONLY JSON between the markers.",
-    "The JSON must have: semanticExecution true, summary, characters array, evidence array, and nextAction.",
-    "The summary/evidence must mention the exact terms: 叶小伟, 钟声, 第二章.",
+    "Read the supplied workflow context and return ONLY one compact JSON object. No markdown. No code fences.",
+    "The JSON object must have these fields: semanticExecution true, summary, characters array, evidence array, nextAction.",
+    "The summary and evidence must mention the exact terms: 叶小伟, 钟声, 第二章.",
     "Do not use tools. Do not write files. The test harness will validate and write your output.",
-    "NOVELFABRIC_CONTEXT_BEGIN",
-    contextContent,
-    "NOVELFABRIC_CONTEXT_END",
-    "NOVELFABRIC_RESULT_JSON_BEGIN",
-    "{",
-    '  "semanticExecution": true,',
-    '  "summary": "...",',
-    '  "characters": ["叶小伟"],',
-    '  "evidence": ["..."],',
-    '  "nextAction": "..."',
-    "}",
-    "NOVELFABRIC_RESULT_JSON_END"
+    "WORKFLOW_CONTEXT:",
+    contextContent
   ].join("\n");
 
-  const { stdout, stderr } = await execFileAsync(
+  const promptPath = path.join(workspacePath, ".novelfabric", "pi-acceptance-prompt.md");
+  await fs.writeFile(promptPath, prompt, "utf8");
+  const piResult = spawnSync(
     piBin,
     [
       "--print",
@@ -254,39 +246,37 @@ async function runPi(runtime, workspacePath, contextContent) {
       runtime.defaultProvider,
       "--model",
       runtime.defaultModel,
-      prompt
+      `@${promptPath}`
     ],
     {
-      cwd: workspacePath,
+      cwd: repoRoot,
       env: {
         ...process.env,
         PI_CODING_AGENT_DIR: runtime.runtimeRoot,
-        PI_CODING_AGENT_SESSION_DIR: path.join(workspacePath, ".novelfabric", "pi-sessions"),
         PI_SKIP_VERSION_CHECK: "1"
       },
       timeout: Number(process.env.NOVELFABRIC_PI_ACCEPTANCE_TIMEOUT_MS ?? "180000"),
-      maxBuffer: 1024 * 1024 * 5
+      maxBuffer: 1024 * 1024 * 5,
+      encoding: "utf8"
     }
-  ).catch((error) => {
-    if (error instanceof Error) {
-      fail(
-        `pi process failed. ${error.message}\nSTDOUT:\n${String(error.stdout ?? "")}\nSTDERR:\n${String(error.stderr ?? "")}`
-      );
-    }
-    throw error;
-  });
-
-  const text = `${stdout}\n${stderr}`;
-  const match = /NOVELFABRIC_RESULT_JSON_BEGIN\s*([\s\S]*?)\s*NOVELFABRIC_RESULT_JSON_END/.exec(
-    text
   );
-  if (match === null) {
-    fail(`pi output did not include required JSON markers. Output:\n${text}`);
+  if (piResult.error !== undefined || piResult.status !== 0) {
+    fail(
+      `pi process failed. status=${String(piResult.status)} signal=${String(piResult.signal)} error=${errorMessage(
+        piResult.error
+      )}\nSTDOUT:\n${piResult.stdout}\nSTDERR:\n${piResult.stderr}`
+    );
+  }
+
+  const text = `${piResult.stdout}\n${piResult.stderr}`.trim();
+  const jsonText = extractFirstJsonObject(text);
+  if (jsonText === undefined) {
+    fail(`pi output did not include a JSON object. Output:\n${text}`);
   }
   try {
-    return JSON.parse(match[1]);
+    return JSON.parse(jsonText);
   } catch (error) {
-    fail(`pi output JSON could not be parsed. ${errorMessage(error)}\nJSON:\n${match[1]}`);
+    fail(`pi output JSON could not be parsed. ${errorMessage(error)}\nJSON:\n${jsonText}`);
   }
 }
 
@@ -314,6 +304,36 @@ function findArtifactPath(envelope, stage, name) {
     fail(`Missing workflow artifact ${stage}/${name}.`);
   }
   return artifact.path;
+}
+
+function extractFirstJsonObject(text) {
+  const start = text.indexOf("{");
+  if (start < 0) return undefined;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, index + 1);
+    }
+  }
+  return undefined;
 }
 
 function validateAgentJson(value) {
