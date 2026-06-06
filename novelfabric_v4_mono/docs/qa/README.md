@@ -19,3 +19,11 @@ That smoke is retained only as evidence for UI controls, bridge writes, file vis
 - `templates/acceptance-report.md` is the required report shape for future full acceptance runs.
 
 Future business-flow acceptance must prove NovelFabric-wrapped pi-agent-SDK semantic execution through CLI-backed Web controls, task/event traces, workspace artifacts, validation output, audit JSONL, and Playwright-visible user actions.
+
+For content-level LLM validation, run:
+
+```bash
+npm run test:pi-acceptance
+```
+
+This is a hard gate: missing NovelFabric pi model config or LLM credentials must fail, not skip.

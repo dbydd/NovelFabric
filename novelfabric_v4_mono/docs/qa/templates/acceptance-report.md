@@ -18,6 +18,8 @@
 ## Runtime Evidence
 
 - Workflow job id:
+- pi process command:
+- pi provider/model:
 - pi session id:
 - Event trace path:
 - Tool policy path:
@@ -34,6 +36,7 @@
 | simulation/swarm       |      |      |            |
 | report                 |      |      |            |
 | writing                |      |      |            |
+| pi content acceptance  |      |      |            |
 
 ## Audit Evidence
 

@@ -187,6 +187,14 @@ npm run test:contracts
 npm run test:acceptance
 ```
 
+Hard pi-backed content gate:
+
+```bash
+npm run test:pi-acceptance
+```
+
+`test:pi-acceptance` must not skip. It fails immediately when NovelFabric-owned pi settings are missing `defaultProvider` / `defaultModel`, or when the configured pi process cannot reach a real LLM. When configured, it launches `node_modules/.bin/pi --print --no-tools`, feeds it a workflow context pack, requires structured JSON output with source-specific terms, writes that output through NovelFabric CLI, then re-reads the saved file and validates its content. This gate exists specifically to prevent tests that only prove file creation while allowing blank or irrelevant content.
+
 Browser gates, once Web workflow binding exists:
 
 ```bash
@@ -200,7 +208,7 @@ A V4 phase may be called complete only when:
 - its command/service tests pass;
 - its CLI JSON behavior is covered;
 - its Web binding, if any, is Playwright-tested through visible controls;
-- semantic claims include pi runtime evidence;
+- semantic claims include pi runtime evidence, and `test:pi-acceptance` validates output content rather than only file existence;
 - deterministic shell commands label or behave as scaffold, task creation, or pending work rather than semantic completion;
 - every durable write is audited;
 - known pending contracts are either implemented or explicitly listed as gaps.
