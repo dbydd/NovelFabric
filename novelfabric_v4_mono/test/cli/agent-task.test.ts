@@ -115,6 +115,28 @@ describe("agent task command module", () => {
       expect(inspectResult.command).toBe("agent task inspect");
       expect(inspectResult.data.taskId).toBe("chapter-draft-001");
     }
+
+    const pendingValidation = await runCommand([
+      "agent",
+      "output",
+      "validate",
+      "--workspace",
+      workspacePath,
+      "--task",
+      "chapter-draft-001",
+      "--json"
+    ]);
+    expect(pendingValidation.ok).toBe(true);
+    if (pendingValidation.ok) {
+      expect(pendingValidation.data.valid).toBe(false);
+      expect(pendingValidation.data.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "agent_task_not_completed" }),
+          expect.objectContaining({ code: "agent_task_runtime_evidence_missing" }),
+          expect.objectContaining({ code: "agent_task_output_missing" })
+        ])
+      );
+    }
   });
 
   it("records real pi run status, validates output, and aborts through audited workspace writes", async () => {

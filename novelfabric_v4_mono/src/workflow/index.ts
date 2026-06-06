@@ -1,5 +1,5 @@
 import { CommandFailure } from "../errors.js";
-import { createAgentTask } from "../agent-runtime/tasks.js";
+import { createAgentTask, runAgentTask } from "../agent-runtime/tasks.js";
 import { applyCardProposal, proposeCards } from "../cards/proposals.js";
 import {
   buildImportContextPack,
@@ -1124,7 +1124,7 @@ async function executeStage(request: {
         "simulation.context-pack",
         "simulation-context-pack"
       );
-      const agentTask = await createWorkflowAgentTask({
+      const agentTask = await createAndRunWorkflowAgentTask({
         workspacePath: request.workspacePath,
         actor: request.actor,
         jobId: sessionId,
@@ -1184,7 +1184,7 @@ async function executeStage(request: {
         outputPath: `reports/${sessionId}-consistency.json`,
         reason: "workflow report.task.create"
       });
-      const agentTask = await createWorkflowAgentTask({
+      const agentTask = await createAndRunWorkflowAgentTask({
         workspacePath: request.workspacePath,
         actor: request.actor,
         jobId: sessionId,
@@ -1250,7 +1250,7 @@ async function executeStage(request: {
         outputPath: `writing/drafts/${sessionId}.json`,
         reason: "workflow writing.draft"
       });
-      const agentTask = await createWorkflowAgentTask({
+      const agentTask = await createAndRunWorkflowAgentTask({
         workspacePath: request.workspacePath,
         actor: request.actor,
         jobId: sessionId,
@@ -1383,7 +1383,7 @@ function artifactFromWrite(
   return { stage, name, path: write.path, hash: write.hash, artifactKind };
 }
 
-async function createWorkflowAgentTask(request: {
+async function createAndRunWorkflowAgentTask(request: {
   readonly workspacePath: string;
   readonly actor: string;
   readonly jobId: string;
@@ -1433,6 +1433,14 @@ async function createWorkflowAgentTask(request: {
       `Agent task '${taskId}' did not produce a result evidence file.`
     );
   }
+  await runAgentTask({
+    workspacePath: request.workspacePath,
+    actor: request.actor,
+    task: result.taskId,
+    runtime: "pi",
+    reason: `workflow ${request.stage} agent task run`
+  });
+
   return {
     taskId: result.taskId,
     packagePath: result.packagePath,
@@ -1501,6 +1509,22 @@ async function verifyPiTaskEvidence(request: {
         code: "workflow_pi_task_unexecuted",
         path: evidence.path,
         message: `Workflow pi-task stage '${request.stage}' requires executed result status, found ${parsed.status}.`
+      };
+    }
+    if (!hasRuntimeEvidence(parsed)) {
+      return {
+        severity: "error",
+        code: "workflow_pi_task_runtime_evidence_missing",
+        path: evidence.path,
+        message: `Workflow pi-task stage '${request.stage}' result evidence must include runtimeEvidence.`
+      };
+    }
+    if (!hasNonEmptyAgentOutput(parsed)) {
+      return {
+        severity: "error",
+        code: "workflow_pi_task_output_missing",
+        path: evidence.path,
+        message: `Workflow pi-task stage '${request.stage}' result evidence must include non-empty pi output.`
       };
     }
     return null;
@@ -1708,11 +1732,30 @@ function isWorkflowArtifactItem(value: unknown): value is WorkflowArtifactItem {
   );
 }
 
-function isAgentTaskResult(value: unknown): value is { readonly status: string } {
+function isAgentTaskResult(value: unknown): value is Record<string, unknown> & {
+  readonly status: string;
+} {
   return (
     isRecord(value) &&
     value["kind"] === "novelfabric.agent.task.result" &&
     typeof value["status"] === "string"
+  );
+}
+
+function hasRuntimeEvidence(value: Record<string, unknown>): boolean {
+  const evidence = value["runtimeEvidence"];
+  return (
+    isRecord(evidence) &&
+    typeof evidence["provider"] === "string" &&
+    typeof evidence["model"] === "string" &&
+    typeof evidence["runtimeRoot"] === "string"
+  );
+}
+
+function hasNonEmptyAgentOutput(value: Record<string, unknown>): boolean {
+  const output = value["output"];
+  return (
+    isRecord(output) && typeof output["rawText"] === "string" && output["rawText"].trim().length > 0
   );
 }
 

@@ -289,8 +289,8 @@ report, writing, workflow, external-swarm, web
 
 距离完全可用仍然阻塞的 gap：
 
-- 真实 agent task execution：`agent run --runtime pi` 仍只是 deterministic run envelope，没有用 `generic-writer` 启动真实 pi AgentSession；
-- workflow pi evidence：语义拆书、role reasoning、StorySwarm output、ReportAgent analysis、chapter drafts 需要把 pi event/output evidence 挂到 job trace；
+- 完整 SDK AgentSession / Web binding：`agent run --runtime pi` 现在已经用 `generic-writer` 启动真实 NovelFabric-owned pi CLI process，捕获输出并写入 audited result evidence，但 mono app 仍需实现文档中的 SDK AgentSession bridge 与 event stream；
+- workflow pi evidence hardening：workflow pi-task stages 现在会运行 agent task 并校验 completed result evidence，但语义拆书、role reasoning、StorySwarm output、ReportAgent analysis、chapter drafts 仍需更严格的 schema/citation/domain-specific validation；
 - Web binding：Web controls 尚未在 Web-safe policy 下接入完整 workflow/agent runtime path；
 - external compatibility：external swarm REST/MCP adapters 仍需接 shared CLI service 并通过 golden fixtures；
 - cards/memory/swarm/report/chapter 等 domain-specific capabilities 需要收紧。
@@ -300,7 +300,7 @@ report, writing, workflow, external-swarm, web
 - deterministic harness tests 必须在 CI 中通过；
 - `npm run test:pi-acceptance` 是硬内容门槛，NovelFabric pi config 或 LLM 凭据不可用时必须失败，不能 skip；
 - 真实 pi/Web acceptance tests 在未实现前应作为 pending contract tests 存在；
-- 没有 pi runtime evidence 的 deterministic shell 不能被描述为 semantic business success。
+- 没有 completed pi runtime evidence 与内容校验的 deterministic shell 不能被描述为 semantic business success。
 
 ## 12. 实施阶段
 

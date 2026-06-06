@@ -320,8 +320,8 @@ Current implemented strengths:
 
 Current blocking gaps for full usability:
 
-- true agent task execution: `agent run --runtime pi` still records a deterministic run envelope rather than starting a real pi AgentSession with `generic-writer`;
-- workflow pi evidence: semantic拆书, role reasoning, StorySwarm output, ReportAgent analysis, and chapter drafts need pi event/output evidence attached to job traces;
+- full SDK AgentSession/Web binding: `agent run --runtime pi` now launches a real NovelFabric-owned pi CLI process with `generic-writer`, captures output, and writes audited result evidence, but the mono app still needs the documented SDK AgentSession bridge and event stream;
+- workflow pi evidence hardening: workflow pi-task stages now run agent tasks and verify completed result evidence, but semantic拆书, role reasoning, StorySwarm output, ReportAgent analysis, and chapter drafts still need richer schema/citation/domain-specific validation;
 - Web binding: Web controls are not yet wired to the full workflow/agent runtime path under Web-safe policy;
 - external compatibility: external swarm REST/MCP adapters still need to call the shared CLI service and pass golden fixtures;
 - domain-specific capabilities must be tightened for cards/memory/swarm/report/chapter commands.
@@ -331,7 +331,7 @@ Testing policy:
 - deterministic harness tests must pass in CI;
 - `npm run test:pi-acceptance` is a hard content gate and must fail, not skip, when NovelFabric pi config or LLM credentials are unavailable;
 - true pi/Web acceptance tests should exist as pending contract tests until implemented;
-- no deterministic shell may be described as semantic business success without pi runtime evidence.
+- no deterministic shell may be described as semantic business success without completed pi runtime evidence and content validation.
 
 ## 12. Implementation Phases
 

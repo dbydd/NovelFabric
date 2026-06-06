@@ -56,7 +56,7 @@ describe("workflow acceptance state machine", () => {
   });
 
   it("requires executed pi task evidence before counting pi-task stages as verified", async () => {
-    const jobId = "pi-evidence-job";
+    const jobId = `pi-evidence-job-${process.pid.toString()}-${Date.now().toString(36)}`;
     const now = new Date().toISOString();
     const paths = {
       plan: `.novelfabric/jobs/${jobId}/plan.json`,
@@ -148,6 +148,7 @@ describe("workflow acceptance state machine", () => {
     await writeAgentTaskResult(paths.result, "completed");
 
     const executed = await verifyWorkflow({ workspacePath, jobId });
+    expect(executed.issues).toEqual([]);
     expect(executed.valid).toBe(true);
 
     async function writeAgentTaskResult(
@@ -170,6 +171,28 @@ describe("workflow acceptance state machine", () => {
             adapter: "@earendil-works/pi-coding-agent",
             available: true
           },
+          ...(status === "completed"
+            ? {
+                runtimeEvidence: {
+                  runtimeRoot: "/tmp/novelfabric/pi",
+                  provider: "axonhub",
+                  model: "generic-writer",
+                  modelPurpose: "production",
+                  piBin: "pi",
+                  toolPolicy: "--no-tools",
+                  sessionPolicy: "--no-session",
+                  contextPolicy: "--no-context-files",
+                  stdoutBytes: 42,
+                  stderrBytes: 0
+                },
+                output: {
+                  kind: "novelfabric.agent.task.output",
+                  version: 1,
+                  format: "text",
+                  rawText: "generic-writer completed the StorySwarm task with non-empty evidence."
+                }
+              }
+            : {}),
           notes: [`Test fixture status: ${status}`]
         }),
         reason: `test ${status} pi task evidence`

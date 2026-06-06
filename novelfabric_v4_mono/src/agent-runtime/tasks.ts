@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import { readProcessEnvironment } from "../environment.js";
@@ -401,7 +403,7 @@ export async function runAgentTask(request: AgentTaskRunRequest): Promise<AgentT
     timestamp: startedAt,
     message: `Launching pi runtime with provider '${runtime.provider}' and workflow model '${runtime.model}'.`
   });
-  const pi = runPiProcess({ runtime, prompt });
+  const pi = runPiProcess({ runtime, prompt, taskId });
   const output = parsePiTaskOutput(pi.outputText);
   const completedAt = new Date().toISOString();
   const runtimeEvidence: AgentTaskRuntimeEvidence = {
@@ -506,6 +508,32 @@ export async function validateAgentOutput(
         message: "Output schema must be a JSON object."
       });
     }
+    if (inspected.result.status !== "completed") {
+      issues.push({
+        severity: "error",
+        code: "agent_task_not_completed",
+        path: paths.files.result,
+        message: `Agent task output validation requires completed pi runtime evidence, found ${inspected.result.status}.`
+      });
+    }
+    if (inspected.result.runtimeEvidence === undefined) {
+      issues.push({
+        severity: "error",
+        code: "agent_task_runtime_evidence_missing",
+        path: paths.files.result,
+        message: "Agent task result must include pi runtime evidence."
+      });
+    }
+    if (inspected.result.output === undefined) {
+      issues.push({
+        severity: "error",
+        code: "agent_task_output_missing",
+        path: paths.files.result,
+        message: "Agent task result must include captured pi output."
+      });
+    } else {
+      validateAgentTaskOutputContent(inspected.result.output, paths.files.result, issues);
+    }
     if (inspected.allowedCommands.length === 0) {
       issues.push({
         severity: "warning",
@@ -522,6 +550,43 @@ export async function validateAgentOutput(
     checked,
     issues
   };
+}
+
+function validateAgentTaskOutputContent(
+  output: AgentTaskOutput,
+  resultPath: string,
+  issues: AgentTaskValidationIssue[]
+): void {
+  if (output.rawText.trim().length === 0) {
+    issues.push({
+      severity: "error",
+      code: "agent_task_output_empty",
+      path: resultPath,
+      message: "Captured pi output must not be empty."
+    });
+  }
+  if (output.format === "json") {
+    if (output.parsedJson === undefined) {
+      issues.push({
+        severity: "error",
+        code: "agent_task_output_json_missing",
+        path: resultPath,
+        message: "JSON pi output must include parsedJson."
+      });
+    } else if (
+      typeof output.parsedJson === "object" &&
+      output.parsedJson !== null &&
+      !Array.isArray(output.parsedJson) &&
+      Object.keys(output.parsedJson).length === 0
+    ) {
+      issues.push({
+        severity: "error",
+        code: "agent_task_output_json_empty",
+        path: resultPath,
+        message: "JSON pi output must not be an empty object."
+      });
+    }
+  }
 }
 
 export async function getAgentTaskStatus(
@@ -717,11 +782,13 @@ function buildPiTaskPrompt(inspected: AgentTaskInspectResult): string {
 function runPiProcess(request: {
   readonly runtime: PiWorkflowRuntimeConfig;
   readonly prompt: string;
+  readonly taskId: string;
 }): PiProcessResult {
   const modelArgument =
     request.runtime.thinking === undefined
       ? request.runtime.model
       : `${request.runtime.model}:${request.runtime.thinking}`;
+  const promptPath = writePiPromptFile(request.taskId, request.prompt);
   const result = spawnSync(
     request.runtime.piBin,
     [
@@ -733,7 +800,7 @@ function runPiProcess(request: {
       request.runtime.provider,
       "--model",
       modelArgument,
-      request.prompt
+      `@${promptPath}`
     ],
     {
       cwd: process.cwd(),
@@ -761,6 +828,13 @@ function runPiProcess(request: {
     throw new CommandFailure("pi_runtime_empty_output", "pi runtime returned empty output.", 2);
   }
   return { stdout, stderr, outputText };
+}
+
+function writePiPromptFile(taskId: string, prompt: string): string {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "novelfabric-agent-run-"));
+  const promptPath = path.join(directory, `${taskId}.prompt.md`);
+  writeFileSync(promptPath, prompt, "utf8");
+  return promptPath;
 }
 
 function parsePiTaskOutput(outputText: string): AgentTaskOutput {

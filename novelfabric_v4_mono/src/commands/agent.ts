@@ -80,7 +80,9 @@ export function addAgentTaskCommands(program: Command): void {
 
   agent
     .command("run")
-    .description("Record a deterministic pi runtime run envelope for an agent task")
+    .description(
+      "Run an agent task through the NovelFabric-owned pi workflow model and record evidence"
+    )
     .requiredOption("--workspace <path>", "Workspace root path")
     .requiredOption("--actor <actor>", "Capability manifest actor name")
     .requiredOption("--task <id>", "Task id under .novelfabric/tasks/<id>")
