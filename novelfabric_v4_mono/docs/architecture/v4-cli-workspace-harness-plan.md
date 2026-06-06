@@ -203,7 +203,7 @@ The detailed command surface lives in `v4-cli-command-contract.md`. The high-lev
 workspace / project
 files
 runtime / pi SDK
-dagents / skills
+agents / skills
 agent task
 import / chapterize
 cards / memory
@@ -216,7 +216,22 @@ external-swarm compatibility
 
 The key rule is that Web bridge routes are adapters over these command/service families, not a separate business runtime.
 
-## 8. pi Agent SDK Task Model
+## 8. Testing Gate Before More Surface Area
+
+The current command surface is broad enough that future work must be test-led. Do not keep adding command families until the existing families have honest acceptance coverage.
+
+Required gates:
+
+- service tests for every shared workspace primitive;
+- CLI tests for every command family with JSON envelope and failure behavior;
+- workflow state tests that distinguish deterministic harness completion from pi-backed semantic completion;
+- runtime policy tests proving NovelFabric-owned pi config roots and Web-safe tool denial;
+- pending contract tests for unavailable real pi/Web business loops, kept visible until implemented;
+- Playwright-only browser tests for Web surfaces, without console or direct API bypass.
+
+The active QA contract is `../qa/v4-full-usability-acceptance.md`. A feature may be described as harness-complete only when deterministic CLI tests pass; it may be described as business-complete only when pi runtime evidence and browser/control evidence satisfy that QA contract.
+
+## 9. pi Agent SDK Task Model
 
 Recommended task package:
 
@@ -244,7 +259,7 @@ novelfabric context-pack / task create
   → audit + artifact manifest refresh
 ```
 
-## 9. Skill / Agent Text Assets
+## 10. Skill / Agent Text Assets
 
 Recommended skill families:
 
@@ -273,13 +288,49 @@ Each skill should define:
 - validation commands to run before declaring success;
 - forbidden shortcuts, including direct filesystem writes and fixture-specific logic.
 
-## 10. Implementation Phases
+## 11. Current Progress And Test-First Gate
 
-### Phase 1 — CLI Contract Freeze
+The V4 CLI harness now exposes these command families:
+
+```text
+config, workspace, project, files, runtime, agents, agent, skills, import,
+cards, memory, knowledge, recall, context-pack, simulation, swarm,
+report, writing, workflow, external-swarm, web
+```
+
+This is harness progress, not full product completion. The next phase must prioritize the QA contract in `../qa/v4-full-usability-acceptance.md` before adding more command surface.
+
+Current implemented strengths:
+
+- deterministic workspace/project/files/runtime/import/knowledge/proposal/simulation/report/writing/workflow/external-swarm CLI shells;
+- protected and audited workspace writes through shared services;
+- symlink escape regression coverage;
+- workflow job artifacts under `.novelfabric/jobs/<job-id>/`;
+- agent task package artifacts under `.novelfabric/tasks/<task-id>/`;
+- NovelFabric-owned pi runtime config and Web-safe policy metadata.
+
+Current blocking gaps for full usability:
+
+- `agent run --runtime pi` still records a deterministic run envelope rather than starting a real pi AgentSession;
+- Web controls are not yet wired to the full workflow/agent runtime path;
+- semantic拆书, role reasoning, StorySwarm output, ReportAgent analysis, and chapter drafts are not yet pi-backed;
+- external swarm REST/MCP adapters still need to call the shared CLI service and pass golden fixtures;
+- domain-specific capabilities must be tightened for cards/memory/swarm/report/chapter commands.
+
+Testing policy:
+
+- deterministic harness tests must pass in CI;
+- true pi/Web acceptance tests should exist as pending contract tests until implemented;
+- no deterministic shell may be described as semantic business success without pi runtime evidence.
+
+## 12. Implementation Phases
+
+### Phase 1 — CLI Contract And Test Freeze
 
 - Keep `v4-cli-command-contract.md` current.
 - Ensure existing `config`, `workspace`, `files`, and `web` commands remain stable.
-- Add command stubs only when their JSON envelope, capability, and artifact paths are documented.
+- Add or change commands only with service tests, CLI tests, and QA contract status updates.
+- Treat deterministic shells as harness progress, not semantic business success.
 
 ### Phase 2 — Runtime Config / Extension Envelope
 
@@ -339,7 +390,7 @@ Each skill should define:
 - Ten-loop browser run with pi-backed semantic evidence.
 - No browser console, no direct API bypass, no fixture-specific code.
 
-## 11. Success Criteria
+## 13. Success Criteria
 
 A future business-flow test is successful only if:
 
@@ -351,7 +402,7 @@ A future business-flow test is successful only if:
 - capability/protected path rules were enforced;
 - Web controls only orchestrated CLI-backed operations.
 
-## 12. Explicit Non-Goals
+## 14. Explicit Non-Goals
 
 - No NovelFabric-owned OpenAI/Anthropic provider layer as V4 mainline.
 - No dependence on a user’s ordinary global pi extension set for mono app safety.

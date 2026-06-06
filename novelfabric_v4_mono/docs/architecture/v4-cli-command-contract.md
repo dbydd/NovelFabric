@@ -19,7 +19,26 @@ Every command must:
 
 Semantic reasoning should be performed by the NovelFabric mono app's wrapped pi agent SDK runtime or by external agents using NovelFabric skills and context packs. NovelFabric CLI commands own runtime policy, context preparation, validation, apply, audit, and reporting. For Web users, the wrapped runtime must use NovelFabric-owned pi config/extension paths and must not expose raw dangerous tools such as unrestricted `bash`, `write`, or `edit`.
 
-## 2. Error Codes
+## 2. Current Implementation Status
+
+| Family                                    | Status                           | Notes                                                                                                                  |
+| ----------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `config`, `workspace`, `project`, `files` | implemented                      | Includes audited write/append/patch, symlink rejection, workspace materialization and validation.                      |
+| `runtime`                                 | implemented shell                | Materializes NovelFabric-owned pi config/policy/extension metadata; real extension execution still pending.            |
+| `agents`, `skills`                        | implemented                      | Inspection/validation of text assets; materialization remains limited.                                                 |
+| `import`                                  | implemented deterministic        | Normalize/chunk/chapterize/context-pack are deterministic, not semantic拆书.                                           |
+| `cards`, `memory`                         | implemented proposal/apply shell | Citation/hash validation exists; semantic proposal quality needs pi-backed tasks.                                      |
+| `knowledge`, `recall`, `context-pack`     | implemented deterministic        | Derived index/search/context packs exist; no vector/LLM ranking yet.                                                   |
+| `simulation`, `swarm`                     | implemented task shell           | Deterministic session/plan/task artifacts exist; real role reasoning requires pi tasks.                                |
+| `report`, `writing`                       | implemented task shell           | Report/writing task artifacts and apply/review/export exist; real ReportAgent/chapter drafting requires pi evidence.   |
+| `agent`                                   | implemented shell                | Task package and run envelope exist; `agent run --runtime pi` does not yet start a real pi AgentSession.               |
+| `workflow`                                | implemented state shell          | Job plan/start/step/status/retry/cancel/verify exist; semantic stages remain task artifacts until pi runtime is wired. |
+| `external-swarm`                          | implemented CLI wrapper          | Deterministic compatibility artifacts and idempotency exist; REST/MCP adapters and golden tests remain pending.        |
+| `web`                                     | partial                          | File bridge/editor exists; full workflow/runtime Web binding and Playwright acceptance remain pending.                 |
+
+This table is a progress ledger, not a success declaration. See `../qa/v4-full-usability-acceptance.md` for the acceptance standard.
+
+## 3. Error Codes
 
 | Code                      | Meaning                                                     |
 | ------------------------- | ----------------------------------------------------------- |
@@ -36,7 +55,7 @@ Semantic reasoning should be performed by the NovelFabric mono app's wrapped pi 
 | `stage_blocked`           | Workflow stage has unresolved blockers.                     |
 | `compatibility_violation` | External swarm contract shape would be broken.              |
 
-## 3. Capability Names
+## 4. Capability Names
 
 Initial target capabilities:
 
@@ -69,7 +88,7 @@ agent.task.run
 
 Deny rules override allow rules.
 
-## 4. Workspace / Project Commands
+## 5. Workspace / Project Commands
 
 ```bash
 novelfabric workspace doctor --path <workspace> --json
@@ -86,7 +105,7 @@ novelfabric project list --root <root> --json
 
 Writes require `workspace.materialize` or `project.manage`.
 
-## 5. Files Commands
+## 6. Files Commands
 
 Existing commands remain foundational:
 
@@ -108,7 +127,7 @@ novelfabric files protect-check --workspace <workspace> --path <path> --actor <a
 
 All mutations require `files.write` or `project.manage`; protected paths require `files.patch_protected`.
 
-## 6. Runtime Config / Extension Commands
+## 7. Runtime Config / Extension Commands
 
 ```bash
 novelfabric runtime doctor --json
@@ -130,7 +149,7 @@ $HOME/.config/novelfabric/pi/
 
 They may materialize bundled settings, prompts, skills, and extensions such as sandbox/path guards, permission gates, and CLI-only write tools. Web-safe policy must default-deny raw `bash`, raw `write`, raw `edit`, arbitrary network, and arbitrary path access.
 
-## 7. Agent / Skill Commands
+## 8. Agent / Skill Commands
 
 ```bash
 novelfabric agents list --workspace <workspace> --json
@@ -145,7 +164,7 @@ novelfabric skills validate --workspace <workspace> --json
 
 These commands inspect or materialize text constraints. They do not run LLM reasoning.
 
-## 8. pi Agent SDK Boundary Commands
+## 9. pi Agent SDK Boundary Commands
 
 ```bash
 novelfabric agent task create --workspace <workspace> --kind <kind> --actor <actor> --context-pack <path> --json
@@ -171,7 +190,7 @@ Recommended task package:
   events.jsonl
 ```
 
-## 9. Import / Chapterize Commands
+## 10. Import / Chapterize Commands
 
 ```bash
 novelfabric import inbox --workspace <workspace> --json
@@ -186,7 +205,7 @@ novelfabric import extraction apply --workspace <workspace> --proposal <path> --
 
 `normalize`, `chunk`, and basic `chapterize` are deterministic. Semantic extraction is produced by pi agent skills and applied through `import extraction apply` or cards commands.
 
-## 10. Cards / Memory Commands
+## 11. Cards / Memory Commands
 
 ```bash
 novelfabric cards list --workspace <workspace> --kind character --json
@@ -203,7 +222,7 @@ novelfabric memory apply-proposal --workspace <workspace> --proposal <path> --ac
 
 Card and memory apply commands must validate citations before writing.
 
-## 11. Knowledge / StoryRAG Commands
+## 12. Knowledge / StoryRAG Commands
 
 ```bash
 novelfabric knowledge sources list --workspace <workspace> --json
@@ -222,7 +241,7 @@ novelfabric context-pack validate --workspace <workspace> --path <path> --json
 
 Indexes under `knowledge/` are derived artifacts and must be rebuildable from source files.
 
-## 12. Simulation / StorySwarm Commands
+## 13. Simulation / StorySwarm Commands
 
 ```bash
 novelfabric simulation session create --workspace <workspace> --objective <text> --timeline main --actor main_agent --json
@@ -247,7 +266,7 @@ characters -> random-event -> world-maintainer -> kp -> project-auditor
 
 The semantic output comes from pi agent skills; CLI validates and applies.
 
-## 13. Report / Writing Commands
+## 14. Report / Writing Commands
 
 ```bash
 novelfabric report task create --workspace <workspace> --session <id> --kind consistency --json
@@ -265,7 +284,7 @@ novelfabric writing export --workspace <workspace> --format markdown --json
 
 `writing draft` creates or invokes a pi agent task. `apply-draft` is deterministic and audited.
 
-## 14. Workflow Wrapper Commands
+## 15. Workflow Wrapper Commands
 
 Workflow commands compose the domain commands above; they must not create a second business runtime.
 
@@ -291,7 +310,7 @@ Recommended job files:
 .novelfabric/jobs/<job-id>/artifacts.json
 ```
 
-## 15. External Swarm Compatibility Commands
+## 16. External Swarm Compatibility Commands
 
 ```bash
 novelfabric external-swarm infer --workspace <workspace> --actor <actor> --request <request.json> --json
@@ -311,7 +330,7 @@ external_swarm_require_context
 external_swarm_get
 ```
 
-## 16. Web Bridge Rule
+## 17. Web Bridge Rule
 
 Web routes should be thin adapters over the same command/service layer. A browser feature is incomplete until its equivalent CLI command exists.
 

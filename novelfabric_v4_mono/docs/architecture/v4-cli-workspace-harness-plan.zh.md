@@ -194,7 +194,22 @@ external-swarm compatibility
 
 关键规则：Web bridge route 是这些命令/服务的 adapter，不是第二套业务 runtime。
 
-## 8. pi Agent SDK Task Model
+## 8. 继续扩面前的测试闸门
+
+当前命令面已经足够宽，下一阶段必须测试先行。不要在现有命令族缺少诚实验收覆盖时继续扩命令。
+
+必需闸门：
+
+- 每个 shared workspace primitive 有 service tests；
+- 每个 command family 有 CLI tests，覆盖 JSON envelope 与失败行为；
+- workflow state tests 必须区分 deterministic harness completion 与 pi-backed semantic completion；
+- runtime policy tests 必须证明 NovelFabric-owned pi config root 与 Web-safe tool denial；
+- 尚未实现的真实 pi/Web 业务闭环必须保留 pending contract tests；
+- Web surface 必须用 Playwright 通过可见控件测试，不使用 console 或 direct API 绕过。
+
+当前 QA 契约是 `../qa/v4-full-usability-acceptance.md`。确定性 CLI 测试通过只能称为 harness-complete；只有同时具备 pi runtime evidence 与 browser/control evidence，才能称为 business-complete。
+
+## 9. pi Agent SDK Task Model
 
 推荐 task package：
 
@@ -222,7 +237,7 @@ novelfabric context-pack / task create
   → audit + artifact manifest refresh
 ```
 
-## 9. Skill / Agent 文本资产
+## 10. Skill / Agent 文本资产
 
 推荐 skill families：
 
@@ -242,9 +257,44 @@ novelfabric-timeline-branch-proposal
 
 每个 skill 必须定义：触发条件与输入、允许 CLI/custom tools、可读范围、proposal/apply 路径、输出 schema、citation/evidence、成功前 validation、禁止 shortcut。
 
-## 10. 实施阶段
+## 11. 当前进展与测试优先门槛
 
-1. **CLI Contract Freeze** — 保持命令契约最新；稳定现有 config/workspace/files/web 命令。
+V4 CLI harness 当前已经暴露这些命令家族：
+
+```text
+config, workspace, project, files, runtime, agents, agent, skills, import,
+cards, memory, knowledge, recall, context-pack, simulation, swarm,
+report, writing, workflow, external-swarm, web
+```
+
+这说明 harness 已经成型，但不代表产品业务闭环完成。下一阶段必须优先执行 `../qa/v4-full-usability-acceptance.md` 中定义的 QA contract，再继续扩命令面。
+
+当前已经落地的强项：
+
+- deterministic workspace/project/files/runtime/import/knowledge/proposal/simulation/report/writing/workflow/external-swarm CLI shells；
+- 通过 shared services 执行 protected/audited workspace writes；
+- symlink escape regression coverage；
+- `.novelfabric/jobs/<job-id>/` workflow job artifacts；
+- `.novelfabric/tasks/<task-id>/` agent task package artifacts；
+- NovelFabric-owned pi runtime config 与 Web-safe policy metadata。
+
+距离完全可用仍然阻塞的 gap：
+
+- `agent run --runtime pi` 仍只是 deterministic run envelope，没有启动真实 pi AgentSession；
+- Web controls 尚未接入完整 workflow/agent runtime path；
+- 语义拆书、role reasoning、StorySwarm output、ReportAgent analysis、chapter drafts 还没有 pi-backed evidence；
+- external swarm REST/MCP adapters 仍需接 shared CLI service 并通过 golden fixtures；
+- cards/memory/swarm/report/chapter 等 domain-specific capabilities 需要收紧。
+
+测试策略：
+
+- deterministic harness tests 必须在 CI 中通过；
+- 真实 pi/Web acceptance tests 在未实现前应作为 pending contract tests 存在；
+- 没有 pi runtime evidence 的 deterministic shell 不能被描述为 semantic business success。
+
+## 12. 实施阶段
+
+1. **CLI Contract And Test Freeze** — 保持命令契约最新；稳定现有 config/workspace/files/web 命令；新增或修改命令必须同步 service tests、CLI tests 与 QA contract 状态；确定性壳只能称为 harness 进展，不能称为 semantic business success。
 2. **Runtime Config / Extension Envelope** — 添加 `runtime doctor/config/materialize`，物化 NovelFabric-owned pi settings/extensions/skills/prompts，定义 Web-safe tool policy。
 3. **Agent / Skill Materialization** — 物化默认 agents/skills，添加 agents/skills inspect/validate，扩展 capability 模板。
 4. **Import / Chapterize CLI** — inbox、normalize、chunk、chapterize、context-pack、validate；semantic extraction 由 pi skill 输出并由 CLI apply。
@@ -256,7 +306,7 @@ novelfabric-timeline-branch-proposal
 10. **Web Shell Rewire** — 用 CLI-backed workflow/task 调用替换 template-only business paths，展示 runtime policy 与证据。
 11. **End-to-End Acceptance** — 两个 source fixture，十轮 browser run，必须有 pi-backed semantic evidence，无 console/direct API/fixture 特判。
 
-## 11. 成功标准
+## 13. 成功标准
 
 未来业务流程测试只有满足以下条件才算成功：
 
@@ -268,7 +318,7 @@ novelfabric-timeline-branch-proposal
 - capability / protected path rules 被执行；
 - Web controls 只 orchestrate CLI-backed operations。
 
-## 12. 明确非目标
+## 14. 明确非目标
 
 - 不把 NovelFabric-owned OpenAI/Anthropic provider layer 作为 V4 主线。
 - 不依赖用户普通 global pi extension set 来保证 mono app 安全。
