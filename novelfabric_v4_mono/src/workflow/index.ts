@@ -820,16 +820,41 @@ function missingCompletedStageIssues(
   state: WorkflowStateArtifact,
   statePath: string
 ): readonly WorkflowVerifyIssue[] {
-  const completedStageIds = new Set(state.completedStages.map((item) => item.stage));
-  return plan.stages
-    .slice(0, state.nextStageIndex)
-    .filter((stage) => !completedStageIds.has(stage.id))
-    .map((stage) => ({
-      severity: "error" as const,
-      code: "workflow_stage_completion_missing",
-      path: statePath,
-      message: `Workflow state advanced past '${stage.id}' without recording it in completedStages.`
-    }));
+  const issues: WorkflowVerifyIssue[] = [];
+  const completedStageIds = new Set<WorkflowStageId>();
+  const stageIndexById = new Map(plan.stages.map((stage, index) => [stage.id, index]));
+  for (const completedStage of state.completedStages) {
+    if (completedStageIds.has(completedStage.stage)) {
+      issues.push({
+        severity: "error",
+        code: "workflow_stage_completion_duplicate",
+        path: statePath,
+        message: `Workflow completedStages contains duplicate stage '${completedStage.stage}'.`
+      });
+    }
+    completedStageIds.add(completedStage.stage);
+    const completedIndex = stageIndexById.get(completedStage.stage);
+    if (completedIndex !== undefined && completedIndex >= state.nextStageIndex) {
+      issues.push({
+        severity: "error",
+        code: "workflow_stage_completion_ahead",
+        path: statePath,
+        message: `Workflow completedStages contains '${completedStage.stage}' beyond nextStageIndex.`
+      });
+    }
+  }
+  issues.push(
+    ...plan.stages
+      .slice(0, state.nextStageIndex)
+      .filter((stage) => !completedStageIds.has(stage.id))
+      .map((stage) => ({
+        severity: "error" as const,
+        code: "workflow_stage_completion_missing",
+        path: statePath,
+        message: `Workflow state advanced past '${stage.id}' without recording it in completedStages.`
+      }))
+  );
+  return issues;
 }
 
 function jobPaths(jobId: string): WorkflowJobPaths {

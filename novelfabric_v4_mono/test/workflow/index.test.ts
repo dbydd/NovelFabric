@@ -305,6 +305,44 @@ describe("workflow acceptance state machine", () => {
     );
   });
 
+  it("rejects duplicate or future completed workflow stages", async () => {
+    const now = new Date().toISOString();
+    const stages = workflowStages();
+    const importIndex = stages.findIndex((stage) => stage.id === "import.normalize");
+    expect(importIndex).toBe(0);
+
+    const duplicateJobId = `stage-duplicate-${process.pid.toString()}-${Date.now().toString(36)}`;
+    await writeWorkflowRuntimeFixture({
+      jobId: duplicateJobId,
+      now,
+      nextStageIndex: 1,
+      completedStages: [
+        { stage: "import.normalize", completedAt: now },
+        { stage: "import.normalize", completedAt: now }
+      ],
+      artifacts: []
+    });
+    const duplicate = await verifyWorkflow({ workspacePath, jobId: duplicateJobId });
+    expect(duplicate.valid).toBe(false);
+    expect(duplicate.issues).toContainEqual(
+      expect.objectContaining({ code: "workflow_stage_completion_duplicate" })
+    );
+
+    const aheadJobId = `stage-ahead-${process.pid.toString()}-${Date.now().toString(36)}`;
+    await writeWorkflowRuntimeFixture({
+      jobId: aheadJobId,
+      now,
+      nextStageIndex: 0,
+      completedStages: [{ stage: "import.normalize", completedAt: now }],
+      artifacts: []
+    });
+    const ahead = await verifyWorkflow({ workspacePath, jobId: aheadJobId });
+    expect(ahead.valid).toBe(false);
+    expect(ahead.issues).toContainEqual(
+      expect.objectContaining({ code: "workflow_stage_completion_ahead" })
+    );
+  });
+
   it("rejects pi-task evidence without a completed result hash", async () => {
     const jobId = `pi-evidence-no-hash-${process.pid.toString()}-${Date.now().toString(36)}`;
     const now = new Date().toISOString();

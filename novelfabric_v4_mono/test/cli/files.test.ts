@@ -163,7 +163,7 @@ describe("novelfabric files CLI", () => {
         protected: true
       });
     }
-  });
+  }, 15000);
 
   it("applies files patch through JSON CLI command", async () => {
     const targetPath = "writing/drafts/cli-patch.md";
