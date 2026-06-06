@@ -47,6 +47,24 @@ export type WorkspaceFileWriteRequest = {
 
 export type WorkspaceFileAppendRequest = Omit<WorkspaceFileWriteRequest, "auditAction">;
 
+export type WorkspaceFilePatchReplacement = {
+  readonly oldText: string;
+  readonly newText: string;
+};
+
+export type WorkspaceFilePatchRequest = {
+  readonly workspacePath: string;
+  readonly path: string;
+  readonly actor: string;
+  readonly expectedBaseHash: string;
+  readonly replacements: readonly WorkspaceFilePatchReplacement[];
+  readonly reason?: string;
+};
+
+export type WorkspaceFilePatchResult = WorkspaceFileWriteResult & {
+  readonly replacementCount: number;
+};
+
 export type WorkspaceFileWriteResult = {
   readonly path: string;
   readonly hash: string;
@@ -127,7 +145,7 @@ const GLOB_EXCLUDE_PATTERNS = [...TREE_EXCLUDED_NAMES].flatMap((name) => [
   `**/${name}/**`
 ]);
 
-type WorkspaceFileAuditAction = "file.write" | "file.append";
+type WorkspaceFileAuditAction = "file.write" | "file.append" | "file.patch";
 
 export async function readWorkspaceFile(
   request: WorkspaceFileReadRequest
@@ -284,6 +302,38 @@ export async function appendWorkspaceFile(
   });
 }
 
+export async function patchWorkspaceFile(
+  request: WorkspaceFilePatchRequest
+): Promise<WorkspaceFilePatchResult> {
+  const current = await readWorkspaceFile({
+    workspacePath: request.workspacePath,
+    path: request.path
+  });
+  if (current.hash !== request.expectedBaseHash) {
+    throw new CommandFailure(
+      "file_conflict",
+      `File '${current.path}' changed since the patch was prepared; reload before patching.`,
+      4
+    );
+  }
+
+  const patchedContent = applyWorkspaceTextPatch(current.content, request.replacements);
+  const write = await writeWorkspaceFile({
+    workspacePath: request.workspacePath,
+    path: request.path,
+    content: patchedContent,
+    actor: request.actor,
+    expectedBaseHash: request.expectedBaseHash,
+    reason: request.reason ?? "file patch",
+    auditAction: "file.patch"
+  });
+
+  return {
+    ...write,
+    replacementCount: request.replacements.length
+  };
+}
+
 export async function checkWorkspaceFileProtection(
   request: WorkspaceFileProtectCheckRequest
 ): Promise<WorkspaceFileProtectCheckResult> {
@@ -377,6 +427,77 @@ export async function writeWorkspaceFile(
 
 export function contentHash(content: string): string {
   return `sha256:${createHash("sha256").update(content, "utf8").digest("hex")}`;
+}
+
+type TextPatchRange = {
+  readonly start: number;
+  readonly end: number;
+  readonly newText: string;
+};
+
+function applyWorkspaceTextPatch(
+  content: string,
+  replacements: readonly WorkspaceFilePatchReplacement[]
+): string {
+  if (replacements.length === 0) {
+    throw new CommandFailure(
+      "invalid_file_patch",
+      "files patch requires at least one replacement."
+    );
+  }
+
+  const ranges = replacements.map((replacement, index): TextPatchRange => {
+    if (replacement.oldText.length === 0) {
+      throw new CommandFailure(
+        "invalid_file_patch",
+        `Replacement ${String(index)} has an empty oldText; empty matches are ambiguous.`
+      );
+    }
+
+    const firstIndex = content.indexOf(replacement.oldText);
+    if (firstIndex === -1) {
+      throw new CommandFailure(
+        "file_patch_missing_replacement",
+        `Replacement ${String(index)} oldText was not found exactly once in the target file.`
+      );
+    }
+    const secondIndex = content.indexOf(replacement.oldText, firstIndex + 1);
+    if (secondIndex !== -1) {
+      throw new CommandFailure(
+        "file_patch_ambiguous_replacement",
+        `Replacement ${String(index)} oldText matches more than once in the target file.`
+      );
+    }
+
+    return {
+      start: firstIndex,
+      end: firstIndex + replacement.oldText.length,
+      newText: replacement.newText
+    };
+  });
+
+  const sortedRanges = [...ranges].sort((left, right) => left.start - right.start);
+  for (let index = 1; index < sortedRanges.length; index += 1) {
+    const previous = sortedRanges[index - 1];
+    const current = sortedRanges[index];
+    if (previous === undefined || current === undefined) continue;
+    if (current.start < previous.end) {
+      throw new CommandFailure(
+        "file_patch_overlapping_replacement",
+        "Patch replacements must not overlap in the target file."
+      );
+    }
+  }
+
+  let patched = "";
+  let cursor = 0;
+  for (const range of sortedRanges) {
+    patched += content.slice(cursor, range.start);
+    patched += range.newText;
+    cursor = range.end;
+  }
+  patched += content.slice(cursor);
+  return patched;
 }
 
 function requireWriteCapability(

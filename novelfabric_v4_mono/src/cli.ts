@@ -2,10 +2,12 @@
 
 import { Command } from "commander";
 
+import { addAgentTaskCommands } from "./commands/agent.js";
 import { addAgentCommands } from "./commands/agents.js";
 import { addCardCommands } from "./commands/cards.js";
 import { addConfigCommands } from "./commands/config.js";
 import { addContextPackCommands } from "./commands/context-pack.js";
+import { addExternalSwarmCommands } from "./commands/external-swarm.js";
 import { addFileCommands } from "./commands/files.js";
 import { addImportCommands } from "./commands/import.js";
 import { addKnowledgeCommands } from "./commands/knowledge.js";
@@ -18,6 +20,7 @@ import { addSimulationCommands } from "./commands/simulation.js";
 import { addSkillCommands } from "./commands/skills.js";
 import { addSwarmCommands } from "./commands/swarm.js";
 import { addWebCommands } from "./commands/web.js";
+import { addWorkflowCommands } from "./commands/workflow.js";
 import { addWorkspaceCommands } from "./commands/workspace.js";
 import { addWritingCommands } from "./commands/writing.js";
 import { isCommandFailure } from "./errors.js";
@@ -37,6 +40,7 @@ export function buildProgram(): Command {
   addFileCommands(program);
   addRuntimeCommands(program);
   addAgentCommands(program);
+  addAgentTaskCommands(program);
   addSkillCommands(program);
   addImportCommands(program);
   addCardCommands(program);
@@ -48,6 +52,8 @@ export function buildProgram(): Command {
   addSwarmCommands(program);
   addReportCommands(program);
   addWritingCommands(program);
+  addWorkflowCommands(program);
+  addExternalSwarmCommands(program);
   addWebCommands(program);
 
   return program;

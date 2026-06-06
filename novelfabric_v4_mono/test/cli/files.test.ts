@@ -165,6 +165,96 @@ describe("novelfabric files CLI", () => {
     }
   });
 
+  it("applies files patch through JSON CLI command", async () => {
+    const targetPath = "writing/drafts/cli-patch.md";
+    await fs.writeFile(path.join(workspacePath, targetPath), "one\ntwo\nthree\n", "utf8");
+    const readResult = await runCli([
+      "files",
+      "read",
+      "--workspace",
+      workspacePath,
+      "--path",
+      targetPath,
+      "--json"
+    ]);
+    expect(readResult.envelope.ok).toBe(true);
+    if (!readResult.envelope.ok) throw new Error("Expected read success.");
+    const patchJson = JSON.stringify({
+      expectedBaseHash: readResult.envelope.data.hash,
+      replacements: [
+        { oldText: "one", newText: "ONE" },
+        { oldText: "three", newText: "THREE" }
+      ]
+    });
+
+    const patchResult = await runCli([
+      "files",
+      "patch",
+      "--workspace",
+      workspacePath,
+      "--path",
+      targetPath,
+      "--actor",
+      "main_agent",
+      "--patch-json",
+      patchJson,
+      "--json"
+    ]);
+
+    expect(patchResult.exitCode).toBe(0);
+    expect(patchResult.envelope.ok).toBe(true);
+    if (patchResult.envelope.ok) {
+      expect(patchResult.envelope.command).toBe("files patch");
+      expect(patchResult.envelope.data).toMatchObject({
+        path: targetPath,
+        protected: false,
+        replacementCount: 2
+      });
+    }
+    expect(await fs.readFile(path.join(workspacePath, targetPath), "utf8")).toBe(
+      "ONE\ntwo\nTHREE\n"
+    );
+  });
+
+  it("reports invalid files patch replacements as structured JSON", async () => {
+    const targetPath = "writing/drafts/cli-patch-error.md";
+    await fs.writeFile(path.join(workspacePath, targetPath), "same same\n", "utf8");
+    const readResult = await runCli([
+      "files",
+      "read",
+      "--workspace",
+      workspacePath,
+      "--path",
+      targetPath,
+      "--json"
+    ]);
+    expect(readResult.envelope.ok).toBe(true);
+    if (!readResult.envelope.ok) throw new Error("Expected read success.");
+
+    const result = await runCli([
+      "files",
+      "patch",
+      "--workspace",
+      workspacePath,
+      "--path",
+      targetPath,
+      "--actor",
+      "main_agent",
+      "--patch-json",
+      JSON.stringify({
+        expectedBaseHash: readResult.envelope.data.hash,
+        replacements: [{ oldText: "same", newText: "SAME" }]
+      }),
+      "--json"
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.envelope.ok).toBe(false);
+    if (!result.envelope.ok) {
+      expect(result.envelope.error.code).toBe("file_patch_ambiguous_replacement");
+    }
+  });
+
   it("reports protected write denial as structured JSON", async () => {
     const result = await runCli([
       "files",

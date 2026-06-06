@@ -10,6 +10,7 @@ import {
   checkWorkspaceFileProtection,
   contentHash,
   globWorkspaceFiles,
+  patchWorkspaceFile,
   readWorkspaceFile,
   readWorkspaceTree,
   statWorkspaceFile,
@@ -131,6 +132,89 @@ describe("workspace file services", () => {
     expect(audit).toContain("append update");
   });
 
+  it("applies exact non-overlapping text patches through the shared write path", async () => {
+    const targetPath = "writing/drafts/patch-smoke.md";
+    await writeWorkspaceFile({
+      workspacePath,
+      path: targetPath,
+      content: "alpha\nbeta\ngamma\n",
+      actor: "main_agent"
+    });
+    const base = await readWorkspaceFile({ workspacePath, path: targetPath });
+
+    const result = await patchWorkspaceFile({
+      workspacePath,
+      path: targetPath,
+      actor: "main_agent",
+      expectedBaseHash: base.hash,
+      replacements: [
+        { oldText: "alpha", newText: "ALPHA" },
+        { oldText: "gamma", newText: "GAMMA" }
+      ],
+      reason: "patch smoke"
+    });
+
+    expect(result.replacementCount).toBe(2);
+    expect(result.previousHash).toBe(base.hash);
+    expect(await fs.readFile(path.join(workspacePath, targetPath), "utf8")).toBe(
+      "ALPHA\nbeta\nGAMMA\n"
+    );
+
+    const audit = await fs.readFile(path.join(workspacePath, result.auditPath), "utf8");
+    expect(audit).toContain('"action":"file.patch"');
+    expect(audit).toContain("patch smoke");
+  });
+
+  it("rejects missing, ambiguous, and overlapping text patch replacements", async () => {
+    const targetPath = "writing/drafts/patch-invalid.md";
+    await writeWorkspaceFile({
+      workspacePath,
+      path: targetPath,
+      content: "abc abc\nxyz\n",
+      actor: "main_agent"
+    });
+    const base = await readWorkspaceFile({ workspacePath, path: targetPath });
+
+    await expect(
+      patchWorkspaceFile({
+        workspacePath,
+        path: targetPath,
+        actor: "main_agent",
+        expectedBaseHash: base.hash,
+        replacements: [{ oldText: "missing", newText: "replacement" }]
+      })
+    ).rejects.toMatchObject({
+      code: "file_patch_missing_replacement"
+    } satisfies Partial<CommandFailure>);
+
+    await expect(
+      patchWorkspaceFile({
+        workspacePath,
+        path: targetPath,
+        actor: "main_agent",
+        expectedBaseHash: base.hash,
+        replacements: [{ oldText: "abc", newText: "ABC" }]
+      })
+    ).rejects.toMatchObject({
+      code: "file_patch_ambiguous_replacement"
+    } satisfies Partial<CommandFailure>);
+
+    await expect(
+      patchWorkspaceFile({
+        workspacePath,
+        path: targetPath,
+        actor: "main_agent",
+        expectedBaseHash: base.hash,
+        replacements: [
+          { oldText: "abc abc", newText: "words" },
+          { oldText: "abc\nxyz", newText: "tail" }
+        ]
+      })
+    ).rejects.toMatchObject({
+      code: "file_patch_overlapping_replacement"
+    } satisfies Partial<CommandFailure>);
+  });
+
   it("checks actor write permission for protected and normal paths", async () => {
     const normal = await checkWorkspaceFileProtection({
       workspacePath,
@@ -237,6 +321,15 @@ describe("workspace file services", () => {
         path: "imports/source/outside/secret.md",
         content: "leak\n",
         actor: "main_agent"
+      })
+    ).rejects.toMatchObject({ code: "path_symlink_forbidden" } satisfies Partial<CommandFailure>);
+    await expect(
+      patchWorkspaceFile({
+        workspacePath,
+        path: "imports/source/outside/secret.md",
+        actor: "main_agent",
+        expectedBaseHash: contentHash("# Secret\n"),
+        replacements: [{ oldText: "Secret", newText: "Leaked" }]
       })
     ).rejects.toMatchObject({ code: "path_symlink_forbidden" } satisfies Partial<CommandFailure>);
 
