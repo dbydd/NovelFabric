@@ -259,6 +259,40 @@ describe("workflow acceptance state machine", () => {
     );
   });
 
+  it("fails a workflow pi-task stage when required context-pack evidence is missing", async () => {
+    const jobId = `workflow-pi-missing-context-${process.pid.toString()}-${Date.now().toString(36)}`;
+    const now = new Date().toISOString();
+    const stages = workflowStages();
+    const swarmStageIndex = stages.findIndex((stage) => stage.id === "swarm.task.create");
+    expect(swarmStageIndex).toBeGreaterThan(0);
+
+    await writeWorkflowRuntimeFixture({
+      jobId,
+      now,
+      nextStageIndex: swarmStageIndex,
+      completedStages: [],
+      artifacts: []
+    });
+    await createSimulationSession({
+      workspacePath,
+      actor: "main_agent",
+      sessionId: jobId,
+      objective: "Fixture session missing context-pack evidence.",
+      timeline: "main"
+    });
+
+    const stepResult = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId,
+      input: { stage: "swarm.task.create" }
+    });
+    expect(stepResult.stageStatus).toBe("failed");
+    expect(stepResult.output).toMatchObject({ code: "workflow_artifact_missing" });
+    const status = await peekWorkflow({ workspacePath, jobId });
+    expect(status.status).toBe("failed");
+  });
+
   it("executes a workflow pi-task stage through generic-writer before marking it complete", async () => {
     const jobId = `workflow-pi-step-${process.pid.toString()}-${Date.now().toString(36)}`;
     const now = new Date().toISOString();

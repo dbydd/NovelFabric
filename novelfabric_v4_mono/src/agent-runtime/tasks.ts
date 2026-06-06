@@ -673,6 +673,17 @@ function validateJsonSchemaValue(
     ) {
       issues.push(`${pathLabel} must include an item containing '${containsText}'.`);
     }
+    const containsAllText = schema["containsAllText"];
+    if (Array.isArray(containsAllText)) {
+      for (const requiredText of containsAllText) {
+        if (
+          typeof requiredText === "string" &&
+          !arrayValue.some((item) => typeof item === "string" && item.includes(requiredText))
+        ) {
+          issues.push(`${pathLabel} must include an item containing '${requiredText}'.`);
+        }
+      }
+    }
     const itemSchema = schema["items"];
     if (isJsonValue(itemSchema)) {
       const narrowedItemSchema: JsonValue = itemSchema;

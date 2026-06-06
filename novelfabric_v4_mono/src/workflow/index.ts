@@ -1121,7 +1121,7 @@ async function executeStage(request: {
         agent: roleAgent,
         reason: "workflow swarm.task.create"
       });
-      const swarmContextPackPath = optionalArtifactPath(
+      const swarmContextPackPath = requiredArtifactPath(
         request.artifacts,
         "simulation.context-pack",
         "simulation-context-pack"
@@ -1141,7 +1141,7 @@ async function executeStage(request: {
           taskPath: result.taskPath,
           expectedOutputPath: result.proposalPath
         },
-        ...(swarmContextPackPath === undefined ? {} : { contextPackPath: swarmContextPackPath }),
+        contextPackPath: swarmContextPackPath,
         allowedCommands: [
           "novelfabric files read",
           "novelfabric files write",
@@ -1172,7 +1172,7 @@ async function executeStage(request: {
       };
     }
     case "report.task.create": {
-      const contextPackPath = optionalArtifactPath(
+      const contextPackPath = requiredArtifactPath(
         request.artifacts,
         "simulation.context-pack",
         "simulation-context-pack"
@@ -1182,7 +1182,7 @@ async function executeStage(request: {
         actor: request.actor,
         session: sessionId,
         kind: "consistency",
-        ...(contextPackPath === undefined ? {} : { contextPackPath }),
+        contextPackPath,
         outputPath: `reports/${sessionId}-consistency.json`,
         reason: "workflow report.task.create"
       });
@@ -1200,7 +1200,7 @@ async function executeStage(request: {
           reportTaskPath: result.taskPath,
           expectedOutputPath: result.reportPath
         },
-        ...(contextPackPath === undefined ? {} : { contextPackPath }),
+        contextPackPath,
         allowedCommands: [
           "novelfabric files read",
           "novelfabric files write",
@@ -1453,31 +1453,41 @@ async function deriveRequiredSourceAnchors(
   workspacePath: string,
   contextPackPath: string | undefined
 ): Promise<readonly string[]> {
-  if (contextPackPath === undefined) return [];
-  try {
-    const read = await readWorkspaceFile({ workspacePath, path: contextPackPath });
-    const parsed = parseJson(read.content, contextPackPath);
-    if (!isRecord(parsed)) return [];
-    const entities = parsed["relevantEntities"];
-    if (Array.isArray(entities)) {
-      const anchors = entities
-        .filter((item): item is string => typeof item === "string" && item.trim().length >= 2)
-        .map((item) => item.trim())
-        .slice(0, 3);
-      if (anchors.length > 0) return anchors;
-    }
-    const excerpt = parsed["sourceExcerpt"];
-    if (typeof excerpt === "string") {
-      return excerpt
-        .split(/[\s，。,.!?！？；;：:\n]+/u)
-        .map((item) => item.trim())
-        .filter((item) => item.length >= 2)
-        .slice(0, 3);
-    }
-  } catch {
-    return [];
+  if (contextPackPath === undefined) {
+    throw new CommandFailure(
+      "workflow_context_pack_required",
+      "Workflow pi-task stages require a context pack before agent execution."
+    );
   }
-  return [];
+  const read = await readWorkspaceFile({ workspacePath, path: contextPackPath });
+  const parsed = parseJson(read.content, contextPackPath);
+  if (!isRecord(parsed)) {
+    throw new CommandFailure(
+      "workflow_context_pack_invalid",
+      `Context pack '${contextPackPath}' must be a JSON object.`
+    );
+  }
+  const entities = parsed["relevantEntities"];
+  if (Array.isArray(entities)) {
+    const anchors = entities
+      .filter((item): item is string => typeof item === "string" && item.trim().length >= 2)
+      .map((item) => item.trim())
+      .slice(0, 3);
+    if (anchors.length > 0) return anchors;
+  }
+  const excerpt = parsed["sourceExcerpt"];
+  if (typeof excerpt === "string") {
+    const anchors = excerpt
+      .split(/[\s，。,.!?！？；;：:\n]+/u)
+      .map((item) => item.trim())
+      .filter((item) => item.length >= 2)
+      .slice(0, 3);
+    if (anchors.length > 0) return anchors;
+  }
+  throw new CommandFailure(
+    "workflow_context_pack_anchors_missing",
+    `Context pack '${contextPackPath}' must provide relevantEntities or sourceExcerpt anchors.`
+  );
 }
 
 function workflowAgentOutputSchema(requiredSourceAnchors: readonly string[]): JsonObject {
@@ -1485,7 +1495,7 @@ function workflowAgentOutputSchema(requiredSourceAnchors: readonly string[]): Js
   const sourceAnchorSchema: JsonObject = {
     type: "array",
     minItems: Math.max(1, Math.min(2, requiredSourceAnchors.length)),
-    ...(firstAnchor === undefined ? {} : { containsText: firstAnchor }),
+    containsAllText: requiredSourceAnchors,
     items: { type: "string", minLength: 2 }
   };
   const requiredAnchorSchema: JsonObject = {
