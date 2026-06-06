@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -532,7 +532,12 @@ export async function validateAgentOutput(
         message: "Agent task result must include captured pi output."
       });
     } else {
-      validateAgentTaskOutputContent(inspected.result.output, paths.files.result, issues);
+      validateAgentTaskOutputContent(
+        inspected.result.output,
+        inspected.outputSchema,
+        paths.files.result,
+        issues
+      );
     }
     if (inspected.allowedCommands.length === 0) {
       issues.push({
@@ -554,6 +559,7 @@ export async function validateAgentOutput(
 
 function validateAgentTaskOutputContent(
   output: AgentTaskOutput,
+  outputSchema: JsonValue,
   resultPath: string,
   issues: AgentTaskValidationIssue[]
 ): void {
@@ -587,6 +593,91 @@ function validateAgentTaskOutputContent(
       });
     }
   }
+
+  const schemaIssues = validateJsonSchemaValue(
+    output.format === "json" ? output.parsedJson : output.rawText,
+    outputSchema,
+    "output"
+  );
+  for (const issue of schemaIssues) {
+    issues.push({
+      severity: "error",
+      code: "agent_task_output_schema_mismatch",
+      path: resultPath,
+      message: issue
+    });
+  }
+}
+
+function validateJsonSchemaValue(
+  value: JsonValue | undefined,
+  schema: JsonValue,
+  pathLabel: string
+): string[] {
+  if (!isJsonObject(schema)) return [];
+  const issues: string[] = [];
+  const expectedType = typeof schema["type"] === "string" ? schema["type"] : undefined;
+  if (expectedType !== undefined && !jsonValueMatchesType(value, expectedType)) {
+    issues.push(`${pathLabel} must be ${expectedType}.`);
+    return issues;
+  }
+
+  if (expectedType === "object" && isJsonObject(value)) {
+    const required = schema["required"];
+    if (Array.isArray(required)) {
+      for (const field of required) {
+        if (typeof field === "string" && value[field] === undefined) {
+          issues.push(`${pathLabel}.${field} is required.`);
+        }
+      }
+    }
+    const properties = schema["properties"];
+    if (isJsonObject(properties)) {
+      for (const [field, propertySchema] of Object.entries(properties)) {
+        if (value[field] !== undefined && isJsonValue(propertySchema)) {
+          issues.push(
+            ...validateJsonSchemaValue(value[field], propertySchema, `${pathLabel}.${field}`)
+          );
+        }
+      }
+    }
+  }
+
+  if (expectedType === "array" && Array.isArray(value)) {
+    const arrayValue: readonly JsonValue[] = value;
+    const itemSchema = schema["items"];
+    if (isJsonValue(itemSchema)) {
+      const narrowedItemSchema: JsonValue = itemSchema;
+      arrayValue.forEach((item, index) => {
+        issues.push(
+          ...validateJsonSchemaValue(item, narrowedItemSchema, `${pathLabel}[${index.toString()}]`)
+        );
+      });
+    }
+  }
+
+  return issues;
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  return (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    Array.isArray(value) ||
+    isJsonObject(value)
+  );
+}
+
+function jsonValueMatchesType(value: JsonValue | undefined, expectedType: string): boolean {
+  if (expectedType === "object") return isJsonObject(value);
+  if (expectedType === "array") return Array.isArray(value);
+  if (expectedType === "string") return typeof value === "string";
+  if (expectedType === "number") return typeof value === "number";
+  if (expectedType === "boolean") return typeof value === "boolean";
+  if (expectedType === "null") return value === null;
+  return true;
 }
 
 export async function getAgentTaskStatus(
@@ -814,6 +905,7 @@ function runPiProcess(request: {
       encoding: "utf8"
     }
   );
+  rmSync(path.dirname(promptPath), { recursive: true, force: true });
   if (result.error !== undefined || result.status !== 0) {
     throw new CommandFailure(
       "pi_runtime_failed",

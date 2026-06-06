@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { addAgentTaskCommands } from "../../src/commands/agent.js";
-import { readWorkspaceFile } from "../../src/workspace/files.js";
+import { readWorkspaceFile, writeWorkspaceFile } from "../../src/workspace/files.js";
 
 const VALID_FIXTURE = path.resolve(import.meta.dirname, "../../fixtures/workspaces/valid-basic");
 
@@ -153,7 +153,17 @@ describe("agent task command module", () => {
       "--title",
       "Runtime Check",
       "--instruction",
-      "Record runtime metadata only.",
+      'Return one JSON object only: {"kind":"novelfabric.agent.test-output","version":1,"summary":"generic-writer processed runtime-check"}.',
+      "--output-schema-json",
+      JSON.stringify({
+        type: "object",
+        required: ["kind", "version", "summary"],
+        properties: {
+          kind: { type: "string" },
+          version: { type: "number" },
+          summary: { type: "string" }
+        }
+      }),
       "--json"
     ]);
 
@@ -235,6 +245,95 @@ describe("agent task command module", () => {
     });
     expect(JSON.parse(resultFile.content)).toMatchObject({ status: "aborted" });
   }, 30000);
+
+  it("rejects completed pi output that does not match output.schema.json", async () => {
+    await runCommand([
+      "agent",
+      "task",
+      "create",
+      "--workspace",
+      workspacePath,
+      "--actor",
+      "main_agent",
+      "--task-id",
+      "schema-check",
+      "--title",
+      "Schema Check",
+      "--instruction",
+      "Return schema checked output.",
+      "--output-schema-json",
+      JSON.stringify({
+        type: "object",
+        required: ["kind", "version", "summary"],
+        properties: {
+          kind: { type: "string" },
+          version: { type: "number" },
+          summary: { type: "string" }
+        }
+      }),
+      "--json"
+    ]);
+    await writeWorkspaceFile({
+      workspacePath,
+      path: ".novelfabric/tasks/schema-check/result.json",
+      actor: "main_agent",
+      content: JSON.stringify(
+        {
+          kind: "novelfabric.agent.task.result",
+          version: 1,
+          taskId: "schema-check",
+          status: "completed",
+          runtime: "pi",
+          actor: "main_agent",
+          updatedAt: new Date().toISOString(),
+          piSdk: { adapter: "@earendil-works/pi-coding-agent", available: true },
+          runtimeEvidence: {
+            runtimeRoot: "/tmp/novelfabric/pi",
+            provider: "axonhub",
+            model: "generic-writer",
+            modelPurpose: "production",
+            piBin: "pi",
+            toolPolicy: "--no-tools",
+            sessionPolicy: "--no-session",
+            contextPolicy: "--no-context-files",
+            stdoutBytes: 10,
+            stderrBytes: 0
+          },
+          output: {
+            kind: "novelfabric.agent.task.output",
+            version: 1,
+            format: "json",
+            rawText: '{"kind":"novelfabric.agent.test-output","version":1}',
+            parsedJson: { kind: "novelfabric.agent.test-output", version: 1 }
+          },
+          notes: []
+        },
+        null,
+        2
+      ),
+      reason: "test schema mismatch result"
+    });
+
+    const validateResult = await runCommand([
+      "agent",
+      "output",
+      "validate",
+      "--workspace",
+      workspacePath,
+      "--task",
+      "schema-check",
+      "--json"
+    ]);
+    expect(validateResult.ok).toBe(true);
+    if (validateResult.ok) {
+      expect(validateResult.data.valid).toBe(false);
+      expect(validateResult.data.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "agent_task_output_schema_mismatch" })
+        ])
+      );
+    }
+  });
 
   it("keeps task package writes behind protected workspace capabilities", async () => {
     await fs.writeFile(
