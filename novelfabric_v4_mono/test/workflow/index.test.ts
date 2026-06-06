@@ -27,6 +27,7 @@ function stableJson(value: unknown): string {
 function parseAgentTaskResult(content: string): {
   readonly status: string;
   readonly outputText: string;
+  readonly sourceAnchors: readonly string[];
 } {
   const parsed: unknown = JSON.parse(content);
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
@@ -34,14 +35,24 @@ function parseAgentTaskResult(content: string): {
   }
   const record = parsed as Record<string, unknown>;
   const output = record["output"];
-  const outputText =
-    typeof output === "object" &&
-    output !== null &&
-    !Array.isArray(output) &&
-    typeof (output as Record<string, unknown>)["rawText"] === "string"
-      ? ((output as Record<string, unknown>)["rawText"] as string)
-      : "";
-  return { status: typeof record["status"] === "string" ? record["status"] : "", outputText };
+  const outputRecord =
+    typeof output === "object" && output !== null && !Array.isArray(output)
+      ? (output as Record<string, unknown>)
+      : {};
+  const outputText = typeof outputRecord["rawText"] === "string" ? outputRecord["rawText"] : "";
+  const parsedJson = outputRecord["parsedJson"];
+  const parsedRecord =
+    typeof parsedJson === "object" && parsedJson !== null && !Array.isArray(parsedJson)
+      ? (parsedJson as Record<string, unknown>)
+      : {};
+  const sourceAnchors = Array.isArray(parsedRecord["sourceAnchors"])
+    ? parsedRecord["sourceAnchors"].filter((item): item is string => typeof item === "string")
+    : [];
+  return {
+    status: typeof record["status"] === "string" ? record["status"] : "",
+    outputText,
+    sourceAnchors
+  };
 }
 
 describe("workflow acceptance state machine", () => {
@@ -369,9 +380,9 @@ describe("workflow acceptance state machine", () => {
     });
     const resultJson = parseAgentTaskResult(resultRead.content);
     expect(resultJson.status).toBe("completed");
-    const outputText = resultJson.outputText;
-    for (const term of ["叶小伟", "钟声", "第二章"]) {
-      expect(outputText).toContain(term);
+    expect(resultJson.outputText.trim().length).toBeGreaterThan(0);
+    for (const term of ["叶小伟醒来", "城市边缘传来钟声", "第二章"]) {
+      expect(resultJson.sourceAnchors).toContain(term);
     }
 
     const verified = await verifyWorkflow({ workspacePath, jobId });
@@ -456,8 +467,9 @@ describe("workflow acceptance state machine", () => {
     const resultRead = await readWorkspaceFile({ workspacePath, path: evidenceArtifact.path });
     const resultJson = parseAgentTaskResult(resultRead.content);
     expect(resultJson.status).toBe("completed");
-    for (const term of ["叶小伟", "钟声"]) {
-      expect(resultJson.outputText).toContain(term);
+    expect(resultJson.outputText.trim().length).toBeGreaterThan(0);
+    for (const term of ["叶小伟醒来", "城市边缘传来钟声"]) {
+      expect(resultJson.sourceAnchors).toContain(term);
     }
 
     const verified = await verifyWorkflow({ workspacePath, jobId });

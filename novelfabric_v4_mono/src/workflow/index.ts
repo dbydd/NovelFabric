@@ -1426,20 +1426,20 @@ async function createAndRunWorkflowAgentTask(request: {
     outputSchemaJson: stableJson(workflowAgentOutputSchema(requiredSourceAnchors)),
     reason: `workflow ${request.stage} agent task create`
   });
-  const resultWrite = result.writes.find((write) => write.path === result.files.result);
-  if (resultWrite === undefined) {
-    throw new CommandFailure(
-      "workflow_agent_task_result_missing",
-      `Agent task '${taskId}' did not produce a result evidence file.`
-    );
-  }
-  await runAgentTask({
+  const run = await runAgentTask({
     workspacePath: request.workspacePath,
     actor: request.actor,
     task: result.taskId,
     runtime: "pi",
     reason: `workflow ${request.stage} agent task run`
   });
+  const resultWrite = run.writes.find((write) => write.path === result.files.result);
+  if (resultWrite === undefined) {
+    throw new CommandFailure(
+      "workflow_agent_task_result_missing",
+      `Agent task '${taskId}' did not produce a completed result evidence file.`
+    );
+  }
 
   return {
     taskId: result.taskId,
@@ -1472,7 +1472,7 @@ async function deriveRequiredSourceAnchors(
     const anchors = entities
       .filter((item): item is string => typeof item === "string" && item.trim().length >= 2)
       .map((item) => item.trim())
-      .slice(0, 3);
+      .slice(0, 8);
     if (anchors.length > 0) return anchors;
   }
   const excerpt = parsed["sourceExcerpt"];
@@ -1481,7 +1481,7 @@ async function deriveRequiredSourceAnchors(
       .split(/[\s，。,.!?！？；;：:\n]+/u)
       .map((item) => item.trim())
       .filter((item) => item.length >= 2)
-      .slice(0, 3);
+      .slice(0, 8);
     if (anchors.length > 0) return anchors;
   }
   throw new CommandFailure(
