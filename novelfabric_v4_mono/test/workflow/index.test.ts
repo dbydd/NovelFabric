@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createAgentTask } from "../../src/agent-runtime/tasks.js";
+import { createSimulationSession } from "../../src/simulation/index.js";
 import {
   cancelWorkflow,
   listWorkflowArtifacts,
@@ -209,6 +210,48 @@ describe("workflow acceptance state machine", () => {
     }
   });
 
+  it("executes a workflow pi-task stage through generic-writer before marking it complete", async () => {
+    const jobId = `workflow-pi-step-${process.pid.toString()}-${Date.now().toString(36)}`;
+    const now = new Date().toISOString();
+    const stages = workflowStages();
+    const swarmStageIndex = stages.findIndex((stage) => stage.id === "swarm.task.create");
+    expect(swarmStageIndex).toBeGreaterThan(0);
+
+    await writeWorkflowRuntimeFixture({
+      jobId,
+      now,
+      nextStageIndex: swarmStageIndex,
+      completedStages: [],
+      artifacts: []
+    });
+    await createSimulationSession({
+      workspacePath,
+      actor: "main_agent",
+      sessionId: jobId,
+      objective: "Fixture session for real workflow pi-task step.",
+      timeline: "main"
+    });
+
+    const result = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId,
+      input: { stage: "swarm.task.create" }
+    });
+    expect(result.stageStatus).toBe("completed");
+    expect(result.executedStage).toBe("swarm.task.create");
+    expect(result.artifacts).toContainEqual(
+      expect.objectContaining({
+        name: "agent-task-result",
+        artifactKind: "novelfabric.agent.task.result"
+      })
+    );
+
+    const verified = await verifyWorkflow({ workspacePath, jobId });
+    expect(verified.valid).toBe(true);
+    expect(verified.issues).toEqual([]);
+  }, 45000);
+
   it("plans, starts, steps deterministic stages, verifies artifacts, and can be cancelled", async () => {
     const planned = await planWorkflow({
       workspacePath,
@@ -265,4 +308,74 @@ describe("workflow acceptance state machine", () => {
     expect(cancelled.status).toBe("cancelled");
     expect((await peekWorkflow({ workspacePath, jobId: started.jobId })).status).toBe("cancelled");
   });
+
+  async function writeWorkflowRuntimeFixture(request: {
+    readonly jobId: string;
+    readonly now: string;
+    readonly nextStageIndex: number;
+    readonly completedStages: readonly { readonly stage: string; readonly completedAt: string }[];
+    readonly artifacts: readonly unknown[];
+  }): Promise<void> {
+    await writeWorkspaceFile({
+      workspacePath,
+      path: `.novelfabric/jobs/${request.jobId}/plan.json`,
+      actor: "main_agent",
+      content: stableJson({
+        kind: "novelfabric.workflow.plan",
+        version: 1,
+        planId: request.jobId,
+        createdAt: request.now,
+        sourcePath: "imports/source/acceptance-novel.txt",
+        role: "main_agent",
+        stages: workflowStages()
+      }),
+      reason: "test workflow plan fixture"
+    });
+    await writeWorkspaceFile({
+      workspacePath,
+      path: `.novelfabric/jobs/${request.jobId}/job.json`,
+      actor: "main_agent",
+      content: stableJson({
+        kind: "novelfabric.workflow.job",
+        version: 1,
+        jobId: request.jobId,
+        planId: request.jobId,
+        actor: "main_agent",
+        sourcePath: "imports/source/acceptance-novel.txt",
+        role: "main_agent",
+        createdAt: request.now,
+        updatedAt: request.now
+      }),
+      reason: "test workflow job fixture"
+    });
+    await writeWorkspaceFile({
+      workspacePath,
+      path: `.novelfabric/jobs/${request.jobId}/state.json`,
+      actor: "main_agent",
+      content: stableJson({
+        kind: "novelfabric.workflow.state",
+        version: 1,
+        jobId: request.jobId,
+        status: "running",
+        nextStageIndex: request.nextStageIndex,
+        completedStages: request.completedStages,
+        failedStage: null,
+        updatedAt: request.now,
+        cancelledAt: null
+      }),
+      reason: "test workflow state fixture"
+    });
+    await writeWorkspaceFile({
+      workspacePath,
+      path: `.novelfabric/jobs/${request.jobId}/artifacts.json`,
+      actor: "main_agent",
+      content: stableJson({
+        kind: "novelfabric.workflow.artifacts",
+        version: 1,
+        jobId: request.jobId,
+        items: request.artifacts
+      }),
+      reason: "test workflow artifacts fixture"
+    });
+  }
 });

@@ -855,7 +855,7 @@ function buildPiTaskPrompt(inspected: AgentTaskInspectResult): string {
   return [
     "You are the NovelFabric wrapped pi runtime executing an agent task package.",
     "You must not use tools, write files, edit files, execute bash, or access arbitrary paths.",
-    "Return the final task output only. Prefer valid JSON conforming to OUTPUT_SCHEMA when possible.",
+    "Return the final task output only. It must be valid JSON conforming to OUTPUT_SCHEMA_JSON.",
     "The NovelFabric CLI will capture your stdout and write result.json/events.jsonl through audited workspace services.",
     "",
     "TASK_MD:",
