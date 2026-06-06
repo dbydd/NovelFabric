@@ -7,6 +7,8 @@
 - Operator:
 - Workspace fixture:
 - NovelFabric pi config root:
+- Workflow model (`generic-writer` expected):
+- Acceptance/test model (`flash-vibe` expected):
 - Browser / CLI mode:
 
 ## Commands
@@ -19,7 +21,8 @@
 
 - Workflow job id:
 - pi process command:
-- pi provider/model:
+- workflow pi provider/model:
+- acceptance pi provider/model:
 - pi session id:
 - Event trace path:
 - Tool policy path:

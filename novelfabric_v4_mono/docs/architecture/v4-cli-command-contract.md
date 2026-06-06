@@ -19,6 +19,12 @@ Every command must:
 
 Semantic reasoning should be performed by the NovelFabric mono app's wrapped pi agent SDK runtime or by external agents using NovelFabric skills and context packs. NovelFabric CLI commands own runtime policy, context preparation, validation, apply, audit, and reporting. For Web users, the wrapped runtime must use NovelFabric-owned pi config/extension paths and must not expose raw dangerous tools such as unrestricted `bash`, `write`, or `edit`.
 
+Runtime model roles are part of the contract:
+
+- `modelDefaults` / `novelFabricWorkflowModel` select `generic-writer` for real NovelFabric LLM workflow execution.
+- `testModelDefaults` / `novelFabricTestModel` select `flash-vibe` for hard acceptance/testing agents only.
+- `npm run test:pi-acceptance` must fail rather than skip when `flash-vibe` or LLM credentials are unavailable.
+
 ## 2. Current Implementation Status
 
 | Family                                    | Status                           | Notes                                                                                                                  |

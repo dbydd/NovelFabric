@@ -1,4 +1,5 @@
 import { CommandFailure } from "../errors.js";
+import { createAgentTask } from "../agent-runtime/tasks.js";
 import { applyCardProposal, proposeCards } from "../cards/proposals.js";
 import {
   buildImportContextPack,
@@ -102,6 +103,13 @@ export type WorkflowArtifactItem = {
   readonly path: string;
   readonly hash?: string;
   readonly artifactKind: string;
+};
+
+type AgentTaskEvidence = {
+  readonly taskId: string;
+  readonly packagePath: string;
+  readonly resultPath: string;
+  readonly resultWrite: WorkflowWriteSummary;
 };
 
 export type WorkflowTraceEntry = {
@@ -761,6 +769,16 @@ export async function verifyWorkflow(
       });
     }
   }
+  const completedStageIds = new Set(runtime.state.completedStages.map((item) => item.stage));
+  for (const stage of runtime.plan.stages) {
+    if (stage.semanticRuntime !== "pi-task" || !completedStageIds.has(stage.id)) continue;
+    const issue = await verifyPiTaskEvidence({
+      workspacePath: request.workspacePath,
+      artifacts: runtime.artifacts,
+      stage: stage.id
+    });
+    if (issue !== null) issues.push(issue);
+  }
   if (runtime.state.status === "failed" && runtime.state.failedStage === null) {
     issues.push({
       severity: "error",
@@ -1101,8 +1119,39 @@ async function executeStage(request: {
         agent: roleAgent,
         reason: "workflow swarm.task.create"
       });
+      const swarmContextPackPath = optionalArtifactPath(
+        request.artifacts,
+        "simulation.context-pack",
+        "simulation-context-pack"
+      );
+      const agentTask = await createWorkflowAgentTask({
+        workspacePath: request.workspacePath,
+        actor: request.actor,
+        jobId: sessionId,
+        stage: request.stage,
+        title: `StorySwarm role task for ${roleAgent}`,
+        instruction:
+          "Run the StorySwarm role reasoning through the NovelFabric-wrapped pi runtime, then write and validate the swarm output proposal.",
+        input: {
+          stage: request.stage,
+          session: sessionId,
+          agent: roleAgent,
+          taskPath: result.taskPath,
+          expectedOutputPath: result.proposalPath
+        },
+        ...(swarmContextPackPath === undefined ? {} : { contextPackPath: swarmContextPackPath }),
+        allowedCommands: [
+          "novelfabric files read",
+          "novelfabric files write",
+          "novelfabric swarm output validate",
+          "novelfabric swarm output apply"
+        ]
+      });
       return {
-        output: objectFromResult(result),
+        output: {
+          ...objectFromResult(result),
+          agentTaskEvidence: agentTaskOutput(agentTask)
+        },
         artifacts: [
           artifactFromWrite(
             request.stage,
@@ -1115,7 +1164,8 @@ async function executeStage(request: {
             "swarm-output-template",
             result.proposalWrite,
             "novelfabric.swarm.output"
-          )
+          ),
+          agentTaskEvidenceArtifact(request.stage, agentTask)
         ]
       };
     }
@@ -1134,10 +1184,36 @@ async function executeStage(request: {
         outputPath: `reports/${sessionId}-consistency.json`,
         reason: "workflow report.task.create"
       });
+      const agentTask = await createWorkflowAgentTask({
+        workspacePath: request.workspacePath,
+        actor: request.actor,
+        jobId: sessionId,
+        stage: request.stage,
+        title: "ReportAgent consistency task",
+        instruction:
+          "Run ReportAgent through the NovelFabric-wrapped pi runtime, then write a citation-backed report artifact at the expected output path.",
+        input: {
+          stage: request.stage,
+          session: sessionId,
+          reportTaskPath: result.taskPath,
+          expectedOutputPath: result.reportPath
+        },
+        ...(contextPackPath === undefined ? {} : { contextPackPath }),
+        allowedCommands: [
+          "novelfabric files read",
+          "novelfabric files write",
+          "novelfabric report validate",
+          "novelfabric report apply"
+        ]
+      });
       return {
-        output: objectFromResult(result),
+        output: {
+          ...objectFromResult(result),
+          agentTaskEvidence: agentTaskOutput(agentTask)
+        },
         artifacts: [
-          artifactFromWrite(request.stage, "report-task", result.write, "novelfabric.report.task")
+          artifactFromWrite(request.stage, "report-task", result.write, "novelfabric.report.task"),
+          agentTaskEvidenceArtifact(request.stage, agentTask)
         ]
       };
     }
@@ -1174,15 +1250,40 @@ async function executeStage(request: {
         outputPath: `writing/drafts/${sessionId}.json`,
         reason: "workflow writing.draft"
       });
+      const agentTask = await createWorkflowAgentTask({
+        workspacePath: request.workspacePath,
+        actor: request.actor,
+        jobId: sessionId,
+        stage: request.stage,
+        title: "Chapter draft writing task",
+        instruction:
+          "Run the chapter drafting task through the NovelFabric-wrapped pi runtime, then write and validate a novelfabric.writing.draft artifact.",
+        input: {
+          stage: request.stage,
+          writingTaskPath: result.taskPath,
+          expectedDraftPath: result.expectedDraftPath
+        },
+        contextPackPath,
+        allowedCommands: [
+          "novelfabric files read",
+          "novelfabric files write",
+          "novelfabric writing review",
+          "novelfabric writing apply-draft"
+        ]
+      });
       return {
-        output: objectFromResult(result),
+        output: {
+          ...objectFromResult(result),
+          agentTaskEvidence: agentTaskOutput(agentTask)
+        },
         artifacts: [
           artifactFromWrite(
             request.stage,
             "writing-draft-task",
             result.write,
             "novelfabric.writing.task"
-          )
+          ),
+          agentTaskEvidenceArtifact(request.stage, agentTask)
         ]
       };
     }
@@ -1280,6 +1381,138 @@ function artifactFromWrite(
   artifactKind: string
 ): WorkflowArtifactItem {
   return { stage, name, path: write.path, hash: write.hash, artifactKind };
+}
+
+async function createWorkflowAgentTask(request: {
+  readonly workspacePath: string;
+  readonly actor: string;
+  readonly jobId: string;
+  readonly stage: WorkflowStageId;
+  readonly title: string;
+  readonly instruction: string;
+  readonly input: Record<string, unknown>;
+  readonly contextPackPath?: string | undefined;
+  readonly allowedCommands: readonly string[];
+}): Promise<AgentTaskEvidence> {
+  const taskId = `workflow-${request.jobId}-${request.stage}`;
+  const result = await createAgentTask({
+    workspacePath: request.workspacePath,
+    actor: request.actor,
+    taskId,
+    title: request.title,
+    instruction: [
+      request.instruction,
+      "",
+      "Evidence requirement: this workflow stage is not semantically complete until this task result.json is updated to status completed by agent run --runtime pi."
+    ].join("\n"),
+    inputJson: stableJson({
+      kind: "novelfabric.workflow.agent-task.input",
+      version: 1,
+      jobId: request.jobId,
+      stage: request.stage,
+      ...request.input
+    }),
+    ...(request.contextPackPath === undefined ? {} : { contextPackPath: request.contextPackPath }),
+    allowedCommands: request.allowedCommands,
+    outputSchemaJson: stableJson({
+      type: "object",
+      required: ["kind", "version", "citations", "summary"],
+      properties: {
+        kind: { type: "string" },
+        version: { type: "number" },
+        summary: { type: "string" },
+        citations: { type: "array", items: { type: "string" } }
+      }
+    }),
+    reason: `workflow ${request.stage} agent task create`
+  });
+  const resultWrite = result.writes.find((write) => write.path === result.files.result);
+  if (resultWrite === undefined) {
+    throw new CommandFailure(
+      "workflow_agent_task_result_missing",
+      `Agent task '${taskId}' did not produce a result evidence file.`
+    );
+  }
+  return {
+    taskId: result.taskId,
+    packagePath: result.packagePath,
+    resultPath: result.files.result,
+    resultWrite
+  };
+}
+
+function agentTaskEvidenceArtifact(
+  stage: WorkflowStageId,
+  evidence: AgentTaskEvidence
+): WorkflowArtifactItem {
+  return {
+    stage,
+    name: "agent-task-result",
+    path: evidence.resultPath,
+    artifactKind: "novelfabric.agent.task.result"
+  };
+}
+
+function agentTaskOutput(evidence: AgentTaskEvidence): Record<string, string> {
+  return {
+    taskId: evidence.taskId,
+    packagePath: evidence.packagePath,
+    resultPath: evidence.resultPath,
+    requiredStatus: "completed"
+  };
+}
+
+async function verifyPiTaskEvidence(request: {
+  readonly workspacePath: string;
+  readonly artifacts: WorkflowArtifactsArtifact;
+  readonly stage: WorkflowStageId;
+}): Promise<WorkflowVerifyIssue | null> {
+  const evidence = request.artifacts.items.find(
+    (item) =>
+      item.stage === request.stage &&
+      item.name === "agent-task-result" &&
+      item.artifactKind === "novelfabric.agent.task.result"
+  );
+  if (evidence === undefined) {
+    return {
+      severity: "error",
+      code: "workflow_pi_task_evidence_missing",
+      path: request.stage,
+      message: `Workflow pi-task stage '${request.stage}' completed without an agent task result evidence artifact.`
+    };
+  }
+  try {
+    const read = await readWorkspaceFile({
+      workspacePath: request.workspacePath,
+      path: evidence.path
+    });
+    const parsed = parseJson(read.content, read.path);
+    if (!isAgentTaskResult(parsed)) {
+      return {
+        severity: "error",
+        code: "workflow_pi_task_result_invalid",
+        path: evidence.path,
+        message: `Workflow pi-task stage '${request.stage}' result evidence has an invalid shape.`
+      };
+    }
+    if (!isExecutedAgentTaskStatus(parsed.status)) {
+      return {
+        severity: "error",
+        code: "workflow_pi_task_unexecuted",
+        path: evidence.path,
+        message: `Workflow pi-task stage '${request.stage}' requires executed result status, found ${parsed.status}.`
+      };
+    }
+    return null;
+  } catch (error) {
+    return {
+      severity: "error",
+      code: "workflow_pi_task_result_unreadable",
+      path: evidence.path,
+      message:
+        error instanceof Error ? error.message : `Cannot read pi task evidence '${evidence.path}'.`
+    };
+  }
 }
 
 function requiredArtifactPath(
@@ -1473,6 +1706,18 @@ function isWorkflowArtifactItem(value: unknown): value is WorkflowArtifactItem {
     (value["hash"] === undefined || typeof value["hash"] === "string") &&
     typeof value["artifactKind"] === "string"
   );
+}
+
+function isAgentTaskResult(value: unknown): value is { readonly status: string } {
+  return (
+    isRecord(value) &&
+    value["kind"] === "novelfabric.agent.task.result" &&
+    typeof value["status"] === "string"
+  );
+}
+
+function isExecutedAgentTaskStatus(value: string): boolean {
+  return value === "completed";
 }
 
 function isWorkflowStatus(value: unknown): value is WorkflowStatus {

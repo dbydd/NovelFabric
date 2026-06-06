@@ -18,6 +18,10 @@ import { writeWorkspaceFile } from "../../src/workspace/files.js";
 
 const VALID_FIXTURE = path.resolve(import.meta.dirname, "../../fixtures/workspaces/valid-basic");
 
+function stableJson(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
 describe("workflow acceptance state machine", () => {
   let workspacePath: string;
 
@@ -49,6 +53,128 @@ describe("workflow acceptance state machine", () => {
       "report.task.create",
       "writing.draft"
     ]);
+  });
+
+  it("requires executed pi task evidence before counting pi-task stages as verified", async () => {
+    const jobId = "pi-evidence-job";
+    const now = new Date().toISOString();
+    const paths = {
+      plan: `.novelfabric/jobs/${jobId}/plan.json`,
+      job: `.novelfabric/jobs/${jobId}/job.json`,
+      state: `.novelfabric/jobs/${jobId}/state.json`,
+      artifacts: `.novelfabric/jobs/${jobId}/artifacts.json`,
+      result: `.novelfabric/tasks/workflow-${jobId}-swarm.task.create/result.json`
+    };
+    const stages = workflowStages();
+    const swarmStageIndex = stages.findIndex((stage) => stage.id === "swarm.task.create");
+    expect(swarmStageIndex).toBeGreaterThan(0);
+
+    await writeWorkspaceFile({
+      workspacePath,
+      path: paths.plan,
+      actor: "main_agent",
+      content: stableJson({
+        kind: "novelfabric.workflow.plan",
+        version: 1,
+        planId: jobId,
+        createdAt: now,
+        sourcePath: "imports/source/acceptance-novel.txt",
+        role: "main_agent",
+        stages
+      }),
+      reason: "test workflow plan fixture"
+    });
+    await writeWorkspaceFile({
+      workspacePath,
+      path: paths.job,
+      actor: "main_agent",
+      content: stableJson({
+        kind: "novelfabric.workflow.job",
+        version: 1,
+        jobId,
+        planId: jobId,
+        actor: "main_agent",
+        sourcePath: "imports/source/acceptance-novel.txt",
+        role: "main_agent",
+        createdAt: now,
+        updatedAt: now
+      }),
+      reason: "test workflow job fixture"
+    });
+    await writeWorkspaceFile({
+      workspacePath,
+      path: paths.state,
+      actor: "main_agent",
+      content: stableJson({
+        kind: "novelfabric.workflow.state",
+        version: 1,
+        jobId,
+        status: "running",
+        nextStageIndex: swarmStageIndex + 1,
+        completedStages: [{ stage: "swarm.task.create", completedAt: now }],
+        failedStage: null,
+        updatedAt: now,
+        cancelledAt: null
+      }),
+      reason: "test workflow state fixture"
+    });
+    await writeWorkspaceFile({
+      workspacePath,
+      path: paths.artifacts,
+      actor: "main_agent",
+      content: stableJson({
+        kind: "novelfabric.workflow.artifacts",
+        version: 1,
+        jobId,
+        items: [
+          {
+            stage: "swarm.task.create",
+            name: "agent-task-result",
+            path: paths.result,
+            artifactKind: "novelfabric.agent.task.result"
+          }
+        ]
+      }),
+      reason: "test workflow artifacts fixture"
+    });
+    await writeAgentTaskResult(paths.result, "pending-pi-runtime");
+
+    const unexecuted = await verifyWorkflow({ workspacePath, jobId });
+    expect(unexecuted.valid).toBe(false);
+    expect(unexecuted.issues).toContainEqual(
+      expect.objectContaining({ code: "workflow_pi_task_unexecuted", path: paths.result })
+    );
+
+    await writeAgentTaskResult(paths.result, "completed");
+
+    const executed = await verifyWorkflow({ workspacePath, jobId });
+    expect(executed.valid).toBe(true);
+
+    async function writeAgentTaskResult(
+      resultPath: string,
+      status: "pending-pi-runtime" | "completed"
+    ) {
+      await writeWorkspaceFile({
+        workspacePath,
+        path: resultPath,
+        actor: "main_agent",
+        content: stableJson({
+          kind: "novelfabric.agent.task.result",
+          version: 1,
+          taskId: `workflow-${jobId}-swarm.task.create`,
+          status,
+          runtime: "pi",
+          actor: "main_agent",
+          updatedAt: new Date().toISOString(),
+          piSdk: {
+            adapter: "@earendil-works/pi-coding-agent",
+            available: true
+          },
+          notes: [`Test fixture status: ${status}`]
+        }),
+        reason: `test ${status} pi task evidence`
+      });
+    }
   });
 
   it("plans, starts, steps deterministic stages, verifies artifacts, and can be cancelled", async () => {

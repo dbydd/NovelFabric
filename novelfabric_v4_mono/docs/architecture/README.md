@@ -15,4 +15,4 @@ Read these first for current V4 work:
 
 The earlier custom-LLM/fullstack drafts were removed from this directory. Their useful corrections were merged into the CLI harness plan and command contract.
 
-Do not reintroduce a NovelFabric-owned provider runtime as the V4 mainline. Semantic execution belongs to the NovelFabric-wrapped pi agent SDK runtime or external agents under NovelFabric skills, CLI guardrails, runtime extensions, and Web-safe tool policies.
+Do not reintroduce a NovelFabric-owned provider runtime as the V4 mainline. Semantic execution belongs to the NovelFabric-wrapped pi agent SDK runtime or external agents under NovelFabric skills, CLI guardrails, runtime extensions, and Web-safe tool policies. Current runtime model roles are fixed in the active plans: `generic-writer` drives real NovelFabric workflow execution, while `flash-vibe` is reserved for hard acceptance/testing agents.

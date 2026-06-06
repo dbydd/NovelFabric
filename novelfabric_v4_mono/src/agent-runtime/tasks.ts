@@ -1,5 +1,11 @@
+import { spawnSync } from "node:child_process";
+import { access, readFile } from "node:fs/promises";
+import path from "node:path";
+
+import { readProcessEnvironment } from "../environment.js";
 import { CommandFailure } from "../errors.js";
 import type { JsonObject, JsonValue } from "../output.js";
+import { resolveRuntimeConfigPaths, type RuntimeThinkingLevel } from "../runtime/config.js";
 import { readWorkspaceFile, writeWorkspaceFile, appendWorkspaceFile } from "../workspace/files.js";
 import { assertPiSdkImportAvailable, piAgentRuntimeAdapter } from "./pi-adapter.js";
 import type { AgentRuntimeLaunchPlan } from "./types.js";
@@ -65,7 +71,29 @@ export type AgentTaskPackageFiles = {
   readonly events: string;
 };
 
-export type AgentTaskResultStatus = "pending-pi-runtime" | "run-recorded" | "aborted";
+export type AgentTaskResultStatus = "pending-pi-runtime" | "run-recorded" | "completed" | "aborted";
+
+export type AgentTaskOutput = JsonObject & {
+  readonly kind: "novelfabric.agent.task.output";
+  readonly version: 1;
+  readonly format: "json" | "text";
+  readonly rawText: string;
+  readonly parsedJson?: JsonValue;
+};
+
+export type AgentTaskRuntimeEvidence = JsonObject & {
+  readonly runtimeRoot: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly thinking?: RuntimeThinkingLevel;
+  readonly modelPurpose: "production";
+  readonly piBin: string;
+  readonly toolPolicy: "--no-tools";
+  readonly sessionPolicy: "--no-session";
+  readonly contextPolicy: "--no-context-files";
+  readonly stdoutBytes: number;
+  readonly stderrBytes: number;
+};
 
 export type AgentTaskResult = JsonObject & {
   readonly kind: "novelfabric.agent.task.result";
@@ -76,6 +104,8 @@ export type AgentTaskResult = JsonObject & {
   readonly actor: string;
   readonly updatedAt: string;
   readonly piSdk: PiSdkAvailability;
+  readonly runtimeEvidence?: AgentTaskRuntimeEvidence;
+  readonly output?: AgentTaskOutput;
   readonly notes: readonly string[];
 };
 
@@ -145,7 +175,7 @@ export type AgentTaskEvent = JsonObject & {
   readonly kind: "novelfabric.agent.task.event";
   readonly version: 1;
   readonly taskId: string;
-  readonly type: "created" | "run-recorded" | "aborted";
+  readonly type: "created" | "run-recorded" | "pi-started" | "pi-completed" | "aborted";
   readonly actor: string;
   readonly timestamp: string;
   readonly message: string;
@@ -360,30 +390,55 @@ export async function runAgentTask(request: AgentTaskRunRequest): Promise<AgentT
   if (inspected.result.status === "aborted") {
     throw new CommandFailure("agent_task_aborted", `Task '${taskId}' has been aborted.`);
   }
-  const now = new Date().toISOString();
-  const piSdk = await checkPiSdkAvailability();
+  const piSdk = await checkPiSdkAvailabilityOrThrow();
+  const runtime = await loadPiWorkflowRuntime();
+  const prompt = buildPiTaskPrompt(inspected);
+  const startedAt = new Date().toISOString();
+  const startedEvent = taskEvent({
+    taskId,
+    actor: request.actor,
+    type: "pi-started",
+    timestamp: startedAt,
+    message: `Launching pi runtime with provider '${runtime.provider}' and workflow model '${runtime.model}'.`
+  });
+  const pi = runPiProcess({ runtime, prompt });
+  const output = parsePiTaskOutput(pi.outputText);
+  const completedAt = new Date().toISOString();
+  const runtimeEvidence: AgentTaskRuntimeEvidence = {
+    runtimeRoot: runtime.runtimeRoot,
+    provider: runtime.provider,
+    model: runtime.model,
+    ...(runtime.thinking === undefined ? {} : { thinking: runtime.thinking }),
+    modelPurpose: "production",
+    piBin: runtime.piBin,
+    toolPolicy: "--no-tools",
+    sessionPolicy: "--no-session",
+    contextPolicy: "--no-context-files",
+    stdoutBytes: Buffer.byteLength(pi.stdout, "utf8"),
+    stderrBytes: Buffer.byteLength(pi.stderr, "utf8")
+  };
   const result: AgentTaskResult = {
     kind: "novelfabric.agent.task.result",
     version: 1,
     taskId,
-    status: "run-recorded",
+    status: "completed",
     runtime: request.runtime,
     actor: request.actor,
-    updatedAt: now,
+    updatedAt: completedAt,
     piSdk,
+    runtimeEvidence,
+    output,
     notes: [
-      "Recorded a deterministic pi runtime run envelope.",
-      "No custom provider was called and no model session was launched in this command."
+      "Launched the NovelFabric-owned pi runtime configuration with tools disabled.",
+      "The model could not write files directly; NovelFabric CLI captured stdout and wrote this result through the shared workspace file service."
     ]
   };
-  const event = taskEvent({
+  const completedEvent = taskEvent({
     taskId,
     actor: request.actor,
-    type: "run-recorded",
-    timestamp: now,
-    message: piSdk.available
-      ? "pi SDK import availability asserted; runtime execution remains deferred."
-      : "pi SDK import availability check failed safely; runtime execution remains deferred."
+    type: "pi-completed",
+    timestamp: completedAt,
+    message: `pi runtime completed with non-empty ${output.format} output.`
   });
   const writes = [
     summarizeWrite(
@@ -392,16 +447,16 @@ export async function runAgentTask(request: AgentTaskRunRequest): Promise<AgentT
         path: paths.files.result,
         content: stableJson(result),
         actor: request.actor,
-        reason: request.reason ?? "agent run result record"
+        reason: request.reason ?? "agent run pi result record"
       })
     ),
     summarizeWrite(
       await appendWorkspaceFile({
         workspacePath: request.workspacePath,
         path: paths.files.events,
-        content: `${jsonLine(event)}\n`,
+        content: `${jsonLine(startedEvent)}\n${jsonLine(completedEvent)}\n`,
         actor: request.actor,
-        reason: request.reason ?? "agent run event append"
+        reason: request.reason ?? "agent run pi event append"
       })
     )
   ];
@@ -538,6 +593,265 @@ export async function abortAgentTask(
   };
 }
 
+type PiWorkflowRuntimeConfig = {
+  readonly runtimeRoot: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly thinking?: RuntimeThinkingLevel;
+  readonly piBin: string;
+};
+
+type PiProcessResult = {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly outputText: string;
+};
+
+async function loadPiWorkflowRuntime(): Promise<PiWorkflowRuntimeConfig> {
+  const paths = resolveRuntimeConfigPaths(readProcessEnvironment());
+  let settings: JsonObject;
+  try {
+    settings = parseJsonFile(
+      await readFile(paths.settingsPath, "utf8"),
+      paths.settingsPath
+    ) as JsonObject;
+  } catch (error) {
+    if (error instanceof CommandFailure) throw error;
+    throw new CommandFailure(
+      "pi_runtime_not_configured",
+      `NovelFabric pi runtime settings are required at '${paths.settingsPath}'. Run 'novelfabric runtime materialize' and configure modelDefaults for generic-writer.`,
+      2
+    );
+  }
+  const modelDefaults = modelDefaultsFromSettings(settings["modelDefaults"]);
+  const provider = modelDefaults?.provider ?? stringSetting(settings, "defaultProvider");
+  const model = modelDefaults?.model ?? stringSetting(settings, "defaultModel");
+  const thinking = modelDefaults?.thinking ?? thinkingSetting(settings, "defaultThinkingLevel");
+  const purpose = modelDefaults?.purpose ?? "production";
+  if (provider === undefined || model === undefined) {
+    throw new CommandFailure(
+      "pi_runtime_model_unconfigured",
+      "NovelFabric pi workflow runtime requires settings.modelDefaults.provider/model or defaultProvider/defaultModel.",
+      2
+    );
+  }
+  if (purpose !== "production" || model === "flash-vibe") {
+    throw new CommandFailure(
+      "pi_runtime_test_model_for_workflow",
+      "agent run must use the production workflow model, normally generic-writer. flash-vibe is reserved for acceptance tests.",
+      2
+    );
+  }
+  return {
+    runtimeRoot: paths.runtimeRoot,
+    provider,
+    model,
+    ...(thinking === undefined ? {} : { thinking }),
+    piBin: await resolvePiBinary()
+  };
+}
+
+async function resolvePiBinary(): Promise<string> {
+  const configured = process.env["NOVELFABRIC_PI_BIN"];
+  if (configured !== undefined && configured.trim().length > 0) return configured;
+  const local = path.resolve(
+    process.cwd(),
+    "node_modules",
+    ".bin",
+    process.platform === "win32" ? "pi.cmd" : "pi"
+  );
+  try {
+    await access(local);
+    return local;
+  } catch {
+    return "pi";
+  }
+}
+
+async function checkPiSdkAvailabilityOrThrow(): Promise<PiSdkAvailability> {
+  try {
+    const launchPlan = await assertPiSdkImportAvailable();
+    return {
+      adapter: piAgentRuntimeAdapter.packageName,
+      available: true,
+      launchPlan
+    };
+  } catch (error) {
+    throw new CommandFailure(
+      "pi_sdk_unavailable",
+      `@earendil-works/pi-coding-agent is required for agent run --runtime pi: ${error instanceof Error ? error.message : String(error)}`,
+      2
+    );
+  }
+}
+
+function buildPiTaskPrompt(inspected: AgentTaskInspectResult): string {
+  return [
+    "You are the NovelFabric wrapped pi runtime executing an agent task package.",
+    "You must not use tools, write files, edit files, execute bash, or access arbitrary paths.",
+    "Return the final task output only. Prefer valid JSON conforming to OUTPUT_SCHEMA when possible.",
+    "The NovelFabric CLI will capture your stdout and write result.json/events.jsonl through audited workspace services.",
+    "",
+    "TASK_MD:",
+    `# ${inspected.task.title}`,
+    `task_id: ${inspected.task.taskId}`,
+    `actor: ${inspected.task.actor}`,
+    "",
+    "INSTRUCTION:",
+    inspected.task.instruction,
+    "",
+    "INPUT_JSON:",
+    stableJson(inspected.input).trim(),
+    "",
+    "CONTEXT_PACK_JSON:",
+    stableJson(inspected.contextPack).trim(),
+    "",
+    "ALLOWED_NOVELFABRIC_COMMANDS_FOR_FUTURE_TOOL_ADAPTERS:",
+    inspected.allowedCommands.length === 0 ? "(none)" : inspected.allowedCommands.join("\n"),
+    "",
+    "OUTPUT_SCHEMA_JSON:",
+    stableJson(inspected.outputSchema).trim()
+  ].join("\n");
+}
+
+function runPiProcess(request: {
+  readonly runtime: PiWorkflowRuntimeConfig;
+  readonly prompt: string;
+}): PiProcessResult {
+  const modelArgument =
+    request.runtime.thinking === undefined
+      ? request.runtime.model
+      : `${request.runtime.model}:${request.runtime.thinking}`;
+  const result = spawnSync(
+    request.runtime.piBin,
+    [
+      "--print",
+      "--no-tools",
+      "--no-session",
+      "--no-context-files",
+      "--provider",
+      request.runtime.provider,
+      "--model",
+      modelArgument,
+      request.prompt
+    ],
+    {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: request.runtime.runtimeRoot,
+        PI_SKIP_VERSION_CHECK: "1"
+      },
+      timeout: Number(process.env["NOVELFABRIC_AGENT_RUN_TIMEOUT_MS"] ?? "180000"),
+      maxBuffer: 1024 * 1024 * 8,
+      encoding: "utf8"
+    }
+  );
+  if (result.error !== undefined || result.status !== 0) {
+    throw new CommandFailure(
+      "pi_runtime_failed",
+      `pi process failed. status=${String(result.status)} signal=${String(result.signal)} error=${result.error instanceof Error ? result.error.message : String(result.error)} stderr=${result.stderr}`,
+      2
+    );
+  }
+  const stdout = result.stdout;
+  const stderr = result.stderr;
+  const outputText = `${stdout}\n${stderr}`.trim();
+  if (outputText.length === 0) {
+    throw new CommandFailure("pi_runtime_empty_output", "pi runtime returned empty output.", 2);
+  }
+  return { stdout, stderr, outputText };
+}
+
+function parsePiTaskOutput(outputText: string): AgentTaskOutput {
+  const jsonText = extractFirstJsonObject(outputText);
+  if (jsonText !== undefined) {
+    const parsed = parseJsonFile(jsonText, "pi stdout");
+    return {
+      kind: "novelfabric.agent.task.output",
+      version: 1,
+      format: "json",
+      rawText: outputText,
+      parsedJson: parsed
+    };
+  }
+  return {
+    kind: "novelfabric.agent.task.output",
+    version: 1,
+    format: "text",
+    rawText: outputText
+  };
+}
+
+function extractFirstJsonObject(text: string): string | undefined {
+  const start = text.indexOf("{");
+  if (start < 0) return undefined;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, index + 1);
+    }
+  }
+  return undefined;
+}
+
+function modelDefaultsFromSettings(value: unknown):
+  | {
+      readonly provider: string;
+      readonly model: string;
+      readonly thinking?: RuntimeThinkingLevel;
+      readonly purpose: "testing" | "production";
+    }
+  | undefined {
+  if (!isJsonObject(value)) return undefined;
+  const provider = stringSetting(value, "provider");
+  const model = stringSetting(value, "model");
+  const thinking = thinkingSetting(value, "thinking");
+  const purpose = value["purpose"];
+  if (provider === undefined || model === undefined) return undefined;
+  if (purpose !== "testing" && purpose !== "production") return undefined;
+  return { provider, model, ...(thinking === undefined ? {} : { thinking }), purpose };
+}
+
+function stringSetting(value: JsonObject, key: string): string | undefined {
+  const field = value[key];
+  return typeof field === "string" && field.trim().length > 0 ? field : undefined;
+}
+
+function thinkingSetting(value: JsonObject, key: string): RuntimeThinkingLevel | undefined {
+  const field = value[key];
+  return isThinkingLevel(field) ? field : undefined;
+}
+
+function isThinkingLevel(value: unknown): value is RuntimeThinkingLevel {
+  return (
+    value === "off" ||
+    value === "minimal" ||
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh"
+  );
+}
+
 async function resolveContextPack(
   workspacePath: string,
   contextPackPath: string | undefined
@@ -551,19 +865,6 @@ async function resolveContextPack(
   }
   const read = await readWorkspaceFile({ workspacePath, path: contextPackPath });
   return parseJsonFile(read.content, contextPackPath);
-}
-
-async function checkPiSdkAvailability(): Promise<PiSdkAvailability> {
-  try {
-    const launchPlan = await assertPiSdkImportAvailable();
-    return {
-      adapter: piAgentRuntimeAdapter.packageName,
-      available: true,
-      launchPlan
-    };
-  } catch (error) {
-    return unavailablePiSdkRecord(error instanceof Error ? error.message : String(error));
-  }
 }
 
 function unavailablePiSdkRecord(error: string): PiSdkAvailability {
@@ -654,7 +955,12 @@ function parseTaskResult(content: string, filePath: string): AgentTaskResult {
     );
   }
   const status = parsed["status"];
-  if (status !== "pending-pi-runtime" && status !== "run-recorded" && status !== "aborted") {
+  if (
+    status !== "pending-pi-runtime" &&
+    status !== "run-recorded" &&
+    status !== "completed" &&
+    status !== "aborted"
+  ) {
     throw new CommandFailure(
       "invalid_agent_task_result",
       `Agent task result '${filePath}' has an invalid status.`
@@ -725,7 +1031,7 @@ function defaultOutputSchema(): JsonObject {
 
 function taskEvent(request: {
   readonly taskId: string;
-  readonly type: "created" | "run-recorded" | "aborted";
+  readonly type: "created" | "run-recorded" | "pi-started" | "pi-completed" | "aborted";
   readonly actor: string;
   readonly timestamp: string;
   readonly message: string;
@@ -788,6 +1094,6 @@ function jsonLine(value: JsonValue): string {
   return JSON.stringify(value);
 }
 
-function isJsonObject(value: JsonValue): value is JsonObject {
+function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

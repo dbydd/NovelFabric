@@ -89,6 +89,15 @@ workspace-local overlay 可放在：
 
 wrapped runtime 只有在用户显式 opt-in 或执行 documented import/migration 时，才可以读取用户 global pi auth/model 配置。NovelFabric-specific extensions 与 permission policy 应来自 NovelFabric config，而不是用户常规 pi agent setup。
 
+### 模型角色
+
+NovelFabric runtime settings 需要有意区分 workflow 模型与验收模型：
+
+- `modelDefaults` / `novelFabricWorkflowModel` 应指向 `generic-writer`。这个模型驱动真实 NovelFabric LLM 工作流阶段，例如语义导入、写作、角色推理与报告任务。
+- `testModelDefaults` / `novelFabricTestModel` 应指向 `flash-vibe`。这个模型仅用于测试/验收 agent，用来证明 workflow 数据确实被 LLM agent 处理过。
+
+不要把 `flash-vibe` 用作默认产品 workflow 模型。硬 pi 测试在这些模型设置或凭据缺失时不得 skip；缺少 runtime 配置就是失败状态。
+
 ### 必要 runtime extensions
 
 wrapped runtime 应支持 NovelFabric-provided pi extensions，例如：
@@ -280,15 +289,16 @@ report, writing, workflow, external-swarm, web
 
 距离完全可用仍然阻塞的 gap：
 
-- `agent run --runtime pi` 仍只是 deterministic run envelope，没有启动真实 pi AgentSession；
-- Web controls 尚未接入完整 workflow/agent runtime path；
-- 语义拆书、role reasoning、StorySwarm output、ReportAgent analysis、chapter drafts 还没有 pi-backed evidence；
-- external swarm REST/MCP adapters 仍需接 shared CLI service 并通过 golden fixtures；
+- 真实 agent task execution：`agent run --runtime pi` 仍只是 deterministic run envelope，没有用 `generic-writer` 启动真实 pi AgentSession；
+- workflow pi evidence：语义拆书、role reasoning、StorySwarm output、ReportAgent analysis、chapter drafts 需要把 pi event/output evidence 挂到 job trace；
+- Web binding：Web controls 尚未在 Web-safe policy 下接入完整 workflow/agent runtime path；
+- external compatibility：external swarm REST/MCP adapters 仍需接 shared CLI service 并通过 golden fixtures；
 - cards/memory/swarm/report/chapter 等 domain-specific capabilities 需要收紧。
 
 测试策略：
 
 - deterministic harness tests 必须在 CI 中通过；
+- `npm run test:pi-acceptance` 是硬内容门槛，NovelFabric pi config 或 LLM 凭据不可用时必须失败，不能 skip；
 - 真实 pi/Web acceptance tests 在未实现前应作为 pending contract tests 存在；
 - 没有 pi runtime evidence 的 deterministic shell 不能被描述为 semantic business success。
 

@@ -117,7 +117,7 @@ describe("agent task command module", () => {
     }
   });
 
-  it("records run status, validates output, and aborts through audited workspace writes", async () => {
+  it("records real pi run status, validates output, and aborts through audited workspace writes", async () => {
     await runCommand([
       "agent",
       "task",
@@ -152,7 +152,7 @@ describe("agent task command module", () => {
     expect(runResult.ok).toBe(true);
     if (!runResult.ok) throw new Error("Expected run success.");
     expect(runResult.command).toBe("agent run");
-    expect(runResult.data.status).toBe("run-recorded");
+    expect(runResult.data.status).toBe("completed");
     expect(runResult.data.piSdk?.adapter).toBe("@earendil-works/pi-coding-agent");
 
     const statusResult = await runCommand([
@@ -167,7 +167,7 @@ describe("agent task command module", () => {
     expect(statusResult.ok).toBe(true);
     if (statusResult.ok) {
       expect(statusResult.command).toBe("agent status");
-      expect(statusResult.data).toMatchObject({ status: "run-recorded", eventCount: 2 });
+      expect(statusResult.data).toMatchObject({ status: "completed", eventCount: 3 });
     }
 
     const validateResult = await runCommand([
@@ -212,7 +212,7 @@ describe("agent task command module", () => {
       path: ".novelfabric/tasks/runtime-check/result.json"
     });
     expect(JSON.parse(resultFile.content)).toMatchObject({ status: "aborted" });
-  });
+  }, 30000);
 
   it("keeps task package writes behind protected workspace capabilities", async () => {
     await fs.writeFile(

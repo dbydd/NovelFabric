@@ -6,6 +6,12 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import {
+  expectedAcceptanceModel,
+  expectedWorkflowModel,
+  resolvePiModelRoles
+} from "./pi-model-roles.mjs";
+
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const fixtureWorkspace = path.join(repoRoot, "fixtures", "workspaces", "valid-basic");
@@ -133,6 +139,8 @@ async function main() {
         kind: "novelfabric.pi.acceptance.output",
         version: 1,
         runtimeRoot: runtime.runtimeRoot,
+        workflowModel: runtime.workflowModel,
+        acceptanceModel: runtime.acceptanceModel,
         workflowJobId: "pi-acceptance",
         semanticExecution: true,
         agent: agentJson
@@ -164,21 +172,17 @@ async function main() {
       "--json"
     ]);
     const savedContent = String(saved.data.content ?? "");
-    assert(
-      savedContent.includes("semanticExecution"),
-      "Saved pi output is missing semanticExecution."
-    );
-    for (const term of requiredTerms) {
-      assert(savedContent.includes(term), `Saved pi output is missing required term: ${term}`);
-    }
+    validateSavedOutput(savedContent, runtime);
 
     console.log(
       JSON.stringify(
         {
           ok: true,
           runtimeRoot: runtime.runtimeRoot,
-          provider: runtime.defaultProvider,
-          model: runtime.defaultModel,
+          workflowProvider: runtime.workflowProvider,
+          workflowModel: runtime.workflowModel,
+          acceptanceProvider: runtime.acceptanceProvider,
+          acceptanceModel: runtime.acceptanceModel,
           workspacePath,
           contextPackPath,
           outputPath: "reports/pi-acceptance-output.json"
@@ -210,23 +214,16 @@ async function loadNovelFabricPiRuntimeConfig() {
     parsed = JSON.parse(await fs.readFile(settingsPath, "utf8"));
   } catch (error) {
     fail(
-      `NovelFabric pi acceptance requires ${settingsPath}. Run \`npm run cli -- runtime materialize --actor main_agent --json\`, then configure defaultProvider/defaultModel and credentials. ${errorMessage(error)}`
+      `NovelFabric pi acceptance requires ${settingsPath}. Run \`npm run cli -- runtime materialize --actor main_agent --json\`, then configure modelDefaults for generic-writer, testModelDefaults for flash-vibe, and credentials. ${errorMessage(error)}`
     );
   }
-  const testModelDefaults = modelDefaultsField(parsed, "testModelDefaults");
-  const defaultProvider = testModelDefaults?.provider ?? stringField(parsed, "defaultProvider");
-  const defaultModel =
-    testModelDefaults?.model ??
-    stringField(parsed, "novelFabricTestModel") ??
-    stringField(parsed, "defaultModel");
-  const defaultThinking =
-    testModelDefaults?.thinking ?? stringField(parsed, "defaultThinkingLevel");
-  if (defaultProvider === undefined || defaultModel === undefined) {
-    fail(
-      `${settingsPath} must define testModelDefaults.provider/model, or defaultProvider plus novelFabricTestModel/defaultModel, for hard pi acceptance. Current runtime materialization is metadata-only; add model config before running this test.`
-    );
+  let roles;
+  try {
+    roles = resolvePiModelRoles(parsed, settingsPath);
+  } catch (error) {
+    fail(errorMessage(error));
   }
-  return { runtimeRoot, settingsPath, defaultProvider, defaultModel, defaultThinking };
+  return { runtimeRoot, settingsPath, ...roles };
 }
 
 async function runPi(runtime, workspacePath, contextContent) {
@@ -249,11 +246,11 @@ async function runPi(runtime, workspacePath, contextContent) {
       "--no-tools",
       "--no-session",
       "--provider",
-      runtime.defaultProvider,
+      runtime.acceptanceProvider,
       "--model",
-      runtime.defaultThinking === undefined
-        ? runtime.defaultModel
-        : `${runtime.defaultModel}:${runtime.defaultThinking}`,
+      runtime.acceptanceThinking === undefined
+        ? runtime.acceptanceModel
+        : `${runtime.acceptanceModel}:${runtime.acceptanceThinking}`,
       `@${promptPath}`
     ],
     {
@@ -362,33 +359,52 @@ function validateAgentJson(value) {
     Array.isArray(value.evidence) && value.evidence.length > 0,
     "pi evidence must be non-empty."
   );
+  assert(
+    value.evidence.every((item) => typeof item === "string" && item.trim().length >= 4),
+    "pi evidence entries must be substantive strings."
+  );
+  assert(
+    typeof value.nextAction === "string" && value.nextAction.trim().length >= 8,
+    "pi nextAction must be substantive."
+  );
   const serialized = JSON.stringify(value);
   for (const term of requiredTerms) {
     assert(serialized.includes(term), `pi output is missing required term: ${term}`);
   }
 }
 
-function modelDefaultsField(value, key) {
-  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-    const field = value[key];
-    if (field !== null && typeof field === "object" && !Array.isArray(field)) {
-      const provider = stringField(field, "provider");
-      const model = stringField(field, "model");
-      const thinking = stringField(field, "thinking");
-      if (provider !== undefined && model !== undefined) {
-        return { provider, model, ...(thinking === undefined ? {} : { thinking }) };
-      }
-    }
+function validateSavedOutput(content, runtime) {
+  assert(content.trim().length > 0, "Saved pi output is empty.");
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    fail(`Saved pi output is not valid JSON. ${errorMessage(error)}`);
   }
-  return undefined;
-}
-
-function stringField(value, key) {
-  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-    const field = value[key];
-    if (typeof field === "string" && field.trim().length > 0) return field;
+  assert(
+    parsed !== null && typeof parsed === "object" && !Array.isArray(parsed),
+    "Saved pi output must be a JSON object."
+  );
+  assert(
+    parsed.kind === "novelfabric.pi.acceptance.output",
+    "Saved pi output has the wrong artifact kind."
+  );
+  assert(parsed.semanticExecution === true, "Saved pi output is missing semanticExecution=true.");
+  assert(
+    parsed.workflowModel === runtime.workflowModel &&
+      parsed.workflowModel === expectedWorkflowModel,
+    "Saved pi output did not record generic-writer as the workflow model."
+  );
+  assert(
+    parsed.acceptanceModel === runtime.acceptanceModel &&
+      parsed.acceptanceModel === expectedAcceptanceModel,
+    "Saved pi output did not record flash-vibe as the acceptance model."
+  );
+  validateAgentJson(parsed.agent);
+  const serialized = JSON.stringify(parsed);
+  for (const term of requiredTerms) {
+    assert(serialized.includes(term), `Saved pi output is missing required term: ${term}`);
   }
-  return undefined;
 }
 
 function assert(condition, message) {

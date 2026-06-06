@@ -89,6 +89,15 @@ Project/workspace-local overlays may live under:
 
 The wrapped runtime may read the user’s global pi auth/model configuration only through explicit user opt-in or documented import/migration. NovelFabric-specific extensions and permissions should come from NovelFabric config, not the user’s normal pi agent setup.
 
+### Model roles
+
+NovelFabric runtime settings split workflow and acceptance models deliberately:
+
+- `modelDefaults` / `novelFabricWorkflowModel` should point to `generic-writer`. This model drives real NovelFabric LLM workflow stages such as semantic import, writing, role reasoning, and report tasks.
+- `testModelDefaults` / `novelFabricTestModel` should point to `flash-vibe`. This model is test-only and is used by hard acceptance gates to verify that workflow data is actually processed by an LLM agent.
+
+Do not use `flash-vibe` as the default product workflow model. Do not let hard pi tests skip when these model settings or credentials are absent; missing runtime configuration is a failing state.
+
 ### Required runtime extensions
 
 The wrapped runtime should support NovelFabric-provided pi extensions such as:
@@ -311,15 +320,16 @@ Current implemented strengths:
 
 Current blocking gaps for full usability:
 
-- `agent run --runtime pi` still records a deterministic run envelope rather than starting a real pi AgentSession;
-- Web controls are not yet wired to the full workflow/agent runtime path;
-- semantic拆书, role reasoning, StorySwarm output, ReportAgent analysis, and chapter drafts are not yet pi-backed;
-- external swarm REST/MCP adapters still need to call the shared CLI service and pass golden fixtures;
+- true agent task execution: `agent run --runtime pi` still records a deterministic run envelope rather than starting a real pi AgentSession with `generic-writer`;
+- workflow pi evidence: semantic拆书, role reasoning, StorySwarm output, ReportAgent analysis, and chapter drafts need pi event/output evidence attached to job traces;
+- Web binding: Web controls are not yet wired to the full workflow/agent runtime path under Web-safe policy;
+- external compatibility: external swarm REST/MCP adapters still need to call the shared CLI service and pass golden fixtures;
 - domain-specific capabilities must be tightened for cards/memory/swarm/report/chapter commands.
 
 Testing policy:
 
 - deterministic harness tests must pass in CI;
+- `npm run test:pi-acceptance` is a hard content gate and must fail, not skip, when NovelFabric pi config or LLM credentials are unavailable;
 - true pi/Web acceptance tests should exist as pending contract tests until implemented;
 - no deterministic shell may be described as semantic business success without pi runtime evidence.
 
