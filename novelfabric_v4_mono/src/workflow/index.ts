@@ -1403,6 +1403,8 @@ async function createAndRunWorkflowAgentTask(request: {
     instruction: [
       request.instruction,
       "",
+      "Output requirement: return valid JSON with sourceAnchors copied exactly from the task input or context pack.",
+      "Set requiredAnchor to a source phrase containing 钟声 so verification can prove workflow data reached the model.",
       "Evidence requirement: this workflow stage is not semantically complete until this task result.json is updated to status completed by agent run --runtime pi."
     ].join("\n"),
     inputJson: stableJson({
@@ -1416,12 +1418,19 @@ async function createAndRunWorkflowAgentTask(request: {
     allowedCommands: request.allowedCommands,
     outputSchemaJson: stableJson({
       type: "object",
-      required: ["kind", "version", "citations", "summary"],
+      required: ["kind", "version", "citations", "summary", "sourceAnchors", "requiredAnchor"],
       properties: {
-        kind: { type: "string" },
+        kind: { type: "string", minLength: 1 },
         version: { type: "number" },
-        summary: { type: "string" },
-        citations: { type: "array", items: { type: "string" } }
+        summary: { type: "string", minLength: 24 },
+        citations: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+        sourceAnchors: {
+          type: "array",
+          minItems: 2,
+          containsText: "叶小伟",
+          items: { type: "string", minLength: 2 }
+        },
+        requiredAnchor: { type: "string", containsText: "钟声" }
       }
     }),
     reason: `workflow ${request.stage} agent task create`

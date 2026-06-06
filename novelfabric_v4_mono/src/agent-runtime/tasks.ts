@@ -403,18 +403,14 @@ export async function runAgentTask(request: AgentTaskRunRequest): Promise<AgentT
     timestamp: startedAt,
     message: `Launching pi runtime with provider '${runtime.provider}' and workflow model '${runtime.model}'.`
   });
-  const pi = runPiProcess({ runtime, prompt, taskId });
-  const output = parsePiTaskOutput(pi.outputText);
-  const outputIssues: AgentTaskValidationIssue[] = [];
-  validateAgentTaskOutputContent(output, inspected.outputSchema, paths.files.result, outputIssues);
-  const blockingOutputIssue = outputIssues.find((issue) => issue.severity === "error");
-  if (blockingOutputIssue !== undefined) {
-    throw new CommandFailure(
-      "agent_task_output_schema_mismatch",
-      `pi runtime output failed output.schema.json validation: ${blockingOutputIssue.message}`,
-      2
-    );
-  }
+  const pi = runPiProcessUntilSchemaValid({
+    runtime,
+    prompt,
+    taskId,
+    outputSchema: inspected.outputSchema,
+    resultPath: paths.files.result
+  });
+  const output = pi.output;
   const completedAt = new Date().toISOString();
   const runtimeEvidence: AgentTaskRuntimeEvidence = {
     runtimeRoot: runtime.runtimeRoot,
@@ -653,8 +649,30 @@ function validateJsonSchemaValue(
     }
   }
 
+  if (expectedType === "string" && typeof value === "string") {
+    const minLength = schema["minLength"];
+    if (typeof minLength === "number" && value.length < minLength) {
+      issues.push(`${pathLabel} must contain at least ${minLength.toString()} characters.`);
+    }
+    const containsText = schema["containsText"];
+    if (typeof containsText === "string" && !value.includes(containsText)) {
+      issues.push(`${pathLabel} must contain '${containsText}'.`);
+    }
+  }
+
   if (expectedType === "array" && Array.isArray(value)) {
     const arrayValue: readonly JsonValue[] = value;
+    const minItems = schema["minItems"];
+    if (typeof minItems === "number" && arrayValue.length < minItems) {
+      issues.push(`${pathLabel} must contain at least ${minItems.toString()} items.`);
+    }
+    const containsText = schema["containsText"];
+    if (
+      typeof containsText === "string" &&
+      !arrayValue.some((item) => typeof item === "string" && item.includes(containsText))
+    ) {
+      issues.push(`${pathLabel} must include an item containing '${containsText}'.`);
+    }
     const itemSchema = schema["items"];
     if (isJsonValue(itemSchema)) {
       const narrowedItemSchema: JsonValue = itemSchema;
@@ -856,6 +874,7 @@ function buildPiTaskPrompt(inspected: AgentTaskInspectResult): string {
     "You are the NovelFabric wrapped pi runtime executing an agent task package.",
     "You must not use tools, write files, edit files, execute bash, or access arbitrary paths.",
     "Return the final task output only. It must be valid JSON conforming to OUTPUT_SCHEMA_JSON.",
+    "If OUTPUT_SCHEMA_JSON requires sourceAnchors, copy short exact phrases from INPUT_JSON or CONTEXT_PACK_JSON into that array; do not invent anchors.",
     "The NovelFabric CLI will capture your stdout and write result.json/events.jsonl through audited workspace services.",
     "",
     "TASK_MD:",
@@ -878,6 +897,35 @@ function buildPiTaskPrompt(inspected: AgentTaskInspectResult): string {
     "OUTPUT_SCHEMA_JSON:",
     stableJson(inspected.outputSchema).trim()
   ].join("\n");
+}
+
+function runPiProcessUntilSchemaValid(request: {
+  readonly runtime: PiWorkflowRuntimeConfig;
+  readonly prompt: string;
+  readonly taskId: string;
+  readonly outputSchema: JsonValue;
+  readonly resultPath: string;
+}): PiProcessResult & { readonly output: AgentTaskOutput } {
+  const attempts = Number(process.env["NOVELFABRIC_AGENT_RUN_ATTEMPTS"] ?? "3");
+  let lastIssue = "pi runtime did not return valid output.";
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const pi = runPiProcess({
+      runtime: request.runtime,
+      prompt: request.prompt,
+      taskId: request.taskId
+    });
+    const output = parsePiTaskOutput(pi.outputText);
+    const outputIssues: AgentTaskValidationIssue[] = [];
+    validateAgentTaskOutputContent(output, request.outputSchema, request.resultPath, outputIssues);
+    const blockingOutputIssue = outputIssues.find((issue) => issue.severity === "error");
+    if (blockingOutputIssue === undefined) return { ...pi, output };
+    lastIssue = blockingOutputIssue.message;
+  }
+  throw new CommandFailure(
+    "agent_task_output_schema_mismatch",
+    `pi runtime output failed output.schema.json validation after ${attempts.toString()} attempts: ${lastIssue}`,
+    2
+  );
 }
 
 function runPiProcess(request: {

@@ -16,12 +16,32 @@ import {
   verifyWorkflow,
   workflowStages
 } from "../../src/workflow/index.js";
-import { writeWorkspaceFile } from "../../src/workspace/files.js";
+import { readWorkspaceFile, writeWorkspaceFile } from "../../src/workspace/files.js";
 
 const VALID_FIXTURE = path.resolve(import.meta.dirname, "../../fixtures/workspaces/valid-basic");
 
 function stableJson(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function parseAgentTaskResult(content: string): {
+  readonly status: string;
+  readonly outputText: string;
+} {
+  const parsed: unknown = JSON.parse(content);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("Expected agent task result object.");
+  }
+  const record = parsed as Record<string, unknown>;
+  const output = record["output"];
+  const outputText =
+    typeof output === "object" &&
+    output !== null &&
+    !Array.isArray(output) &&
+    typeof (output as Record<string, unknown>)["rawText"] === "string"
+      ? ((output as Record<string, unknown>)["rawText"] as string)
+      : "";
+  return { status: typeof record["status"] === "string" ? record["status"] : "", outputText };
 }
 
 describe("workflow acceptance state machine", () => {
@@ -217,12 +237,34 @@ describe("workflow acceptance state machine", () => {
     const swarmStageIndex = stages.findIndex((stage) => stage.id === "swarm.task.create");
     expect(swarmStageIndex).toBeGreaterThan(0);
 
+    const contextPackPath = `simulation/context-packs/${jobId}/main_agent.json`;
+    await writeWorkspaceFile({
+      workspacePath,
+      path: contextPackPath,
+      actor: "main_agent",
+      content: stableJson({
+        kind: "novelfabric.simulation.context-pack",
+        version: 1,
+        session: jobId,
+        agent: "main_agent",
+        sourceExcerpt: "叶小伟醒来，城市边缘传来钟声。第二章余波中新的选择被摆在桌面。",
+        relevantEntities: ["叶小伟", "钟声", "第二章"]
+      }),
+      reason: "test simulation context pack with source terms"
+    });
     await writeWorkflowRuntimeFixture({
       jobId,
       now,
       nextStageIndex: swarmStageIndex,
       completedStages: [],
-      artifacts: []
+      artifacts: [
+        {
+          stage: "simulation.context-pack",
+          name: "simulation-context-pack",
+          path: contextPackPath,
+          artifactKind: "novelfabric.simulation.context-pack"
+        }
+      ]
     });
     await createSimulationSession({
       workspacePath,
@@ -232,20 +274,30 @@ describe("workflow acceptance state machine", () => {
       timeline: "main"
     });
 
-    const result = await stepWorkflow({
+    const stepResult = await stepWorkflow({
       workspacePath,
       actor: "main_agent",
       jobId,
       input: { stage: "swarm.task.create" }
     });
-    expect(result.stageStatus).toBe("completed");
-    expect(result.executedStage).toBe("swarm.task.create");
-    expect(result.artifacts).toContainEqual(
-      expect.objectContaining({
-        name: "agent-task-result",
-        artifactKind: "novelfabric.agent.task.result"
-      })
+    expect(stepResult.stageStatus).toBe("completed");
+    expect(stepResult.executedStage).toBe("swarm.task.create");
+    const evidenceArtifact = stepResult.artifacts.find(
+      (a) => a.name === "agent-task-result" && a.artifactKind === "novelfabric.agent.task.result"
     );
+    expect(evidenceArtifact).toBeDefined();
+    if (evidenceArtifact === undefined) throw new Error("Missing evidence artifact.");
+
+    const resultRead = await readWorkspaceFile({
+      workspacePath,
+      path: evidenceArtifact.path
+    });
+    const resultJson = parseAgentTaskResult(resultRead.content);
+    expect(resultJson.status).toBe("completed");
+    const outputText = resultJson.outputText;
+    for (const term of ["叶小伟", "钟声", "第二章"]) {
+      expect(outputText).toContain(term);
+    }
 
     const verified = await verifyWorkflow({ workspacePath, jobId });
     expect(verified.valid).toBe(true);
