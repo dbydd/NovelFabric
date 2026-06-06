@@ -151,25 +151,6 @@ describe("workflow acceptance state machine", () => {
       }),
       reason: "test workflow state fixture"
     });
-    await writeWorkspaceFile({
-      workspacePath,
-      path: paths.artifacts,
-      actor: "main_agent",
-      content: stableJson({
-        kind: "novelfabric.workflow.artifacts",
-        version: 1,
-        jobId,
-        items: [
-          {
-            stage: "swarm.task.create",
-            name: "agent-task-result",
-            path: paths.result,
-            artifactKind: "novelfabric.agent.task.result"
-          }
-        ]
-      }),
-      reason: "test workflow artifacts fixture"
-    });
     await createAgentTask({
       workspacePath,
       actor: "main_agent",
@@ -178,7 +159,8 @@ describe("workflow acceptance state machine", () => {
       instruction: "Fixture task for workflow verification.",
       outputSchemaJson: JSON.stringify({ type: "string" })
     });
-    await writeAgentTaskResult(paths.result, "pending-pi-runtime");
+    const pendingWrite = await writeAgentTaskResult(paths.result, "pending-pi-runtime");
+    await writeWorkflowEvidenceArtifacts(pendingWrite.hash);
 
     const unexecuted = await verifyWorkflow({ workspacePath, jobId });
     expect(unexecuted.valid).toBe(false);
@@ -186,17 +168,41 @@ describe("workflow acceptance state machine", () => {
       expect.objectContaining({ code: "workflow_pi_task_unexecuted", path: paths.result })
     );
 
-    await writeAgentTaskResult(paths.result, "completed");
+    const completedWrite = await writeAgentTaskResult(paths.result, "completed");
+    await writeWorkflowEvidenceArtifacts(completedWrite.hash);
 
     const executed = await verifyWorkflow({ workspacePath, jobId });
     expect(executed.issues).toEqual([]);
     expect(executed.valid).toBe(true);
 
+    async function writeWorkflowEvidenceArtifacts(hash: string): Promise<void> {
+      await writeWorkspaceFile({
+        workspacePath,
+        path: paths.artifacts,
+        actor: "main_agent",
+        content: stableJson({
+          kind: "novelfabric.workflow.artifacts",
+          version: 1,
+          jobId,
+          items: [
+            {
+              stage: "swarm.task.create",
+              name: "agent-task-result",
+              path: paths.result,
+              hash,
+              artifactKind: "novelfabric.agent.task.result"
+            }
+          ]
+        }),
+        reason: "test workflow artifacts fixture"
+      });
+    }
+
     async function writeAgentTaskResult(
       resultPath: string,
       status: "pending-pi-runtime" | "completed"
-    ) {
-      await writeWorkspaceFile({
+    ): Promise<{ readonly hash: string }> {
+      return writeWorkspaceFile({
         workspacePath,
         path: resultPath,
         actor: "main_agent",
@@ -258,6 +264,7 @@ describe("workflow acceptance state machine", () => {
           stage: "swarm.task.create",
           name: "agent-task-result",
           path: ".novelfabric/tasks/workflow-other-job-swarm.task.create/result.json",
+          hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
           artifactKind: "novelfabric.agent.task.result"
         }
       ]
@@ -267,6 +274,36 @@ describe("workflow acceptance state machine", () => {
     expect(verification.valid).toBe(false);
     expect(verification.issues).toContainEqual(
       expect.objectContaining({ code: "workflow_pi_task_evidence_mismatch" })
+    );
+  });
+
+  it("rejects pi-task evidence without a completed result hash", async () => {
+    const jobId = `pi-evidence-no-hash-${process.pid.toString()}-${Date.now().toString(36)}`;
+    const now = new Date().toISOString();
+    const stages = workflowStages();
+    const swarmStageIndex = stages.findIndex((stage) => stage.id === "swarm.task.create");
+    const resultPath = `.novelfabric/tasks/workflow-${jobId}-swarm.task.create/result.json`;
+    expect(swarmStageIndex).toBeGreaterThan(0);
+
+    await writeWorkflowRuntimeFixture({
+      jobId,
+      now,
+      nextStageIndex: swarmStageIndex + 1,
+      completedStages: [{ stage: "swarm.task.create", completedAt: now }],
+      artifacts: [
+        {
+          stage: "swarm.task.create",
+          name: "agent-task-result",
+          path: resultPath,
+          artifactKind: "novelfabric.agent.task.result"
+        }
+      ]
+    });
+
+    const verification = await verifyWorkflow({ workspacePath, jobId });
+    expect(verification.valid).toBe(false);
+    expect(verification.issues).toContainEqual(
+      expect.objectContaining({ code: "workflow_pi_task_evidence_hash_missing" })
     );
   });
 

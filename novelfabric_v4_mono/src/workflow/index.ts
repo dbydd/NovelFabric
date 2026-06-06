@@ -1559,6 +1559,14 @@ async function verifyPiTaskEvidence(request: {
   }
   const expectedTaskId = `workflow-${request.jobId}-${request.stage}`;
   const expectedResultPath = `.novelfabric/tasks/${expectedTaskId}/result.json`;
+  if (evidence.hash === undefined) {
+    return {
+      severity: "error",
+      code: "workflow_pi_task_evidence_hash_missing",
+      path: evidence.path,
+      message: `Workflow pi-task stage '${request.stage}' evidence must record the completed result hash.`
+    };
+  }
   if (evidence.path !== expectedResultPath) {
     return {
       severity: "error",
