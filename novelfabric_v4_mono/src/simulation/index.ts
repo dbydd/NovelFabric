@@ -270,8 +270,12 @@ async function simulationAnchorSource(
     try {
       const read = await readWorkspaceFile({ workspacePath, path: sourcePath });
       return { excerpt: read.content.slice(0, 500), anchors: extractAnchors(read.content) };
-    } catch {
-      // Fall through to objective-based anchors; missing source is reported by other workflow validation.
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "unknown read failure";
+      throw new CommandFailure(
+        "simulation_source_read_failed",
+        `Simulation objective references source '${sourcePath}', but it could not be read: ${detail}`
+      );
     }
   }
   return { excerpt: objective, anchors: extractAnchors(objective) };

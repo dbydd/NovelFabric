@@ -834,7 +834,16 @@ function missingCompletedStageIssues(
     }
     completedStageIds.add(completedStage.stage);
     const completedIndex = stageIndexById.get(completedStage.stage);
-    if (completedIndex !== undefined && completedIndex >= state.nextStageIndex) {
+    if (completedIndex === undefined) {
+      issues.push({
+        severity: "error",
+        code: "workflow_stage_completion_unknown",
+        path: statePath,
+        message: `Workflow completedStages contains unknown stage '${completedStage.stage}'.`
+      });
+      continue;
+    }
+    if (completedIndex >= state.nextStageIndex) {
       issues.push({
         severity: "error",
         code: "workflow_stage_completion_ahead",
@@ -1870,7 +1879,9 @@ function isWorkflowStageDefinition(value: unknown): value is WorkflowStageDefini
 
 function isCompletedStage(value: unknown): value is WorkflowCompletedStage {
   return (
-    isRecord(value) && isWorkflowStageId(value["stage"]) && typeof value["completedAt"] === "string"
+    isRecord(value) &&
+    typeof value["stage"] === "string" &&
+    typeof value["completedAt"] === "string"
   );
 }
 

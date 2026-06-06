@@ -104,7 +104,9 @@ test/cli/agent-task.test.ts
 Workflow tests must prove that job state is honest:
 
 - deterministic stages may complete when artifacts are produced;
-- pi-backed stages are task creation or pending/runtime stages, not fake semantic success;
+- pi-task stages synchronously run the NovelFabric-owned pi CLI with `generic-writer`;
+- task creation alone is not completion: pi execution must finish with completed runtime evidence, schema-valid output, and required source anchors;
+- `workflow verify` requires hashed result evidence bound to the current job/stage before pi-task stages count as complete;
 - failed/cancelled/retry states preserve trace and artifacts;
 - `workflow verify` detects unreadable or mutated artifacts.
 

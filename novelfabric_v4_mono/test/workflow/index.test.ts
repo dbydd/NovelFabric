@@ -343,6 +343,25 @@ describe("workflow acceptance state machine", () => {
     );
   });
 
+  it("rejects unknown completed workflow stages", async () => {
+    const now = new Date().toISOString();
+    const jobId = `stage-unknown-${process.pid.toString()}-${Date.now().toString(36)}`;
+
+    await writeWorkflowRuntimeFixture({
+      jobId,
+      now,
+      nextStageIndex: 0,
+      completedStages: [{ stage: "nonexistent.stage", completedAt: now }],
+      artifacts: []
+    });
+
+    const verification = await verifyWorkflow({ workspacePath, jobId });
+    expect(verification.valid).toBe(false);
+    expect(verification.issues).toContainEqual(
+      expect.objectContaining({ code: "workflow_stage_completion_unknown" })
+    );
+  });
+
   it("rejects pi-task evidence without a completed result hash", async () => {
     const jobId = `pi-evidence-no-hash-${process.pid.toString()}-${Date.now().toString(36)}`;
     const now = new Date().toISOString();
@@ -508,6 +527,95 @@ describe("workflow acceptance state machine", () => {
         path: evidenceArtifact.path
       })
     );
+  }, 60000);
+
+  it("executes generated report context through a workflow pi-task stage", async () => {
+    const jobId = `workflow-report-step-${process.pid.toString()}-${Date.now().toString(36)}`;
+    const now = new Date().toISOString();
+    const stages = workflowStages();
+    const simulationContextIndex = stages.findIndex(
+      (stage) => stage.id === "simulation.context-pack"
+    );
+    const reportTaskIndex = stages.findIndex((stage) => stage.id === "report.task.create");
+    expect(simulationContextIndex).toBeGreaterThan(0);
+    expect(reportTaskIndex).toBeGreaterThan(simulationContextIndex);
+
+    await writeWorkflowRuntimeFixture({
+      jobId,
+      now,
+      nextStageIndex: simulationContextIndex,
+      completedStages: completedStagesBefore(simulationContextIndex, now),
+      artifacts: []
+    });
+    await createSimulationSession({
+      workspacePath,
+      actor: "main_agent",
+      sessionId: jobId,
+      objective: "Bring main_agent through imports/source/acceptance-novel.txt.",
+      timeline: "main"
+    });
+
+    const contextStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId,
+      input: { stage: "simulation.context-pack" }
+    });
+    expect(contextStep.stageStatus).toBe("completed");
+    expect(contextStep.executedStage).toBe("simulation.context-pack");
+
+    const planStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId,
+      input: { stage: "swarm.plan" }
+    });
+    expect(planStep.stageStatus).toBe("completed");
+    expect(planStep.executedStage).toBe("swarm.plan");
+
+    const swarmStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId,
+      input: { stage: "swarm.task.create" }
+    });
+    expect(swarmStep.stageStatus).toBe("completed");
+    expect(swarmStep.executedStage).toBe("swarm.task.create");
+
+    const reportStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId,
+      input: { stage: "report.task.create" }
+    });
+    expect(reportStep.stageStatus).toBe("completed");
+    expect(reportStep.executedStage).toBe("report.task.create");
+    const evidenceArtifact = reportStep.artifacts.find(
+      (a) => a.name === "agent-task-result" && a.artifactKind === "novelfabric.agent.task.result"
+    );
+    expect(evidenceArtifact).toBeDefined();
+    if (evidenceArtifact === undefined) throw new Error("Missing report evidence artifact.");
+    expect(evidenceArtifact.hash).toMatch(/^sha256:/u);
+
+    const resultRead = await readWorkspaceFile({ workspacePath, path: evidenceArtifact.path });
+    expect(evidenceArtifact.hash).toBe(resultRead.hash);
+    const resultJson = parseAgentTaskResult(resultRead.content);
+    expect(resultJson.status).toBe("completed");
+    expect(resultJson.outputText.trim().length).toBeGreaterThan(0);
+    for (const term of ["叶小伟醒来", "城市边缘传来钟声", "第二章"]) {
+      expect(resultJson.sourceAnchors).toContain(term);
+    }
+
+    const validation = await validateAgentOutput({
+      workspacePath,
+      task: `workflow-${jobId}-report.task.create`
+    });
+    expect(validation.valid).toBe(true);
+    expect(validation.issues).toEqual([]);
+
+    const verified = await verifyWorkflow({ workspacePath, jobId });
+    expect(verified.valid).toBe(true);
+    expect(verified.issues).toEqual([]);
   }, 60000);
 
   it("executes generated writing context through a workflow pi-task stage", async () => {
