@@ -226,6 +226,7 @@ export async function buildSimulationContextPack(
   const agent = normalizeNonEmptySegment(request.agent, "agent");
   const outputPath =
     request.outputPath ?? `simulation/context-packs/${session.id}/${safePathSegment(agent)}.json`;
+  const anchorSource = await simulationAnchorSource(request.workspacePath, session.objective);
   const payload = {
     schemaVersion: SIMULATION_CONTEXT_PACK_SCHEMA_VERSION,
     session: {
@@ -236,6 +237,8 @@ export async function buildSimulationContextPack(
       roundOrder: session.roundOrder
     },
     agent,
+    sourceExcerpt: anchorSource.excerpt,
+    relevantEntities: anchorSource.anchors,
     latestTurns: session.turns.slice(-8),
     instructions: [
       "Use this context pack as evidence for pi-agent semantic work.",
@@ -256,6 +259,31 @@ export async function buildSimulationContextPack(
     turnCount: session.turns.length,
     write: summarizeWrite(write)
   };
+}
+
+async function simulationAnchorSource(
+  workspacePath: string,
+  objective: string
+): Promise<{ readonly excerpt: string; readonly anchors: readonly string[] }> {
+  const sourcePath = /through\s+([^\s.]+(?:\.[^\s.]+)?)/u.exec(objective)?.[1];
+  if (sourcePath !== undefined) {
+    try {
+      const read = await readWorkspaceFile({ workspacePath, path: sourcePath });
+      return { excerpt: read.content.slice(0, 500), anchors: extractAnchors(read.content) };
+    } catch {
+      // Fall through to objective-based anchors; missing source is reported by other workflow validation.
+    }
+  }
+  return { excerpt: objective, anchors: extractAnchors(objective) };
+}
+
+function extractAnchors(content: string): readonly string[] {
+  const chapterAnchors = content.match(/第[一二三四五六七八九十百千0-9]+章/gu) ?? [];
+  const phraseAnchors = content
+    .split(/[\n，。,.!?！？；;：:]+/u)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 3 && item.length <= 24);
+  return [...new Set([...chapterAnchors, ...phraseAnchors])].slice(0, 5);
 }
 
 export async function appendSimulationTurn(

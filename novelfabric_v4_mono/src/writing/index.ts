@@ -108,6 +108,8 @@ export type NovelFabricWritingContextPack = {
   readonly version: 1;
   readonly session: string;
   readonly citations: readonly ArtifactCitation[];
+  readonly sourceExcerpt: string;
+  readonly relevantEntities: readonly string[];
   readonly chapterPaths: readonly string[];
   readonly reportPaths: readonly string[];
   readonly simulationPaths: readonly string[];
@@ -149,24 +151,38 @@ export async function buildWritingContextPack(
   const reportPaths = await listMarkdownPaths(request.workspacePath, "reports");
   const simulationPaths = await listJsonLikePaths(request.workspacePath, "simulation");
   const citationPaths = [...chapterPaths, ...reportPaths, ...simulationPaths].slice(0, 40);
+  const sourceExcerpts: string[] = [];
+  const relevantEntityCandidates: string[] = [];
   const citations = await Promise.all(
     citationPaths.map(async (citationPath): Promise<ArtifactCitation> => {
       const read = await readWorkspaceFile({
         workspacePath: request.workspacePath,
         path: citationPath
       });
+      collectSourceAnchorsFromArtifact(read.content, sourceExcerpts, relevantEntityCandidates);
       return {
         path: read.path,
         hash: read.hash,
-        excerpt: excerpt(read.content)
+        excerpt: structuredCitationExcerpt(read.content)
       };
     })
   );
+  const sourceExcerpt = (
+    sourceExcerpts.length > 0 ? sourceExcerpts : citations.map((citation) => citation.excerpt ?? "")
+  )
+    .filter((item) => item.length > 0)
+    .join("\n")
+    .slice(0, 500);
   const pack: NovelFabricWritingContextPack = {
     kind: "novelfabric.writing.context-pack",
     version: 1,
     session: request.session,
     citations,
+    sourceExcerpt,
+    relevantEntities:
+      relevantEntityCandidates.length > 0
+        ? [...new Set(relevantEntityCandidates)].slice(0, 8)
+        : extractAnchors(sourceExcerpt.length > 0 ? sourceExcerpt : request.session),
     chapterPaths,
     reportPaths,
     simulationPaths
@@ -497,6 +513,54 @@ function isArtifactCitation(value: unknown): value is ArtifactCitation {
     (value["hash"] === undefined || typeof value["hash"] === "string") &&
     (value["excerpt"] === undefined || typeof value["excerpt"] === "string")
   );
+}
+
+function collectSourceAnchorsFromArtifact(
+  content: string,
+  sourceExcerpts: string[],
+  relevantEntities: string[]
+): void {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return;
+    const record = parsed as Record<string, unknown>;
+    const sourceExcerpt = record["sourceExcerpt"];
+    if (typeof sourceExcerpt === "string" && sourceExcerpt.trim().length > 0) {
+      sourceExcerpts.push(sourceExcerpt.trim());
+    }
+    const entities = record["relevantEntities"];
+    if (Array.isArray(entities)) {
+      for (const entity of entities) {
+        if (typeof entity === "string" && entity.trim().length >= 2) {
+          relevantEntities.push(entity.trim());
+        }
+      }
+    }
+  } catch {
+    // Non-JSON artifacts still contribute through citation excerpts.
+  }
+}
+
+function extractAnchors(content: string): readonly string[] {
+  const chapterAnchors = content.match(/第[一二三四五六七八九十百千0-9]+章/gu) ?? [];
+  const phraseAnchors = content
+    .split(/[\n，。,.!?！？；;：:]+/u)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 3 && item.length <= 24);
+  return [...new Set([...chapterAnchors, ...phraseAnchors])].slice(0, 5);
+}
+
+function structuredCitationExcerpt(content: string): string {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (isRecord(parsed) && typeof parsed["sourceExcerpt"] === "string") {
+      const structuredExcerpt = excerpt(parsed["sourceExcerpt"]);
+      if (structuredExcerpt.length > 0) return structuredExcerpt;
+    }
+  } catch {
+    // Non-JSON artifacts use the plain text excerpt below.
+  }
+  return excerpt(content);
 }
 
 function excerpt(content: string): string {

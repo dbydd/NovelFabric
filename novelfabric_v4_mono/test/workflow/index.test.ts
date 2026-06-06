@@ -293,59 +293,71 @@ describe("workflow acceptance state machine", () => {
     expect(status.status).toBe("failed");
   });
 
-  it("executes a workflow pi-task stage through generic-writer before marking it complete", async () => {
+  it("executes generated simulation context through a workflow pi-task stage", async () => {
     const jobId = `workflow-pi-step-${process.pid.toString()}-${Date.now().toString(36)}`;
     const now = new Date().toISOString();
     const stages = workflowStages();
+    const simulationContextIndex = stages.findIndex(
+      (stage) => stage.id === "simulation.context-pack"
+    );
     const swarmStageIndex = stages.findIndex((stage) => stage.id === "swarm.task.create");
-    expect(swarmStageIndex).toBeGreaterThan(0);
+    expect(simulationContextIndex).toBeGreaterThan(0);
+    expect(swarmStageIndex).toBeGreaterThan(simulationContextIndex);
 
-    const contextPackPath = `simulation/context-packs/${jobId}/main_agent.json`;
-    await writeWorkspaceFile({
-      workspacePath,
-      path: contextPackPath,
-      actor: "main_agent",
-      content: stableJson({
-        kind: "novelfabric.simulation.context-pack",
-        version: 1,
-        session: jobId,
-        agent: "main_agent",
-        sourceExcerpt: "叶小伟醒来，城市边缘传来钟声。第二章余波中新的选择被摆在桌面。",
-        relevantEntities: ["叶小伟", "钟声", "第二章"]
-      }),
-      reason: "test simulation context pack with source terms"
-    });
     await writeWorkflowRuntimeFixture({
       jobId,
       now,
-      nextStageIndex: swarmStageIndex,
+      nextStageIndex: simulationContextIndex,
       completedStages: [],
-      artifacts: [
-        {
-          stage: "simulation.context-pack",
-          name: "simulation-context-pack",
-          path: contextPackPath,
-          artifactKind: "novelfabric.simulation.context-pack"
-        }
-      ]
+      artifacts: []
     });
     await createSimulationSession({
       workspacePath,
       actor: "main_agent",
       sessionId: jobId,
-      objective: "Fixture session for real workflow pi-task step.",
+      objective: "Bring main_agent through imports/source/acceptance-novel.txt.",
       timeline: "main"
     });
 
-    const stepResult = await stepWorkflow({
+    const contextStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId,
+      input: { stage: "simulation.context-pack" }
+    });
+    expect(contextStep.stageStatus).toBe("completed");
+    expect(contextStep.executedStage).toBe("simulation.context-pack");
+    const contextArtifact = contextStep.artifacts.find(
+      (a) =>
+        a.name === "simulation-context-pack" &&
+        a.artifactKind === "novelfabric.simulation.context-pack"
+    );
+    expect(contextArtifact).toBeDefined();
+    if (contextArtifact === undefined) throw new Error("Missing simulation context artifact.");
+
+    const contextRead = await readWorkspaceFile({ workspacePath, path: contextArtifact.path });
+    expect(contextRead.content).toContain("叶小伟");
+    expect(contextRead.content).toContain("钟声");
+    expect(contextRead.content).toContain("第二章");
+
+    const planStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId,
+      input: { stage: "swarm.plan" }
+    });
+    expect(planStep.stageStatus).toBe("completed");
+    expect(planStep.executedStage).toBe("swarm.plan");
+
+    const swarmStep = await stepWorkflow({
       workspacePath,
       actor: "main_agent",
       jobId,
       input: { stage: "swarm.task.create" }
     });
-    expect(stepResult.stageStatus).toBe("completed");
-    expect(stepResult.executedStage).toBe("swarm.task.create");
-    const evidenceArtifact = stepResult.artifacts.find(
+    expect(swarmStep.stageStatus).toBe("completed");
+    expect(swarmStep.executedStage).toBe("swarm.task.create");
+    const evidenceArtifact = swarmStep.artifacts.find(
       (a) => a.name === "agent-task-result" && a.artifactKind === "novelfabric.agent.task.result"
     );
     expect(evidenceArtifact).toBeDefined();
@@ -365,7 +377,93 @@ describe("workflow acceptance state machine", () => {
     const verified = await verifyWorkflow({ workspacePath, jobId });
     expect(verified.valid).toBe(true);
     expect(verified.issues).toEqual([]);
-  }, 45000);
+  }, 60000);
+
+  it("executes generated writing context through a workflow pi-task stage", async () => {
+    const jobId = `workflow-writing-step-${process.pid.toString()}-${Date.now().toString(36)}`;
+    const now = new Date().toISOString();
+    const stages = workflowStages();
+    const simulationContextIndex = stages.findIndex(
+      (stage) => stage.id === "simulation.context-pack"
+    );
+    const writingContextIndex = stages.findIndex((stage) => stage.id === "writing.context-pack");
+    expect(simulationContextIndex).toBeGreaterThan(0);
+    expect(writingContextIndex).toBeGreaterThan(simulationContextIndex);
+
+    await writeWorkflowRuntimeFixture({
+      jobId,
+      now,
+      nextStageIndex: simulationContextIndex,
+      completedStages: [],
+      artifacts: []
+    });
+    await createSimulationSession({
+      workspacePath,
+      actor: "main_agent",
+      sessionId: jobId,
+      objective: "Bring main_agent through imports/source/acceptance-novel.txt.",
+      timeline: "main"
+    });
+
+    const simulationContextStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId,
+      input: { stage: "simulation.context-pack" }
+    });
+    expect(simulationContextStep.stageStatus).toBe("completed");
+
+    await writeWorkflowRuntimeFixture({
+      jobId,
+      now: new Date().toISOString(),
+      nextStageIndex: writingContextIndex,
+      completedStages: [{ stage: "simulation.context-pack", completedAt: now }],
+      artifacts: simulationContextStep.artifacts
+    });
+
+    const writingContextStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId,
+      input: { stage: "writing.context-pack" }
+    });
+    expect(writingContextStep.stageStatus).toBe("completed");
+    const writingContextArtifact = writingContextStep.artifacts.find(
+      (a) => a.name === "writing-context-pack"
+    );
+    expect(writingContextArtifact).toBeDefined();
+    if (writingContextArtifact === undefined) throw new Error("Missing writing context artifact.");
+    const writingContextRead = await readWorkspaceFile({
+      workspacePath,
+      path: writingContextArtifact.path
+    });
+    expect(writingContextRead.content).toContain("叶小伟");
+    expect(writingContextRead.content).toContain("钟声");
+
+    const draftStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId,
+      input: { stage: "writing.draft" }
+    });
+    expect(draftStep.stageStatus).toBe("completed");
+    expect(draftStep.executedStage).toBe("writing.draft");
+    const evidenceArtifact = draftStep.artifacts.find(
+      (a) => a.name === "agent-task-result" && a.artifactKind === "novelfabric.agent.task.result"
+    );
+    expect(evidenceArtifact).toBeDefined();
+    if (evidenceArtifact === undefined) throw new Error("Missing writing evidence artifact.");
+    const resultRead = await readWorkspaceFile({ workspacePath, path: evidenceArtifact.path });
+    const resultJson = parseAgentTaskResult(resultRead.content);
+    expect(resultJson.status).toBe("completed");
+    for (const term of ["叶小伟", "钟声"]) {
+      expect(resultJson.outputText).toContain(term);
+    }
+
+    const verified = await verifyWorkflow({ workspacePath, jobId });
+    expect(verified.valid).toBe(true);
+    expect(verified.issues).toEqual([]);
+  }, 60000);
 
   it("plans, starts, steps deterministic stages, verifies artifacts, and can be cancelled", async () => {
     const planned = await planWorkflow({
