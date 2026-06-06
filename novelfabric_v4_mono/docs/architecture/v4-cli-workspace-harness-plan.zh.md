@@ -290,7 +290,7 @@ report, writing, workflow, external-swarm, web
 距离完全可用仍然阻塞的 gap：
 
 - 完整 SDK AgentSession / Web binding：`agent run --runtime pi` 现在已经用 `generic-writer` 启动真实 NovelFabric-owned pi CLI process，捕获输出并写入 audited result evidence，但 mono app 仍需实现文档中的 SDK AgentSession bridge 与 event stream；
-- workflow pi evidence hardening：workflow pi-task stages 现在会运行 agent task 并校验 completed result evidence，但语义拆书、role reasoning、StorySwarm output、ReportAgent analysis、chapter drafts 仍需更严格的 schema/citation/domain-specific validation；
+- workflow pi evidence hardening：workflow pi-task stages 现在会运行 agent task 并校验 completed result evidence，但目前仅产出经过校验的 `task/result.json` 证据，尚未将语义拆书、role reasoning、StorySwarm output、ReportAgent analysis、chapter drafts 等结果物化为实际 domain 产物（如 swarm output 文件、report markdown、writing chapter draft）。需要在 pi 输出校验后增加 domain artifact 物化步骤；
 - Web binding：Web controls 尚未在 Web-safe policy 下接入完整 workflow/agent runtime path；
 - external compatibility：external swarm REST/MCP adapters 仍需接 shared CLI service 并通过 golden fixtures；
 - cards/memory/swarm/report/chapter 等 domain-specific capabilities 需要收紧。
