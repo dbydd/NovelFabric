@@ -426,6 +426,40 @@ describe("workflow acceptance state machine", () => {
     expect(status.status).toBe("failed");
   });
 
+  it("fails simulation.context-pack when objective references missing source file", async () => {
+    const jobId = `workflow-source-read-fail-${process.pid.toString()}-${Date.now().toString(36)}`;
+    const now = new Date().toISOString();
+    const stages = workflowStages();
+    const simulationContextIndex = stages.findIndex(
+      (stage) => stage.id === "simulation.context-pack"
+    );
+    expect(simulationContextIndex).toBeGreaterThan(0);
+
+    await writeWorkflowRuntimeFixture({
+      jobId,
+      now,
+      nextStageIndex: simulationContextIndex,
+      completedStages: completedStagesBefore(simulationContextIndex, now),
+      artifacts: []
+    });
+    await createSimulationSession({
+      workspacePath,
+      actor: "main_agent",
+      sessionId: jobId,
+      objective: "Bring main_agent through imports/source/nonexistent-novel.txt.",
+      timeline: "main"
+    });
+
+    const contextStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId,
+      input: { stage: "simulation.context-pack" }
+    });
+    expect(contextStep.stageStatus).toBe("failed");
+    expect(contextStep.output).toHaveProperty("code", "simulation_source_read_failed");
+  });
+
   it("executes generated simulation context through a workflow pi-task stage", async () => {
     const jobId = `workflow-pi-step-${process.pid.toString()}-${Date.now().toString(36)}`;
     const now = new Date().toISOString();

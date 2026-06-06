@@ -41,7 +41,7 @@ Current strengths:
 Current non-negotiable gaps:
 
 - `agent run --runtime pi` now launches the NovelFabric-owned pi CLI with `generic-writer` and records completed result evidence, but Web runtime sessions still need a Web-safe pi SDK wrapper.
-- Workflow pi-task stages now require completed agent task evidence before verification, but the semantic quality rubrics for拆书, role reasoning, ReportAgent analysis, and chapter drafting still need stricter acceptance.
+- Workflow pi-task stages now require completed, hashed, schema-valid agent task evidence bound to the current job/stage and grounded in source anchors. This is still task/result evidence, not final domain materialization: StorySwarm outputs, ReportAgent markdown, and chapter drafts still need follow-up domain commands that transform validated pi output into durable domain artifacts.
 - Web workflow controls are not yet bound to the full workflow/agent runtime path.
 - External swarm REST and MCP adapters still need to call the shared external-swarm service and pass golden fixture tests.
 - Several domain commands still need tighter domain-specific capabilities beyond broad project/file write capabilities.

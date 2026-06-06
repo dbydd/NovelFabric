@@ -207,4 +207,23 @@ describe("deterministic simulation and swarm services", () => {
     expect(validation.valid).toBe(false);
     expect(validation.issues.map((issue) => issue.code)).toContain("simulation_turn_hash_mismatch");
   });
+
+  it("fails simulation context-pack creation when a referenced source cannot be read", async () => {
+    await createSimulationSession({
+      workspacePath,
+      objective: "Bring main_agent through imports/source/missing-source.txt.",
+      timeline: "main",
+      actor: "main_agent",
+      sessionId: "session-missing-source"
+    });
+
+    await expect(
+      buildSimulationContextPack({
+        workspacePath,
+        session: "session-missing-source",
+        agent: "kp",
+        actor: "main_agent"
+      })
+    ).rejects.toMatchObject({ code: "simulation_source_read_failed" });
+  });
 });
