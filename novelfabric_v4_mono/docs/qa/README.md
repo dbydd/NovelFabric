@@ -26,4 +26,4 @@ For content-level LLM validation, run:
 npm run test:pi-acceptance
 ```
 
-This is a hard gate: missing NovelFabric pi model config or LLM credentials must fail, not skip.
+This is a hard gate: missing NovelFabric pi model config or LLM credentials must fail, not skip. Runtime model roles are split deliberately: `generic-writer` drives future NovelFabric LLM workflow stages, while `flash-vibe` is reserved for acceptance/testing agents.

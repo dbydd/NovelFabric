@@ -213,14 +213,20 @@ async function loadNovelFabricPiRuntimeConfig() {
       `NovelFabric pi acceptance requires ${settingsPath}. Run \`npm run cli -- runtime materialize --actor main_agent --json\`, then configure defaultProvider/defaultModel and credentials. ${errorMessage(error)}`
     );
   }
-  const defaultProvider = stringField(parsed, "defaultProvider");
-  const defaultModel = stringField(parsed, "defaultModel");
+  const testModelDefaults = modelDefaultsField(parsed, "testModelDefaults");
+  const defaultProvider = testModelDefaults?.provider ?? stringField(parsed, "defaultProvider");
+  const defaultModel =
+    testModelDefaults?.model ??
+    stringField(parsed, "novelFabricTestModel") ??
+    stringField(parsed, "defaultModel");
+  const defaultThinking =
+    testModelDefaults?.thinking ?? stringField(parsed, "defaultThinkingLevel");
   if (defaultProvider === undefined || defaultModel === undefined) {
     fail(
-      `${settingsPath} must define string fields defaultProvider and defaultModel for hard pi acceptance. Current runtime materialization is metadata-only; add model config before running this test.`
+      `${settingsPath} must define testModelDefaults.provider/model, or defaultProvider plus novelFabricTestModel/defaultModel, for hard pi acceptance. Current runtime materialization is metadata-only; add model config before running this test.`
     );
   }
-  return { runtimeRoot, settingsPath, defaultProvider, defaultModel };
+  return { runtimeRoot, settingsPath, defaultProvider, defaultModel, defaultThinking };
 }
 
 async function runPi(runtime, workspacePath, contextContent) {
@@ -245,7 +251,9 @@ async function runPi(runtime, workspacePath, contextContent) {
       "--provider",
       runtime.defaultProvider,
       "--model",
-      runtime.defaultModel,
+      runtime.defaultThinking === undefined
+        ? runtime.defaultModel
+        : `${runtime.defaultModel}:${runtime.defaultThinking}`,
       `@${promptPath}`
     ],
     {
@@ -358,6 +366,21 @@ function validateAgentJson(value) {
   for (const term of requiredTerms) {
     assert(serialized.includes(term), `pi output is missing required term: ${term}`);
   }
+}
+
+function modelDefaultsField(value, key) {
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    const field = value[key];
+    if (field !== null && typeof field === "object" && !Array.isArray(field)) {
+      const provider = stringField(field, "provider");
+      const model = stringField(field, "model");
+      const thinking = stringField(field, "thinking");
+      if (provider !== undefined && model !== undefined) {
+        return { provider, model, ...(thinking === undefined ? {} : { thinking }) };
+      }
+    }
+  }
+  return undefined;
 }
 
 function stringField(value, key) {

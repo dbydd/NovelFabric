@@ -18,6 +18,15 @@ export type RuntimeConfigPaths = {
   readonly resolution: ConfigRootResolution;
 };
 
+export type RuntimeThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+export type RuntimeModelDefaults = JsonObject & {
+  readonly provider: string;
+  readonly model: string;
+  readonly thinking: RuntimeThinkingLevel;
+  readonly purpose: "testing" | "production";
+};
+
 export type RuntimeSettings = JsonObject & {
   readonly schemaVersion: "novelfabric.pi.runtime.settings.v1";
   readonly runtime: "pi-agent-sdk";
@@ -26,12 +35,8 @@ export type RuntimeSettings = JsonObject & {
   readonly policyProfile: "web-safe";
   readonly allowGlobalPiConfig: false;
   readonly modelsFile?: string;
-  readonly modelDefaults?: {
-    readonly provider: string;
-    readonly model: string;
-    readonly thinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
-    readonly purpose: "testing" | "production";
-  };
+  readonly modelDefaults?: RuntimeModelDefaults;
+  readonly testModelDefaults?: RuntimeModelDefaults;
   readonly directories: {
     readonly extensions: "extensions";
     readonly skills: "skills";
@@ -472,6 +477,7 @@ function parseJsonObject(content: string): JsonObject {
 
 function isRuntimeSettingsFile(value: JsonObject): boolean {
   const modelDefaults = value["modelDefaults"];
+  const testModelDefaults = value["testModelDefaults"];
   return (
     value["schemaVersion"] === "novelfabric.pi.runtime.settings.v1" &&
     value["runtime"] === "pi-agent-sdk" &&
@@ -480,7 +486,8 @@ function isRuntimeSettingsFile(value: JsonObject): boolean {
     value["policyProfile"] === WEB_SAFE_POLICY_PROFILE &&
     value["allowGlobalPiConfig"] === false &&
     (value["modelsFile"] === undefined || typeof value["modelsFile"] === "string") &&
-    (modelDefaults === undefined || isRuntimeModelDefaults(modelDefaults))
+    (modelDefaults === undefined || isRuntimeModelDefaults(modelDefaults)) &&
+    (testModelDefaults === undefined || isRuntimeModelDefaults(testModelDefaults))
   );
 }
 
@@ -494,9 +501,7 @@ function isRuntimeModelDefaults(value: unknown): boolean {
   );
 }
 
-function isThinkingLevel(
-  value: unknown
-): value is NonNullable<RuntimeSettings["modelDefaults"]>["thinking"] {
+function isThinkingLevel(value: unknown): value is RuntimeThinkingLevel {
   return (
     value === "off" ||
     value === "minimal" ||

@@ -193,7 +193,12 @@ Hard pi-backed content gate:
 npm run test:pi-acceptance
 ```
 
-`test:pi-acceptance` must not skip. It fails immediately when NovelFabric-owned pi settings are missing `defaultProvider` / `defaultModel`, or when the configured pi process cannot reach a real LLM. When configured, it launches `node_modules/.bin/pi --print --no-tools`, feeds it a workflow context pack, requires structured JSON output with source-specific terms, writes that output through NovelFabric CLI, then re-reads the saved file and validates its content. This gate exists specifically to prevent tests that only prove file creation while allowing blank or irrelevant content.
+`test:pi-acceptance` must not skip. It fails immediately when NovelFabric-owned pi settings are missing `testModelDefaults` or a usable fallback `defaultProvider` / `novelFabricTestModel`, or when the configured pi process cannot reach a real LLM. When configured, it launches `node_modules/.bin/pi --print --no-tools`, feeds it a workflow context pack, requires structured JSON output with source-specific terms, writes that output through NovelFabric CLI, then re-reads the saved file and validates its content. This gate exists specifically to prevent tests that only prove file creation while allowing blank or irrelevant content.
+
+Model roles:
+
+- `modelDefaults` / `novelFabricWorkflowModel` should point to `generic-writer`; this model drives future NovelFabric LLM-backed writing and workflow stages.
+- `testModelDefaults` / `novelFabricTestModel` should point to `flash-vibe`; this model is reserved for acceptance/testing agents only.
 
 Browser gates, once Web workflow binding exists:
 

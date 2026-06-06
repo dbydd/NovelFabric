@@ -125,6 +125,12 @@ describe("NovelFabric pi runtime config services", () => {
           modelsFile: "models.json",
           modelDefaults: {
             provider: "axonhub",
+            model: "generic-writer",
+            thinking: "medium",
+            purpose: "production"
+          },
+          testModelDefaults: {
+            provider: "axonhub",
             model: "flash-vibe",
             thinking: "medium",
             purpose: "testing"
