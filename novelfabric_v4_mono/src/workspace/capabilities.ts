@@ -100,6 +100,22 @@ export function requireCapability(
   }
 }
 
+export function requireAnyCapability(
+  manifest: CapabilityManifest,
+  actor: string,
+  capabilities: readonly string[]
+): void {
+  if (capabilities.some((capability) => actorHasCapability(manifest, actor, capability))) {
+    return;
+  }
+
+  throw new CommandFailure(
+    "capability_denied",
+    `Actor '${actor}' does not have any required capability: ${capabilities.join(", ")}.`,
+    3
+  );
+}
+
 function stripComment(line: string): string {
   const commentIndex = line.indexOf("#");
   return commentIndex === -1 ? line : line.slice(0, commentIndex);

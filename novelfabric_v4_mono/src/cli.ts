@@ -3,16 +3,23 @@
 import { Command } from "commander";
 
 import { addAgentCommands } from "./commands/agents.js";
+import { addCardCommands } from "./commands/cards.js";
 import { addConfigCommands } from "./commands/config.js";
 import { addContextPackCommands } from "./commands/context-pack.js";
 import { addFileCommands } from "./commands/files.js";
 import { addImportCommands } from "./commands/import.js";
 import { addKnowledgeCommands } from "./commands/knowledge.js";
+import { addMemoryCommands } from "./commands/memory.js";
+import { addProjectCommands } from "./commands/project.js";
 import { addRecallCommands } from "./commands/recall.js";
+import { addReportCommands } from "./commands/report.js";
 import { addRuntimeCommands } from "./commands/runtime.js";
+import { addSimulationCommands } from "./commands/simulation.js";
 import { addSkillCommands } from "./commands/skills.js";
+import { addSwarmCommands } from "./commands/swarm.js";
 import { addWebCommands } from "./commands/web.js";
 import { addWorkspaceCommands } from "./commands/workspace.js";
+import { addWritingCommands } from "./commands/writing.js";
 import { isCommandFailure } from "./errors.js";
 import { writeJson } from "./output.js";
 
@@ -26,14 +33,21 @@ export function buildProgram(): Command {
 
   addConfigCommands(program);
   addWorkspaceCommands(program);
+  addProjectCommands(program);
   addFileCommands(program);
   addRuntimeCommands(program);
   addAgentCommands(program);
   addSkillCommands(program);
   addImportCommands(program);
+  addCardCommands(program);
+  addMemoryCommands(program);
   addKnowledgeCommands(program);
   addRecallCommands(program);
   addContextPackCommands(program);
+  addSimulationCommands(program);
+  addSwarmCommands(program);
+  addReportCommands(program);
+  addWritingCommands(program);
   addWebCommands(program);
 
   return program;
