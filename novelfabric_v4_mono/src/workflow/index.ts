@@ -776,6 +776,7 @@ export async function verifyWorkflow(
     const issue = await verifyPiTaskEvidence({
       workspacePath: request.workspacePath,
       artifacts: runtime.artifacts,
+      jobId: runtime.job.jobId,
       stage: stage.id
     });
     if (issue !== null) issues.push(issue);
@@ -1530,6 +1531,7 @@ function agentTaskOutput(evidence: AgentTaskEvidence): Record<string, string> {
 async function verifyPiTaskEvidence(request: {
   readonly workspacePath: string;
   readonly artifacts: WorkflowArtifactsArtifact;
+  readonly jobId: string;
   readonly stage: WorkflowStageId;
 }): Promise<WorkflowVerifyIssue | null> {
   const evidence = request.artifacts.items.find(
@@ -1546,6 +1548,16 @@ async function verifyPiTaskEvidence(request: {
       message: `Workflow pi-task stage '${request.stage}' completed without an agent task result evidence artifact.`
     };
   }
+  const expectedTaskId = `workflow-${request.jobId}-${request.stage}`;
+  const expectedResultPath = `.novelfabric/tasks/${expectedTaskId}/result.json`;
+  if (evidence.path !== expectedResultPath) {
+    return {
+      severity: "error",
+      code: "workflow_pi_task_evidence_mismatch",
+      path: evidence.path,
+      message: `Workflow pi-task stage '${request.stage}' evidence must point to '${expectedResultPath}'.`
+    };
+  }
   try {
     const read = await readWorkspaceFile({
       workspacePath: request.workspacePath,
@@ -1558,6 +1570,14 @@ async function verifyPiTaskEvidence(request: {
         code: "workflow_pi_task_result_invalid",
         path: evidence.path,
         message: `Workflow pi-task stage '${request.stage}' result evidence has an invalid shape.`
+      };
+    }
+    if (parsed.taskId !== expectedTaskId) {
+      return {
+        severity: "error",
+        code: "workflow_pi_task_identity_mismatch",
+        path: evidence.path,
+        message: `Workflow pi-task stage '${request.stage}' evidence taskId must be '${expectedTaskId}'.`
       };
     }
     if (!isExecutedAgentTaskStatus(parsed.status)) {
@@ -1586,7 +1606,7 @@ async function verifyPiTaskEvidence(request: {
     }
     const taskValidation = await validateAgentOutput({
       workspacePath: request.workspacePath,
-      task: parsed.taskId
+      task: expectedTaskId
     });
     if (!taskValidation.valid) {
       return {

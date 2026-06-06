@@ -230,6 +230,35 @@ describe("workflow acceptance state machine", () => {
     }
   });
 
+  it("rejects pi-task evidence from a different workflow task", async () => {
+    const jobId = `pi-evidence-mismatch-${process.pid.toString()}-${Date.now().toString(36)}`;
+    const now = new Date().toISOString();
+    const stages = workflowStages();
+    const swarmStageIndex = stages.findIndex((stage) => stage.id === "swarm.task.create");
+    expect(swarmStageIndex).toBeGreaterThan(0);
+
+    await writeWorkflowRuntimeFixture({
+      jobId,
+      now,
+      nextStageIndex: swarmStageIndex + 1,
+      completedStages: [{ stage: "swarm.task.create", completedAt: now }],
+      artifacts: [
+        {
+          stage: "swarm.task.create",
+          name: "agent-task-result",
+          path: ".novelfabric/tasks/workflow-other-job-swarm.task.create/result.json",
+          artifactKind: "novelfabric.agent.task.result"
+        }
+      ]
+    });
+
+    const verification = await verifyWorkflow({ workspacePath, jobId });
+    expect(verification.valid).toBe(false);
+    expect(verification.issues).toContainEqual(
+      expect.objectContaining({ code: "workflow_pi_task_evidence_mismatch" })
+    );
+  });
+
   it("executes a workflow pi-task stage through generic-writer before marking it complete", async () => {
     const jobId = `workflow-pi-step-${process.pid.toString()}-${Date.now().toString(36)}`;
     const now = new Date().toISOString();
