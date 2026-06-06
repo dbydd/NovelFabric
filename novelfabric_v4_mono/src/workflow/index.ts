@@ -1,3 +1,4 @@
+import type { JsonObject } from "../output.js";
 import { CommandFailure } from "../errors.js";
 import { createAgentTask, runAgentTask, validateAgentOutput } from "../agent-runtime/tasks.js";
 import { applyCardProposal, proposeCards } from "../cards/proposals.js";
@@ -1395,6 +1396,10 @@ async function createAndRunWorkflowAgentTask(request: {
   readonly allowedCommands: readonly string[];
 }): Promise<AgentTaskEvidence> {
   const taskId = `workflow-${request.jobId}-${request.stage}`;
+  const requiredSourceAnchors = await deriveRequiredSourceAnchors(
+    request.workspacePath,
+    request.contextPackPath
+  );
   const result = await createAgentTask({
     workspacePath: request.workspacePath,
     actor: request.actor,
@@ -1403,8 +1408,8 @@ async function createAndRunWorkflowAgentTask(request: {
     instruction: [
       request.instruction,
       "",
-      "Output requirement: return valid JSON with sourceAnchors copied exactly from the task input or context pack.",
-      "Set requiredAnchor to a source phrase containing 钟声 so verification can prove workflow data reached the model.",
+      `Output requirement: return valid JSON with sourceAnchors copied exactly from requiredSourceAnchors in the task input or context pack. Required anchors: ${requiredSourceAnchors.join(", ")}.`,
+      "Set requiredAnchor to one of those required source phrases so verification can prove workflow data reached the model.",
       "Evidence requirement: this workflow stage is not semantically complete until this task result.json is updated to status completed by agent run --runtime pi."
     ].join("\n"),
     inputJson: stableJson({
@@ -1412,27 +1417,12 @@ async function createAndRunWorkflowAgentTask(request: {
       version: 1,
       jobId: request.jobId,
       stage: request.stage,
-      ...request.input
+      ...request.input,
+      requiredSourceAnchors
     }),
     ...(request.contextPackPath === undefined ? {} : { contextPackPath: request.contextPackPath }),
     allowedCommands: request.allowedCommands,
-    outputSchemaJson: stableJson({
-      type: "object",
-      required: ["kind", "version", "citations", "summary", "sourceAnchors", "requiredAnchor"],
-      properties: {
-        kind: { type: "string", minLength: 1 },
-        version: { type: "number" },
-        summary: { type: "string", minLength: 24 },
-        citations: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
-        sourceAnchors: {
-          type: "array",
-          minItems: 2,
-          containsText: "叶小伟",
-          items: { type: "string", minLength: 2 }
-        },
-        requiredAnchor: { type: "string", containsText: "钟声" }
-      }
-    }),
+    outputSchemaJson: stableJson(workflowAgentOutputSchema(requiredSourceAnchors)),
     reason: `workflow ${request.stage} agent task create`
   });
   const resultWrite = result.writes.find((write) => write.path === result.files.result);
@@ -1455,6 +1445,64 @@ async function createAndRunWorkflowAgentTask(request: {
     packagePath: result.packagePath,
     resultPath: result.files.result,
     resultWrite
+  };
+}
+
+async function deriveRequiredSourceAnchors(
+  workspacePath: string,
+  contextPackPath: string | undefined
+): Promise<readonly string[]> {
+  if (contextPackPath === undefined) return [];
+  try {
+    const read = await readWorkspaceFile({ workspacePath, path: contextPackPath });
+    const parsed = parseJson(read.content, contextPackPath);
+    if (!isRecord(parsed)) return [];
+    const entities = parsed["relevantEntities"];
+    if (Array.isArray(entities)) {
+      const anchors = entities
+        .filter((item): item is string => typeof item === "string" && item.trim().length >= 2)
+        .map((item) => item.trim())
+        .slice(0, 3);
+      if (anchors.length > 0) return anchors;
+    }
+    const excerpt = parsed["sourceExcerpt"];
+    if (typeof excerpt === "string") {
+      return excerpt
+        .split(/[\s，。,.!?！？；;：:\n]+/u)
+        .map((item) => item.trim())
+        .filter((item) => item.length >= 2)
+        .slice(0, 3);
+    }
+  } catch {
+    return [];
+  }
+  return [];
+}
+
+function workflowAgentOutputSchema(requiredSourceAnchors: readonly string[]): JsonObject {
+  const firstAnchor = requiredSourceAnchors[0];
+  const sourceAnchorSchema: JsonObject = {
+    type: "array",
+    minItems: Math.max(1, Math.min(2, requiredSourceAnchors.length)),
+    ...(firstAnchor === undefined ? {} : { containsText: firstAnchor }),
+    items: { type: "string", minLength: 2 }
+  };
+  const requiredAnchorSchema: JsonObject = {
+    type: "string",
+    minLength: 2,
+    ...(firstAnchor === undefined ? {} : { containsText: firstAnchor })
+  };
+  return {
+    type: "object",
+    required: ["kind", "version", "citations", "summary", "sourceAnchors", "requiredAnchor"],
+    properties: {
+      kind: { type: "string", minLength: 1 },
+      version: { type: "number" },
+      summary: { type: "string", minLength: 24 },
+      citations: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+      sourceAnchors: sourceAnchorSchema,
+      requiredAnchor: requiredAnchorSchema
+    }
   };
 }
 
