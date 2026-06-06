@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { createAgentTask } from "../../src/agent-runtime/tasks.js";
 import {
   cancelWorkflow,
   listWorkflowArtifacts,
@@ -136,6 +137,14 @@ describe("workflow acceptance state machine", () => {
         ]
       }),
       reason: "test workflow artifacts fixture"
+    });
+    await createAgentTask({
+      workspacePath,
+      actor: "main_agent",
+      taskId: `workflow-${jobId}-swarm.task.create`,
+      title: "Workflow pi evidence fixture",
+      instruction: "Fixture task for workflow verification.",
+      outputSchemaJson: JSON.stringify({ type: "string" })
     });
     await writeAgentTaskResult(paths.result, "pending-pi-runtime");
 

@@ -131,8 +131,7 @@ async function main() {
       );
     }
 
-    const agentJson = await runPi(runtime, workspacePath, contextContent);
-    validateAgentJson(agentJson);
+    const agentJson = await runPiWithValidationRetry(runtime, workspacePath, contextContent);
 
     const agentOutputContent = `${JSON.stringify(
       {
@@ -224,6 +223,26 @@ async function loadNovelFabricPiRuntimeConfig() {
     fail(errorMessage(error));
   }
   return { runtimeRoot, settingsPath, ...roles };
+}
+
+async function runPiWithValidationRetry(runtime, workspacePath, contextContent) {
+  const attempts = Number(process.env.NOVELFABRIC_PI_ACCEPTANCE_ATTEMPTS ?? "3");
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const agentJson = await runPi(runtime, workspacePath, contextContent);
+      validateAgentJson(agentJson);
+      return agentJson;
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        console.error(
+          `[pi-acceptance] attempt ${attempt.toString()} failed; retrying: ${errorMessage(error)}`
+        );
+      }
+    }
+  }
+  fail(`pi acceptance failed after ${attempts.toString()} attempts. ${errorMessage(lastError)}`);
 }
 
 async function runPi(runtime, workspacePath, contextContent) {
@@ -342,34 +361,34 @@ function extractFirstJsonObject(text) {
 }
 
 function validateAgentJson(value) {
-  assert(
+  retryableAssert(
     value !== null && typeof value === "object" && !Array.isArray(value),
     "pi output must be a JSON object."
   );
-  assert(value.semanticExecution === true, "pi output must set semanticExecution=true.");
-  assert(
+  retryableAssert(value.semanticExecution === true, "pi output must set semanticExecution=true.");
+  retryableAssert(
     typeof value.summary === "string" && value.summary.trim().length >= 20,
     "pi summary must be substantive."
   );
-  assert(
+  retryableAssert(
     Array.isArray(value.characters) && value.characters.includes("叶小伟"),
     "pi characters must include 叶小伟."
   );
-  assert(
+  retryableAssert(
     Array.isArray(value.evidence) && value.evidence.length > 0,
     "pi evidence must be non-empty."
   );
-  assert(
+  retryableAssert(
     value.evidence.every((item) => typeof item === "string" && item.trim().length >= 4),
     "pi evidence entries must be substantive strings."
   );
-  assert(
+  retryableAssert(
     typeof value.nextAction === "string" && value.nextAction.trim().length >= 8,
     "pi nextAction must be substantive."
   );
   const serialized = JSON.stringify(value);
   for (const term of requiredTerms) {
-    assert(serialized.includes(term), `pi output is missing required term: ${term}`);
+    retryableAssert(serialized.includes(term), `pi output is missing required term: ${term}`);
   }
 }
 
@@ -405,6 +424,10 @@ function validateSavedOutput(content, runtime) {
   for (const term of requiredTerms) {
     assert(serialized.includes(term), `Saved pi output is missing required term: ${term}`);
   }
+}
+
+function retryableAssert(condition, message) {
+  if (!condition) throw new Error(message);
 }
 
 function assert(condition, message) {

@@ -1,5 +1,5 @@
 import { CommandFailure } from "../errors.js";
-import { createAgentTask, runAgentTask } from "../agent-runtime/tasks.js";
+import { createAgentTask, runAgentTask, validateAgentOutput } from "../agent-runtime/tasks.js";
 import { applyCardProposal, proposeCards } from "../cards/proposals.js";
 import {
   buildImportContextPack,
@@ -1527,6 +1527,20 @@ async function verifyPiTaskEvidence(request: {
         message: `Workflow pi-task stage '${request.stage}' result evidence must include non-empty pi output.`
       };
     }
+    const taskValidation = await validateAgentOutput({
+      workspacePath: request.workspacePath,
+      task: parsed.taskId
+    });
+    if (!taskValidation.valid) {
+      return {
+        severity: "error",
+        code: "workflow_pi_task_output_invalid",
+        path: evidence.path,
+        message: `Workflow pi-task stage '${request.stage}' agent output failed validation: ${taskValidation.issues
+          .map((issue) => issue.message)
+          .join("; ")}`
+      };
+    }
     return null;
   } catch (error) {
     return {
@@ -1733,11 +1747,13 @@ function isWorkflowArtifactItem(value: unknown): value is WorkflowArtifactItem {
 }
 
 function isAgentTaskResult(value: unknown): value is Record<string, unknown> & {
+  readonly taskId: string;
   readonly status: string;
 } {
   return (
     isRecord(value) &&
     value["kind"] === "novelfabric.agent.task.result" &&
+    typeof value["taskId"] === "string" &&
     typeof value["status"] === "string"
   );
 }

@@ -405,6 +405,16 @@ export async function runAgentTask(request: AgentTaskRunRequest): Promise<AgentT
   });
   const pi = runPiProcess({ runtime, prompt, taskId });
   const output = parsePiTaskOutput(pi.outputText);
+  const outputIssues: AgentTaskValidationIssue[] = [];
+  validateAgentTaskOutputContent(output, inspected.outputSchema, paths.files.result, outputIssues);
+  const blockingOutputIssue = outputIssues.find((issue) => issue.severity === "error");
+  if (blockingOutputIssue !== undefined) {
+    throw new CommandFailure(
+      "agent_task_output_schema_mismatch",
+      `pi runtime output failed output.schema.json validation: ${blockingOutputIssue.message}`,
+      2
+    );
+  }
   const completedAt = new Date().toISOString();
   const runtimeEvidence: AgentTaskRuntimeEvidence = {
     runtimeRoot: runtime.runtimeRoot,
