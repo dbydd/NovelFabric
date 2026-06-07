@@ -40,12 +40,11 @@ Current strengths:
 
 Current non-negotiable gaps, in next-iteration order:
 
-1. **Web-safe mutation tools** — read-only Web-safe SDK tools are archived, but Web sessions still need mutation tools such as `novelfabric_write_file`, `novelfabric_apply_proposal`, and domain artifact apply tools with namespace, capability, base-hash, protected-path, and audit enforcement.
-2. **Web runtime event stream and lifecycle orchestration** — bridge runtime routes still need browser-visible start/status/stream/cancel/retry lifecycle behavior, bounded/redacted event traces, denial events, and stable evidence envelopes.
-3. **Web full workflow binding** — Web workflow controls are not yet bound to upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through the full workflow/agent runtime path.
-4. **Semantic import/materialization** — deterministic import exists, but source text still needs pi-backed chapter/card/world/rule/timeline/memory/context-pack generation with content-quality validation.
-5. **External swarm REST/MCP adapters** — adapters still need to call the shared external-swarm service and pass golden fixture tests for the frozen compatibility contract.
-6. **Domain-specific capabilities** — cards/memory/swarm/report/writing commands still need tighter domain capabilities beyond broad project/file write capabilities.
+1. **Web runtime event stream and lifecycle orchestration** — bridge runtime routes still need browser-visible start/status/stream/cancel/retry lifecycle behavior, bounded/redacted event traces, denial events, and stable evidence envelopes.
+2. **Web full workflow binding** — Web workflow controls are not yet bound to upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through the full workflow/agent runtime path.
+3. **Semantic import/materialization** — deterministic import exists, but source text still needs pi-backed chapter/card/world/rule/timeline/memory/context-pack generation with content-quality validation.
+4. **External swarm REST/MCP adapters** — adapters still need to call the shared external-swarm service and pass golden fixture tests for the frozen compatibility contract.
+5. **Domain-specific capabilities** — cards/memory/swarm/report/writing commands still need tighter domain capabilities beyond broad project/file write capabilities.
 
 ## 3. Test Layers
 
@@ -53,18 +52,9 @@ Current non-negotiable gaps, in next-iteration order:
 
 The next iteration is not accepted until these tests exist and pass for each implemented gap:
 
-Completed domain artifact materialization tests are archived in `../architecture/archive/v4-domain-artifact-materialization-archive.md`; completed opt-in SDK AgentSession execution is archived in `../architecture/archive/v4-sdk-agent-session-opt-in-archive.md`; completed Web-safe read-only SDK tools foundation is archived in `../architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`. The active gap-specific gates begin at Web-safe mutation tools and Web runtime event orchestration.
+Completed domain artifact materialization tests are archived in `../architecture/archive/v4-domain-artifact-materialization-archive.md`; completed opt-in SDK AgentSession execution is archived in `../architecture/archive/v4-sdk-agent-session-opt-in-archive.md`; completed Web-safe read-only SDK tools foundation is archived in `../architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`; completed Web-safe mutation tools foundation is archived in `../architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`. The active gap-specific gates now begin at Web runtime event stream and lifecycle orchestration.
 
-#### Gap 1 — Web-Safe Mutation Tools
-
-Required tests:
-
-- tool tests prove `novelfabric_write_file` writes only allowed namespaces through shared workspace services, never raw filesystem mutation;
-- apply-tool tests prove proposal/domain artifact apply routes through validators, base-hash checks, capability checks, protected-path policy, atomic write, and audit JSONL;
-- negative tests cover path traversal, wrong namespace, protected path, stale hash, unauthorized actor, invalid proposal/domain schema, and missing audit evidence;
-- SDK session tests prove raw builtin write/edit/bash remain denied while only NovelFabric mutation tools are exposed.
-
-#### Gap 2 — Web Runtime Event Stream And Lifecycle Orchestration
+#### Gap 1 — Web Runtime Event Stream And Lifecycle Orchestration
 
 Required tests:
 
@@ -73,7 +63,7 @@ Required tests:
 - sanitization tests prove event payloads expose bounded/redacted summaries only, with no internal paths, prompt files, session files, raw secrets, or unbounded model output;
 - policy tests prove Web sessions deny raw `bash`, raw `write`, raw `edit`, arbitrary network, and arbitrary paths.
 
-#### Gap 3 — Web Full Workflow Binding
+#### Gap 2 — Web Full Workflow Binding
 
 Required tests:
 
@@ -81,7 +71,7 @@ Required tests:
 - user flow covers upload/import, semantic assets, context/RAG, StorySwarm, ReportAgent, chapter generation, editor review, and save;
 - assertions inspect visible runtime evidence, final domain artifacts, editor content, and audit records.
 
-#### Gap 4 — Semantic Import / Materialization
+#### Gap 3 — Semantic Import / Materialization
 
 Required tests:
 
@@ -90,7 +80,7 @@ Required tests:
 - invalid or low-quality pi output fails validation and leaves source files intact;
 - apply is reversible or conflict-safe through base hashes and audit.
 
-#### Gap 5 — External Swarm REST/MCP Adapters
+#### Gap 4 — External Swarm REST/MCP Adapters
 
 Required tests:
 
@@ -98,7 +88,7 @@ Required tests:
 - MCP golden tests for `tools/list` and `tools/call` on `external_swarm_infer`, `external_swarm_require_context`, and `external_swarm_get`;
 - idempotency, artifact path semantics, `structuredContent`, and additive-field compatibility are asserted.
 
-#### Gap 6 — Domain-Specific Capabilities
+#### Gap 5 — Domain-Specific Capabilities
 
 Required tests:
 

@@ -2,11 +2,11 @@
 
 ## Current phase
 
-V4 TypeScript mono app — next iteration planning for mutation tools, Web runtime event streaming, and Web workflow orchestration after archiving the Web-safe read-only SDK tools foundation.
+V4 TypeScript mono app — next iteration planning for Web runtime event streaming, lifecycle orchestration, and Web workflow binding after archiving the Web-safe mutation tools foundation.
 
 ## Current cycle
 
-Archive completed pi-evidence, domain artifact, opt-in SDK AgentSession, and Web-safe read-only SDK tools work → keep active docs focused on unfinished gaps → next implementation starts with Web-safe mutation tools plus Web runtime event stream/lifecycle orchestration.
+Archive completed pi-evidence, domain artifact, opt-in SDK AgentSession, Web-safe read-only SDK tools, and Web-safe mutation tools work → keep active docs focused on unfinished gaps → next implementation starts with Web runtime event stream/lifecycle orchestration.
 
 ## Current V4 status
 
@@ -16,8 +16,9 @@ Archive completed pi-evidence, domain artifact, opt-in SDK AgentSession, and Web
 - Completed domain artifact materialization is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-domain-artifact-materialization-archive.md`.
 - Completed opt-in SDK AgentSession execution is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-sdk-agent-session-opt-in-archive.md`.
 - Completed Web-safe read-only SDK tools foundation is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`.
+- Completed Web-safe mutation tools foundation is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`.
 - Workflow pi-task stages now require pi evidence and domain artifact evidence for StorySwarm, ReportAgent, and writing outputs.
-- Active planning now starts at **Web-safe mutation tools** and **Web runtime event stream/lifecycle orchestration**. The full product/business loop is still incomplete until mutation/apply tools, Web workflow, semantic import, external swarm REST/MCP, and domain-specific capabilities are finished.
+- Active planning now starts at **Web runtime event stream/lifecycle orchestration**. The full product/business loop is still incomplete until Web workflow binding, semantic import, external swarm REST/MCP, and domain-specific capabilities are finished.
 - Detailed active gap ledger and test standards live in:
   - `novelfabric_v4_mono/docs/architecture/v4-cli-workspace-harness-plan.md`
   - `novelfabric_v4_mono/docs/architecture/v4-cli-command-contract.md`
@@ -26,12 +27,11 @@ Archive completed pi-evidence, domain artifact, opt-in SDK AgentSession, and Web
 
 ## Active next-iteration gaps
 
-1. **Web-safe mutation tools** — add `novelfabric_write_file`, `novelfabric_apply_proposal`, and domain artifact apply tools with namespace restrictions, actor/capability checks, base-hash conflict handling, protected-path denial, and audit JSONL.
-2. **Web runtime event stream and lifecycle orchestration** — add browser-visible start/status/stream/cancel/retry lifecycle, bounded/redacted runtime events, denial trace, and stable evidence envelopes.
-3. **Web full workflow binding** — source upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through CLI-backed services.
-4. **Semantic import/materialization** — pi-backed generation of chapters, cards, world/rule assets, timeline, memory, and context packs with content-quality validation and reversible/conflict-safe apply.
-5. **External swarm REST/MCP adapters** — preserve the frozen external swarm inference REST/MCP contract with golden fixture tests.
-6. **Domain-specific capabilities** — tighten cards/memory/swarm/report/writing operations around narrow capabilities instead of broad project/file write authority.
+1. **Web runtime event stream and lifecycle orchestration** — add browser-visible start/status/stream/cancel/retry lifecycle, bounded/redacted runtime events, denial trace, and stable evidence envelopes.
+2. **Web full workflow binding** — source upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through CLI-backed services.
+3. **Semantic import/materialization** — pi-backed generation of chapters, cards, world/rule assets, timeline, memory, and context packs with content-quality validation and reversible/conflict-safe apply.
+4. **External swarm REST/MCP adapters** — preserve the frozen external swarm inference REST/MCP contract with golden fixture tests.
+5. **Domain-specific capabilities** — tighten cards/memory/swarm/report/writing operations around narrow capabilities instead of broad project/file write authority.
 
 ## Required V4 verification gates
 
