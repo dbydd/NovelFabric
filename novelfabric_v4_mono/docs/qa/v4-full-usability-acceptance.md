@@ -40,12 +40,11 @@ Current strengths:
 
 Current non-negotiable gaps, in next-iteration order:
 
-1. **Domain artifact materialization** — Workflow pi-task stages now require completed, hashed, schema-valid agent task evidence bound to the current job/stage and grounded in source anchors. This is still task/result evidence, not final domain materialization: StorySwarm outputs, ReportAgent markdown/JSON, and chapter drafts still need follow-up domain commands that transform validated pi output into durable domain artifacts through shared validate/apply/audit/hash services.
-2. **Web-safe pi SDK runtime** — `agent run --runtime pi` now launches the NovelFabric-owned pi CLI with `generic-writer` and records completed result evidence, but Web runtime sessions still need a Web-safe pi SDK `AgentSession` wrapper, event stream, runtime trace, and enforced tool policy.
-3. **Web full workflow binding** — Web workflow controls are not yet bound to upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through the full workflow/agent runtime path.
-4. **Semantic import/materialization** — deterministic import exists, but source text still needs pi-backed chapter/card/world/rule/timeline/memory/context-pack generation with content-quality validation.
-5. **External swarm REST/MCP adapters** — adapters still need to call the shared external-swarm service and pass golden fixture tests for the frozen compatibility contract.
-6. **Domain-specific capabilities** — cards/memory/swarm/report/writing commands still need tighter domain capabilities beyond broad project/file write capabilities.
+1. **Web-safe pi SDK runtime** — `agent run --runtime pi` now launches the NovelFabric-owned pi CLI with `generic-writer` and records completed result/domain evidence, but Web runtime sessions still need a Web-safe pi SDK `AgentSession` wrapper, event stream, runtime trace, and enforced tool policy.
+2. **Web full workflow binding** — Web workflow controls are not yet bound to upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through the full workflow/agent runtime path.
+3. **Semantic import/materialization** — deterministic import exists, but source text still needs pi-backed chapter/card/world/rule/timeline/memory/context-pack generation with content-quality validation.
+4. **External swarm REST/MCP adapters** — adapters still need to call the shared external-swarm service and pass golden fixture tests for the frozen compatibility contract.
+5. **Domain-specific capabilities** — cards/memory/swarm/report/writing commands still need tighter domain capabilities beyond broad project/file write capabilities.
 
 ## 3. Test Layers
 
@@ -53,18 +52,9 @@ Current non-negotiable gaps, in next-iteration order:
 
 The next iteration is not accepted until these tests exist and pass for each implemented gap:
 
-#### Gap 1 — Domain Artifact Materialization
+Completed domain artifact materialization tests are archived in `../architecture/archive/v4-domain-artifact-materialization-archive.md`. The active gap-specific gates begin at SDK runtime.
 
-Required tests:
-
-- workflow service test: `swarm.task.create` with valid pi `task/result.json` but missing StorySwarm output artifact must fail verification;
-- workflow service test: `report.task.create` with valid pi result but missing ReportAgent markdown/JSON artifact must fail verification;
-- workflow service test: `writing.draft` with valid pi result but missing draft/chapter artifact must fail verification;
-- tamper tests: domain artifact hash mismatch, stale artifact path, wrong job/stage/task binding, and path outside workspace must fail;
-- CLI tests: materialization commands return JSON envelopes, write through shared workspace services, record audit JSONL, and expose artifact hash;
-- content tests: materialized artifacts must include citations/source anchors and minimum structure, not just copied raw model text.
-
-#### Gap 2 — SDK AgentSession / Web-Safe Runtime
+#### Gap 1 — SDK AgentSession / Web-Safe Runtime
 
 Required tests:
 
@@ -73,7 +63,7 @@ Required tests:
 - policy tests prove Web sessions deny raw `bash`, raw `write`, raw `edit`, arbitrary network, and arbitrary paths;
 - compatibility test proves CLI process bridge and SDK bridge produce equivalent task evidence envelopes where applicable.
 
-#### Gap 3 — Web Full Workflow Binding
+#### Gap 2 — Web Full Workflow Binding
 
 Required tests:
 
@@ -81,7 +71,7 @@ Required tests:
 - user flow covers upload/import, semantic assets, context/RAG, StorySwarm, ReportAgent, chapter generation, editor review, and save;
 - assertions inspect visible runtime evidence, final domain artifacts, editor content, and audit records.
 
-#### Gap 4 — Semantic Import / Materialization
+#### Gap 3 — Semantic Import / Materialization
 
 Required tests:
 
@@ -90,7 +80,7 @@ Required tests:
 - invalid or low-quality pi output fails validation and leaves source files intact;
 - apply is reversible or conflict-safe through base hashes and audit.
 
-#### Gap 5 — External Swarm REST/MCP Adapters
+#### Gap 4 — External Swarm REST/MCP Adapters
 
 Required tests:
 
@@ -98,7 +88,7 @@ Required tests:
 - MCP golden tests for `tools/list` and `tools/call` on `external_swarm_infer`, `external_swarm_require_context`, and `external_swarm_get`;
 - idempotency, artifact path semantics, `structuredContent`, and additive-field compatibility are asserted.
 
-#### Gap 6 — Domain-Specific Capabilities
+#### Gap 5 — Domain-Specific Capabilities
 
 Required tests:
 
@@ -165,7 +155,7 @@ Workflow tests must prove that job state is honest:
 - pi-task stages synchronously run the NovelFabric-owned pi CLI with `generic-writer`;
 - task creation alone is not completion: pi execution must finish with completed runtime evidence, schema-valid output, and required source anchors;
 - `workflow verify` requires hashed result evidence bound to the current job/stage before pi-task stages count as complete;
-- next iteration must add materialization tests where `task/result.json` alone is insufficient: corresponding StorySwarm output, ReportAgent artifact, or writing draft/chapter artifact must exist, be hash-verified, and pass domain validation;
+- workflow verification must continue requiring corresponding StorySwarm output, ReportAgent artifact, or writing draft/chapter artifact in addition to `task/result.json`; these domain artifacts must be hash-verified and pass domain validation;
 - failed/cancelled/retry states preserve trace and artifacts;
 - `workflow verify` detects unreadable or mutated artifacts.
 

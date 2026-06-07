@@ -2,18 +2,20 @@
 
 ## Current phase
 
-V4 TypeScript mono app — next iteration planning for full business-loop closure.
+V4 TypeScript mono app — next iteration planning for full business-loop closure after domain artifact materialization.
 
 ## Current cycle
 
-Archive completed pi-evidence hardening → keep active docs focused on unfinished gaps → next implementation starts with domain artifact materialization.
+Archive completed pi-evidence and domain artifact work → keep active docs focused on unfinished gaps → next implementation starts with SDK `AgentSession` / Web-safe runtime.
 
 ## Current V4 status
 
 - `novelfabric_v4_mono/` is the active TypeScript mono app staging area for the CLI-first NovelFabric workspace harness.
-- The broad CLI command families are available: `config`, `workspace`, `project`, `files`, `runtime`, `agents`, `agent`, `skills`, `import`, `cards`, `memory`, `knowledge`, `recall`, `context-pack`, `simulation`, `swarm`, `report`, `writing`, `workflow`, `external-swarm`, and `web`.
+- Broad CLI command families are available: `config`, `workspace`, `project`, `files`, `runtime`, `agents`, `agent`, `skills`, `import`, `cards`, `memory`, `knowledge`, `recall`, `context-pack`, `simulation`, `swarm`, `report`, `writing`, `workflow`, `external-swarm`, and `web`.
 - Completed pi-backed semantic evidence hardening is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-pi-evidence-loop-archive.md`.
-- Active planning starts at **domain artifact materialization from validated pi `task/result.json`**. Current workflow proves semantic task/result evidence, not final StorySwarm/ReportAgent/writing domain artifacts.
+- Completed domain artifact materialization is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-domain-artifact-materialization-archive.md`.
+- Workflow pi-task stages now require pi evidence and domain artifact evidence for StorySwarm, ReportAgent, and writing outputs.
+- Active planning now starts at **SDK AgentSession / Web-safe runtime**. The full product/business loop is still incomplete until Web workflow, semantic import, external swarm REST/MCP, and domain-specific capabilities are finished.
 - Detailed active gap ledger and test standards live in:
   - `novelfabric_v4_mono/docs/architecture/v4-cli-workspace-harness-plan.md`
   - `novelfabric_v4_mono/docs/architecture/v4-cli-command-contract.md`
@@ -22,12 +24,11 @@ Archive completed pi-evidence hardening → keep active docs focused on unfinish
 
 ## Active next-iteration gaps
 
-1. **Domain artifact materialization** — convert validated pi `task/result.json` output into durable StorySwarm output files, ReportAgent markdown/JSON, and writing draft/chapter artifacts through shared validate/apply/audit/hash services.
-2. **SDK AgentSession / Web-safe runtime** — replace or wrap the current CLI process bridge with pi SDK `AgentSession`, event streaming, Web-safe tool policy enforcement, and browser-visible runtime trace.
-3. **Web full workflow binding** — source upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through CLI-backed services.
-4. **Semantic import/materialization** — pi-backed generation of chapters, cards, world/rule assets, timeline, memory, and context packs with content-quality validation and reversible/conflict-safe apply.
-5. **External swarm REST/MCP adapters** — preserve the frozen external swarm inference REST/MCP contract with golden fixture tests.
-6. **Domain-specific capabilities** — tighten cards/memory/swarm/report/writing operations around narrow capabilities instead of broad project/file write authority.
+1. **SDK AgentSession / Web-safe runtime** — replace or wrap the current CLI process bridge with pi SDK `AgentSession`, event streaming, Web-safe tool policy enforcement, and browser-visible runtime trace.
+2. **Web full workflow binding** — source upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through CLI-backed services.
+3. **Semantic import/materialization** — pi-backed generation of chapters, cards, world/rule assets, timeline, memory, and context packs with content-quality validation and reversible/conflict-safe apply.
+4. **External swarm REST/MCP adapters** — preserve the frozen external swarm inference REST/MCP contract with golden fixture tests.
+5. **Domain-specific capabilities** — tighten cards/memory/swarm/report/writing operations around narrow capabilities instead of broad project/file write authority.
 
 ## Required V4 verification gates
 

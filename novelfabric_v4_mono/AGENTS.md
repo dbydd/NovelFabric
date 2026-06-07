@@ -17,16 +17,20 @@ This directory is the V4 mono app direction after being renamed from the old `ba
 
 ### Current V4 Handoff Snapshot
 
-Completed pi-evidence hardening is archived in `docs/architecture/archive/v4-pi-evidence-loop-archive.md`. Active handoff should stay focused on unfinished gaps, not repeat completed history.
+Completed pi-evidence hardening and domain artifact materialization are archived in:
+
+- `docs/architecture/archive/v4-pi-evidence-loop-archive.md`
+- `docs/architecture/archive/v4-domain-artifact-materialization-archive.md`
+
+Active handoff should stay focused on unfinished gaps, not repeat completed history.
 
 Next iteration gap order:
 
-1. **Domain artifact materialization**: transform validated pi `task/result.json` into StorySwarm output, ReportAgent artifact, and writing draft/chapter files through shared validate/apply/audit/hash services. This is the first gap to close; current workflow proves task/result evidence only.
-2. **SDK/Web runtime bridge**: replace or wrap the CLI process bridge with the planned pi SDK `AgentSession` bridge, event stream, and Web-safe tool policy enforcement.
-3. **Web full workflow path**: browser controls must execute upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → role reasoning/StorySwarm → ReportAgent → chapter generation → editor review/save through CLI-backed services.
-4. **Semantic import/materialization**: source text must be pi-backed into chapters, cards, world/rule assets, timeline, memory, and context packs, with content-quality validation.
-5. **External swarm compatibility**: land frozen REST/MCP adapters and golden tests for existing external swarm inference contracts.
-6. **Capability tightening**: make cards/memory/swarm/report/writing domain operations use narrower capability names instead of broad file/project rights.
+1. **SDK/Web runtime bridge**: replace or wrap the CLI process bridge with the planned pi SDK `AgentSession` bridge, event stream, and Web-safe tool policy enforcement.
+2. **Web full workflow path**: browser controls must execute upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → role reasoning/StorySwarm → ReportAgent → chapter generation → editor review/save through CLI-backed services.
+3. **Semantic import/materialization**: source text must be pi-backed into chapters, cards, world/rule assets, timeline, memory, and context packs, with content-quality validation.
+4. **External swarm compatibility**: land frozen REST/MCP adapters and golden tests for existing external swarm inference contracts.
+5. **Capability tightening**: make cards/memory/swarm/report/writing domain operations use narrower capability names instead of broad file/project rights.
 
 Detailed test standards live in `docs/architecture/v4-cli-workspace-harness-plan.md` and `docs/qa/v4-full-usability-acceptance.md`.
 

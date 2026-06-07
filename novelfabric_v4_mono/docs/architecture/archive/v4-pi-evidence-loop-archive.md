@@ -44,4 +44,4 @@ Representative committed hardening topics:
 
 ## Important Boundary
 
-This archive proves semantic evidence, not full business completion. The next active gap is to materialize validated pi task results into durable NovelFabric domain artifacts: StorySwarm output files, ReportAgent markdown/JSON, and writing drafts/chapters.
+This archive proves semantic evidence, not full business completion. Domain artifact materialization has since been completed and archived in `v4-domain-artifact-materialization-archive.md`. The next active gap is the SDK `AgentSession` / Web-safe runtime bridge, followed by Web full workflow binding, semantic import/materialization, external swarm REST/MCP adapters, and domain-specific capabilities.
