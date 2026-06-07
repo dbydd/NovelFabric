@@ -210,9 +210,8 @@ Model roles:
 
 Browser gates for the archived Web workflow binding foundation:
 
-```bash
-npm run test:e2e
-```
+- `npm run test:e2e` runs the stable browser gates only (`test/e2e/runtime-composer.spec.ts` by default).
+- `npm run test:e2e:workflow` runs the slower full source-workflow gate (`test/e2e/source-workflow.spec.ts`) when a team needs the heavier workflow-backed browser evidence.
 
 ## 7. Definition Of Done
 
