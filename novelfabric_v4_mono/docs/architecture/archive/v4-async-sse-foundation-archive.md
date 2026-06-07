@@ -1,6 +1,6 @@
 # V4 Completed Gap Archive — Web Bridge Async Agent Run + Persistent SSE Event Stream Foundation
 
-> Archived completion snapshot. Active gaps now move to browser runtime UI, Web workflow orchestration, Playwright UI-only acceptance, semantic import, external swarm adapters, and domain capabilities.
+> Archived completion snapshot. Subsequent work has since completed browser runtime UI, Web workflow orchestration, semantic import, external swarm adapters, and domain capabilities; see active docs for any newly opened gap.
 
 ## Completed Slice
 
@@ -58,19 +58,19 @@ This archive covers the async agent run and persistent SSE event stream foundati
 - Malicious structured fields (toolName, denialCode, runtimeEventType) sanitized in stream output
 - Failed run writes durable sanitized result/event
 
-### Known Limitations
+### Historical Limitations at Archive Time
 
-This is a **backend streaming foundation**. NOT covered:
+This is a **backend streaming foundation**. Not yet covered at the time of this archive:
 
-- **Browser runtime UI**: Frontend doesn't consume SSE stream yet
-- **Web workflow orchestration**: No UI controls for full workflow
-- **Playwright UI-only acceptance**: No browser-only workflow test
-- **In-flight cancellation**: Cancel can mark aborted but can't stop running SDK session
-- **Cross-process run registry**: In-memory only, not restart-resilient
+- **Browser runtime UI**: at archive time, the frontend did not yet consume the SSE stream
+- **Web workflow orchestration**: at archive time, UI controls for the full workflow had not yet landed
+- **Playwright UI-only acceptance**: at archive time, browser-only workflow tests had not yet landed
+- **In-flight cancellation**: at archive time, cancel could mark aborted but could not stop a running SDK session
+- **Cross-process run registry**: at archive time, the registry was in-memory only and not restart-resilient
 
-## Next Active Gap
+## Historical Next Steps (later archived)
 
-After this foundation, the next active gap is:
+At the time of this archive, the next work was:
 
 **Browser runtime UI + Web workflow orchestration + Playwright UI-only acceptance**
 
@@ -81,8 +81,12 @@ Priority:
 3. Full Web workflow binding (upload → import → cards → RAG → swarm → report → chapter → editor)
 4. Playwright UI-only acceptance test
 
-Remaining higher-level gaps:
+Historical Next Steps (later archived):
+
+The follow-up foundations listed below were later completed and archived; they are retained here only to preserve the historical handoff context.
 
 - Semantic import/materialization
 - External swarm REST/MCP adapters
 - Domain-specific capability tightening
+
+These items have since been archived as completed foundations.

@@ -1,6 +1,6 @@
 # V4 Completed Gap Archive — Domain Artifact Materialization
 
-> Archived completion snapshot. Do not treat this file as the active next-iteration plan. Active gaps live in `../v4-cli-workspace-harness-plan.md`, `../v4-cli-command-contract.md`, and `../../qa/v4-full-usability-acceptance.md`.
+> Archived completion snapshot. Do not treat this file as the active next-iteration plan. Historical follow-up scope at archive time were in `../v4-cli-workspace-harness-plan.md`, `../v4-cli-command-contract.md`, and `../../qa/v4-full-usability-acceptance.md`. Subsequent archives completed the follow-up gaps referenced by this snapshot.
 
 ## Commit-Level Traceability
 
@@ -47,4 +47,4 @@ Representative test coverage includes:
 
 ## Important Boundary
 
-This archive proves that workflow pi-task output can become validated domain artifacts. It still does not complete the full product/business loop. Opt-in SDK AgentSession execution has since been completed and archived in `v4-sdk-agent-session-opt-in-archive.md`. Active gaps remain: Web-safe runtime extensions and Web bridge session orchestration, browser full workflow binding, semantic import/materialization, external swarm REST/MCP adapters, and domain-specific capabilities.
+This archive proves that workflow pi-task output can become validated domain artifacts. At the time of this archive, it did not complete the full product/business loop. The follow-up gaps named in the original handoff were later completed as separate archived foundations: opt-in SDK AgentSession execution, Web-safe SDK tools, mutation tools, structured event streaming, async/SSE runtime foundations, browser runtime UI, Web workflow orchestration, semantic import/materialization, external swarm REST/MCP adapters, and domain-specific capabilities. Consult the active architecture and QA docs for any newly opened gap instead of treating this historical boundary as current planning guidance.

@@ -66,31 +66,13 @@ V4 的方向不是继续扩大旧后端 agent runtime，而是：
 - V4 mono app 仍需要面向非技术网页用户的 LLM 运行时，但该运行时应是对 pi agent SDK 的受控包装：使用 NovelFabric 自己约定的配置路径（默认 `~/.config/novelfabric/pi/`）、NovelFabric 安装/管理的 sandbox/permission/CLI-only-write extensions，并默认阻止 raw `bash`、raw `write/edit`、任意网络和任意路径访问。
 - 集群推演 / external swarm inference 是已有外部依赖面，不等同于旧 LLM adapter；V4 必须保持其 HTTP/MCP API 兼容。
 
-#### 当前 V4 handoff gap（下一轮迭代入口）
+#### 当前 V4 handoff 状态
 
-已完成的 pi-backed semantic evidence loop、domain artifact materialization、opt-in SDK AgentSession execution、Web-safe read-only SDK tools foundation、Web-safe mutation tools foundation、structured event stream foundation、async/SSE bridge foundation 与 browser runtime task UI foundation 已归档到：
+已完成的 V4 foundations 已归档到 `novelfabric_v4_mono/docs/architecture/archive/`，包括 pi evidence hardening、domain artifact materialization、opt-in SDK AgentSession execution、Web-safe tools / mutation tools、structured events、async/SSE、browser runtime task UI、Web workflow orchestration + Playwright UI-only acceptance、semantic import/materialization、external swarm REST/MCP adapters、domain-specific capabilities。
 
-- `novelfabric_v4_mono/docs/architecture/archive/v4-pi-evidence-loop-archive.md`
-- `novelfabric_v4_mono/docs/architecture/archive/v4-domain-artifact-materialization-archive.md`
-- `novelfabric_v4_mono/docs/architecture/archive/v4-sdk-agent-session-opt-in-archive.md`
-- `novelfabric_v4_mono/docs/architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`
-- `novelfabric_v4_mono/docs/architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`
-- `novelfabric_v4_mono/docs/architecture/archive/v4-structured-event-stream-foundation-archive.md`
-- `novelfabric_v4_mono/docs/architecture/archive/v4-async-sse-foundation-archive.md`
-- `novelfabric_v4_mono/docs/architecture/archive/v4-browser-runtime-task-ui-foundation-archive.md`
+上一轮 next-iteration gap ledger 已关闭。不要把这些已完成项继续列为 active gaps。任何新阶段必须先在 `novelfabric_v4_mono/docs/architecture/v4-cli-workspace-harness-plan.md` 与 `novelfabric_v4_mono/docs/qa/v4-full-usability-acceptance.md` 中新增明确 gap、测试标准与 reviewer/verifier 归档标准，再进入实现。
 
-active handoff 不再堆叠已完成细节，下一轮只聚焦未完成 gap。
-
-下一轮优先 gap：
-
-1. 补齐 Web workflow orchestration + Playwright UI-only acceptance：浏览器控件基于已归档的 browser runtime task UI 与 async/SSE foundations 执行上传/导入 → workflow jobs → runtime sessions → 最终 domain artifact 可见性，不能用 console/API shortcut。
-2. 实现 semantic import/materialization：原文通过 pi 生成章节、角色/世界/规则卡、timeline、memory、context pack，并做内容质量校验。
-3. 落 frozen external swarm REST/MCP adapters 与 golden tests。
-4. 收紧 cards/memory/swarm/report/writing 的 domain-specific capabilities，避免用 broad file/project 权限代替业务授权。
-
-完整产品/业务闭环仍未完成；full-usability pending contracts 必须保持打开，直到 Web-controlled acceptance 真正端到端通过。
-
-详细测试标准见 `novelfabric_v4_mono/docs/architecture/v4-cli-workspace-harness-plan.md` 与 `novelfabric_v4_mono/docs/qa/v4-full-usability-acceptance.md`。
+已归档工作的回归门槛仍必须保持：Playwright UI-only workflow tests、semantic import validation、external swarm REST/MCP golden tests、domain capability success/denial/audit tests、workflow pi+domain artifact verification、hard pi content acceptance。
 
 ### 3.3 融合 MiroFish 的边界
 

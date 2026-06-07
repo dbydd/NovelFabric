@@ -38,56 +38,36 @@ Current strengths:
 - Workflow/job/task artifacts are explicit files under `.novelfabric/`.
 - External swarm CLI wrapper preserves the compatibility shape at the artifact level.
 
-Current non-negotiable gaps, in next-iteration order:
+Current gap status:
 
-1. **Web workflow orchestration + Playwright UI-only acceptance** — browser runtime task UI foundation is archived, but Web controls still need to orchestrate upload/import → workflow jobs → runtime sessions → final domain artifact visibility through the full workflow/agent runtime path.
-2. **Semantic import/materialization** — deterministic import exists, but source text still needs pi-backed chapter/card/world/rule/timeline/memory/context-pack generation with content-quality validation.
-3. **External swarm REST/MCP adapters** — adapters still need to call the shared external-swarm service and pass golden fixture tests for the frozen compatibility contract.
-4. **Domain-specific capabilities** — cards/memory/swarm/report/writing commands still need tighter domain capabilities beyond broad project/file write capabilities.
+The previous non-negotiable next-iteration gaps are now archived as completed foundations:
+
+1. Web workflow orchestration + Playwright UI-only acceptance — `../architecture/archive/v4-web-workflow-orchestration-archive.md`.
+2. Semantic import/materialization — `../architecture/archive/v4-semantic-import-archive.md`.
+3. External swarm REST/MCP adapters — `../architecture/archive/v4-external-swarm-adapters-archive.md`.
+4. Domain-specific capabilities — `../architecture/archive/v4-domain-capabilities-archive.md`.
+
+There are currently no open gaps from that ledger. Future gaps must be added here with explicit content/evidence tests before implementation.
 
 ## 3. Test Layers
 
-### 3.0 Gap-Specific Acceptance Tests For Next Iteration
+### 3.0 Archived Gap-Specific Acceptance Tests
 
-The next iteration is not accepted until these tests exist and pass for each implemented gap:
+The previously active next-iteration gap tests are archived and must remain green:
 
-Completed domain artifact materialization tests are archived in `../architecture/archive/v4-domain-artifact-materialization-archive.md`; completed opt-in SDK AgentSession execution is archived in `../architecture/archive/v4-sdk-agent-session-opt-in-archive.md`; completed Web-safe read-only SDK tools foundation is archived in `../architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`; completed Web-safe mutation tools foundation is archived in `../architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`; completed structured event stream foundation is archived in `../architecture/archive/v4-structured-event-stream-foundation-archive.md`; completed async Web bridge run registry + persistent SSE foundation is archived in `../architecture/archive/v4-async-sse-foundation-archive.md`; completed browser runtime task UI foundation is archived in `../architecture/archive/v4-browser-runtime-task-ui-foundation-archive.md`. The active gap-specific gates now begin at Web workflow orchestration + Playwright UI-only acceptance.
+- Domain artifact materialization: `../architecture/archive/v4-domain-artifact-materialization-archive.md`.
+- Opt-in SDK AgentSession execution: `../architecture/archive/v4-sdk-agent-session-opt-in-archive.md`.
+- Web-safe SDK tools: `../architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`.
+- Web-safe mutation tools: `../architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`.
+- Structured event stream: `../architecture/archive/v4-structured-event-stream-foundation-archive.md`.
+- Async/SSE bridge: `../architecture/archive/v4-async-sse-foundation-archive.md`.
+- Browser runtime task UI: `../architecture/archive/v4-browser-runtime-task-ui-foundation-archive.md`.
+- Web workflow orchestration + Playwright UI-only acceptance: `../architecture/archive/v4-web-workflow-orchestration-archive.md`.
+- Semantic import/materialization: `../architecture/archive/v4-semantic-import-archive.md`.
+- External swarm REST/MCP adapters: `../architecture/archive/v4-external-swarm-adapters-archive.md`.
+- Domain-specific capabilities: `../architecture/archive/v4-domain-capabilities-archive.md`.
 
-#### Gap 1 — Web Workflow Orchestration + Playwright UI-Only Acceptance
-
-Required tests:
-
-- Playwright tests use UI controls only, with 50000+ ports and no console/API shortcuts;
-- browser controls start workflow jobs, attach runtime sessions, consume the archived browser runtime task UI and SSE foundations, and surface visible bounded/redacted evidence;
-- user flow covers upload/import, workflow start/status/stream/cancel/retry, StorySwarm, ReportAgent, chapter generation, editor review, and save;
-- assertions inspect visible runtime evidence, final domain artifacts, editor content, and audit records;
-- sanitization tests prove rendered event payloads expose bounded/redacted summaries only, with no internal paths, prompt files, session files, raw secrets, or unbounded model output;
-- policy tests prove Web sessions deny raw `bash`, raw `write`, raw `edit`, arbitrary network, and arbitrary paths.
-
-#### Gap 2 — Semantic Import / Materialization
-
-Required tests:
-
-- at least two source fixtures with different names/entities/scenes;
-- generated chapters/cards/world/rules/timeline/memory/context packs cite source excerpts and contain fixture-specific but non-hardcoded content;
-- invalid or low-quality pi output fails validation and leaves source files intact;
-- apply is reversible or conflict-safe through base hashes and audit.
-
-#### Gap 3 — External Swarm REST/MCP Adapters
-
-Required tests:
-
-- REST golden tests for `POST /api/external/swarm-inferences` and `GET /api/external/swarm-inferences/{inference_id}`;
-- MCP golden tests for `tools/list` and `tools/call` on `external_swarm_infer`, `external_swarm_require_context`, and `external_swarm_get`;
-- idempotency, artifact path semantics, `structuredContent`, and additive-field compatibility are asserted.
-
-#### Gap 4 — Domain-Specific Capabilities
-
-Required tests:
-
-- main agent can perform authorized card/memory/swarm/report/writing operations;
-- role agent cannot run external swarm, write other profiles' private memory, patch protected files, or materialize global artifacts without explicit capability;
-- audit records include actor, capability, reason, target path, and resulting hash.
+No completed gap should remain as an `it.todo` contract. New gaps must add a new subsection here with required tests before implementation.
 
 ### 3.1 Workspace Service Tests
 
@@ -159,25 +139,9 @@ test/workflow/index.test.ts
 test/cli/workflow.test.ts
 ```
 
-### 3.5 Pending Full-Acceptance Contract Tests
+### 3.5 Full-Acceptance Contract Tests
 
-The following tests are intentionally pending until the underlying feature exists:
-
-```text
-test/acceptance/v4-full-usability.contract.test.ts
-```
-
-They cover:
-
-- opt-in pi AgentSession execution, Web-safe SDK tools, mutation tools, structured event stream, async/SSE, and browser runtime task UI foundations are archived; active contracts now target Web workflow orchestration + Playwright UI-only acceptance;
-- nontechnical Web workflow with no dangerous tool exposure;
-- pi-backed semantic拆书;
-- pi-backed role reasoning and StorySwarm;
-- pi-backed ReportAgent and chapter draft;
-- Playwright-only browser acceptance;
-- frozen external swarm REST/MCP adapters.
-
-Pending contract tests do not count as pass. They are a visible gap ledger.
+`test/acceptance/v4-full-usability.contract.test.ts` now acts as an archive-status regression ledger for the completed foundations above. It must not contain stale `it.todo` entries for completed work. If a future capability is not implemented yet, add a new pending contract with a precise gap name and test standard.
 
 ## 4. Fixture Requirements
 
@@ -244,7 +208,7 @@ Model roles:
 - `modelDefaults` / `novelFabricWorkflowModel` should point to `generic-writer`; this model drives future NovelFabric LLM-backed writing and workflow stages.
 - `testModelDefaults` / `novelFabricTestModel` should point to `flash-vibe`; this model is reserved for acceptance/testing agents only.
 
-Browser gates, once Web workflow binding exists:
+Browser gates for the archived Web workflow binding foundation:
 
 ```bash
 npm run test:e2e
@@ -258,6 +222,6 @@ A V4 phase may be called complete only when:
 - its CLI JSON behavior is covered;
 - its Web binding, if any, is Playwright-tested through visible controls;
 - semantic claims include pi runtime evidence, and `test:pi-acceptance` validates output content rather than only file existence;
-- deterministic shell commands label or behave as scaffold, task creation, or pending work rather than semantic completion;
+- deterministic shell commands label or behave as scaffold/task creation unless paired with validated semantic runtime evidence;
 - every durable write is audited;
-- known pending contracts are either implemented or explicitly listed as gaps.
+- any future pending contracts are either implemented or explicitly listed as fresh gaps with test standards.

@@ -1,6 +1,6 @@
 # V4 Completed Gap Archive — Pi Evidence Loop
 
-> Archived completion snapshot. Do not treat this file as the active next-iteration plan. Active gaps live in `../v4-cli-workspace-harness-plan.md`, `../v4-cli-command-contract.md`, and `../../qa/v4-full-usability-acceptance.md`.
+> Archived completion snapshot. Do not treat this file as the active next-iteration plan. Historical follow-up scope at archive time were in `../v4-cli-workspace-harness-plan.md`, `../v4-cli-command-contract.md`, and `../../qa/v4-full-usability-acceptance.md`. Subsequent archives completed the follow-up gaps referenced by this snapshot.
 
 ## Archived Completion State
 
@@ -40,8 +40,8 @@ Representative committed hardening topics:
 - result hash preservation and tamper detection;
 - workflow stage progression validation;
 - source-read hard failure regression;
-- documentation sync for the remaining domain artifact gap.
+- documentation sync for the domain artifact gap (later archived).
 
 ## Important Boundary
 
-This archive proves semantic evidence, not full business completion. Domain artifact materialization has since been completed and archived in `v4-domain-artifact-materialization-archive.md`, and opt-in SDK AgentSession execution has since been completed and archived in `v4-sdk-agent-session-opt-in-archive.md`. The next active gap is Web-safe runtime extensions and Web bridge session orchestration, followed by Web full workflow binding, semantic import/materialization, external swarm REST/MCP adapters, and domain-specific capabilities.
+This archive proves semantic evidence, not full business completion. Domain artifact materialization has since been completed and archived in `v4-domain-artifact-materialization-archive.md`, and opt-in SDK AgentSession execution has since been completed and archived in `v4-sdk-agent-session-opt-in-archive.md`. Subsequent archived work has since completed domain artifact materialization, opt-in SDK execution, Web-safe tools, async/SSE/event foundations, browser runtime UI, Web workflow orchestration, semantic import/materialization, external swarm REST/MCP adapters, and domain-specific capabilities. Consult active docs for any newly opened gap instead of using this historical boundary as a plan.

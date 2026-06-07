@@ -1,6 +1,6 @@
 # V4 Completed Gap Archive — Web Runtime Structured Event Stream And Lifecycle Foundation
 
-> Archived completion snapshot. Active gaps now move to real-time streaming, browser runtime UI, Web workflow orchestration, semantic import, external swarm adapters, and domain capabilities.
+> Archived completion snapshot. Subsequent work has since completed the later browser/runtime/workflow/import/external-swarm/capability foundations; see active docs for any newly opened gap.
 
 ## Completed Slice
 
@@ -49,19 +49,19 @@ This archive covers the structured runtime event stream and lifecycle foundation
 - Run failure writes durable failed result/event with sanitized message
 - Durable artifacts don't contain injected internal paths/secrets
 
-### Known Limitations
+### Historical Limitations at Archive Time
 
-This is a **structured event stream foundation**. NOT covered:
+This is a **structured event stream foundation**. Not yet covered at the time of this archive:
 
-- **Real-time streaming**: Current stream is snapshot-style SSE, not open/live incremental
-- **Browser UI binding**: No visible runtime panels/controls consuming these routes
-- **Workflow-level Web orchestration**: Browser doesn't run full workflow through runtime routes
-- **Denial trace UX**: Structured denial events exist but no browser-visible display/recovery
-- **Session orchestration depth**: Full session lifecycle, long-running updates, retry UX still need integration
+- **Real-time streaming**: at archive time, the stream was snapshot-style SSE rather than open/live incremental
+- **Browser UI binding**: at archive time, visible runtime panels/controls had not yet consumed these routes
+- **Workflow-level Web orchestration**: at archive time, the browser did not yet run the full workflow through runtime routes
+- **Denial trace UX**: at archive time, structured denial events existed without browser-visible display/recovery
+- **At archive time**: deeper session lifecycle, long-running updates, and retry UX were not yet integrated; later archive entries record subsequent foundations.
 
-## Next Active Gap
+## Historical Next Steps (later archived)
 
-After this foundation, the next active gap is:
+At the time of this archive, the next work was:
 
 **Real-time streaming + browser runtime UI + Web workflow orchestration**
 
@@ -73,8 +73,12 @@ Priority:
 4. Denial trace UX
 5. Session lifecycle depth
 
-Remaining higher-level gaps:
+Historical Next Steps (later archived):
+
+The follow-up foundations listed below were later completed and archived; they are retained here only to preserve the historical handoff context.
 
 - Semantic import/materialization
 - External swarm REST/MCP adapters
 - Domain-specific capability tightening
+
+These items have since been archived as completed foundations.

@@ -17,29 +17,13 @@ This directory is the V4 mono app direction after being renamed from the old `ba
 
 ### Current V4 Handoff Snapshot
 
-Completed pi-evidence hardening, domain artifact materialization, opt-in SDK AgentSession execution, Web-safe read-only SDK tools foundation, Web-safe mutation tools foundation, structured event stream foundation, async/SSE bridge foundation, and browser runtime task UI foundation are archived in:
+Completed V4 foundations are archived in `docs/architecture/archive/`, including pi evidence hardening, domain artifact materialization, opt-in SDK AgentSession execution, Web-safe tools/mutation tools, structured events, async/SSE, browser runtime task UI, Web workflow orchestration + Playwright UI-only acceptance, semantic import/materialization, external swarm REST/MCP adapters, and domain-specific capabilities.
 
-- `docs/architecture/archive/v4-pi-evidence-loop-archive.md`
-- `docs/architecture/archive/v4-domain-artifact-materialization-archive.md`
-- `docs/architecture/archive/v4-sdk-agent-session-opt-in-archive.md`
-- `docs/architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`
-- `docs/architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`
-- `docs/architecture/archive/v4-structured-event-stream-foundation-archive.md`
-- `docs/architecture/archive/v4-async-sse-foundation-archive.md`
-- `docs/architecture/archive/v4-browser-runtime-task-ui-foundation-archive.md`
+The previous next-iteration gap ledger is closed. Do not re-list those items as active gaps. Any new implementation phase must first add a fresh active gap with explicit test standards to `docs/architecture/v4-cli-workspace-harness-plan.md` and `docs/qa/v4-full-usability-acceptance.md`.
 
-Active handoff should stay focused on unfinished gaps, not repeat completed history.
+Regression gates for archived work remain mandatory: Playwright workflow UI-only tests, semantic import validation, external swarm REST/MCP golden tests, domain capability denial/success/audit tests, workflow pi+domain artifact verification, and hard pi content acceptance.
 
-Next iteration gap order:
-
-1. **Web workflow orchestration + Playwright UI-only acceptance**: browser controls must use the archived browser runtime task UI and async/SSE foundations to execute upload/import → workflow jobs → runtime sessions → final domain artifact visibility without console/API shortcuts.
-2. **Semantic import/materialization**: source text must be pi-backed into chapters, cards, world/rule assets, timeline, memory, and context packs, with content-quality validation.
-3. **External swarm compatibility**: land frozen REST/MCP adapters and golden tests for existing external swarm inference contracts.
-4. **Capability tightening**: make cards/memory/swarm/report/writing domain operations use narrower capability names instead of broad file/project rights.
-
-The full product/business loop is still incomplete, and the full-usability pending contracts remain open until Web-controlled acceptance proves the loop end to end.
-
-Detailed test standards live in `docs/architecture/v4-cli-workspace-harness-plan.md` and `docs/qa/v4-full-usability-acceptance.md`.
+Detailed regression standards live in `docs/architecture/v4-cli-workspace-harness-plan.md` and `docs/qa/v4-full-usability-acceptance.md`.
 
 ## 2. Read Before Implementing
 

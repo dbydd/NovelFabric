@@ -213,7 +213,7 @@ external-swarm compatibility
 - 每个 command family 有 CLI tests，覆盖 JSON envelope 与失败行为；
 - workflow state tests 必须区分 deterministic harness completion 与 pi-backed semantic completion；
 - runtime policy tests 必须证明 NovelFabric-owned pi config root 与 Web-safe tool denial；
-- 尚未实现的真实 pi/Web 业务闭环必须保留 pending contract tests；
+- acceptance contract tests 必须证明已归档完成项，或在新增 gap 时明确列出 pending contract；
 - Web surface 必须用 Playwright 通过可见控件测试，不使用 console 或 direct API 绕过。
 
 当前 QA 契约是 `../qa/v4-full-usability-acceptance.md`。确定性 CLI 测试通过只能称为 harness-complete；只有同时具备 pi runtime evidence 与 browser/control evidence，才能称为 business-complete。
@@ -268,24 +268,29 @@ novelfabric-timeline-branch-proposal
 
 ## 11. Active Gap Plan And Test-First Gate
 
-已完成的 pi-backed semantic evidence loop 已归档到 `archive/v4-pi-evidence-loop-archive.md`，已完成的 domain artifact materialization 已归档到 `archive/v4-domain-artifact-materialization-archive.md`，已完成的 opt-in SDK AgentSession execution 已归档到 `archive/v4-sdk-agent-session-opt-in-archive.md`，已完成的 Web-safe read-only SDK tools foundation 已归档到 `archive/v4-web-safe-sdk-tools-foundation-archive.md`，已完成的 Web-safe mutation tools foundation 已归档到 `archive/v4-web-safe-mutation-tools-foundation-archive.md`，已完成的 structured event stream foundation 已归档到 `archive/v4-structured-event-stream-foundation-archive.md`，已完成的 async Web bridge run registry + persistent SSE foundation 已归档到 `archive/v4-async-sse-foundation-archive.md`，已完成的 browser runtime task UI foundation 已归档到 `archive/v4-browser-runtime-task-ui-foundation-archive.md`。active plan 不再重复堆叠已完成 hardening / materialization / opt-in SDK execution / SDK tools foundation / mutation tools foundation / structured event stream foundation / async SSE foundation / browser runtime task UI foundation 项，只保留阻塞完整业务闭环的未完成 gap。
+已完成的 pi-backed semantic evidence loop、domain artifact materialization、opt-in SDK AgentSession execution、Web-safe SDK tools、Web-safe mutation tools、structured event stream、async/SSE bridge、browser runtime task UI、Web workflow orchestration + Playwright UI-only acceptance、semantic import/materialization、external swarm REST/MCP adapters、domain-specific capabilities 均已归档到 `archive/` 下对应文档。
 
-### 11.1 未完成 Gap 与测试标准
+不要在 active plan 中继续堆叠或重复争论已归档 gap。上一轮 next-iteration ledger 已关闭：Web workflow orchestration、semantic import/materialization、external swarm REST/MCP adapters、domain-specific capabilities 都已达到当时定义的测试标准。
 
-| 优先级 | Gap                                             | 必须产出                                                                                                                                                                               | 最低测试标准                                                                                                                                                                                                |
-| ------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1      | Web workflow orchestration + Playwright UI gate | Web 控件基于已归档的 browser runtime task UI、async/SSE bridge、sanitized event stream、SDK tools、mutation tools、pi evidence、domain artifact foundations 端到端编排 workflow jobs。 | Playwright tests 只用 UI controls、50000+ ports、无 console/API shortcut，证明 visible live updates、bounded/redacted rendering、无 internal path/session 泄漏、cancel/retry，并断言最终 domain artifacts。 |
-| 2      | Semantic import/materialization                 | 原文通过 pi-backed outputs 生成 chapters、character/world/rule cards、timeline、memory、context packs，并支持 reversible apply。                                                       | Acceptance tests 至少使用两个 source fixtures；生成资产必须引用 source excerpts、通过 content-quality checks、禁止 fixture-specific hardcoding。                                                            |
-| 3      | External swarm REST/MCP adapters                | Frozen external swarm REST/MCP endpoints/tools 调 shared TypeScript services，并保持既有 request/response/idempotency/artifact semantics。                                             | Golden fixture tests 覆盖 REST POST/GET 与 MCP tools/list/tools/call，包含 Hermes/OpenAlice/TraderAlice 风格 payloads。                                                                                     |
-| 4      | Domain-specific capabilities                    | cards/memory/swarm/report/writing 使用更窄 capability names，而不是 broad project/file write authority。                                                                               | Capability tests 证明 main agent 可执行授权 domain 操作，role agents 被拒绝跨域/保护操作，audit records 包含 actor/capability/reason/path/hash。                                                            |
+### 11.1 当前活跃 Gap Ledger
 
-### 11.2 全局测试策略
+当前没有来自上一轮 ledger 的未完成 gap。任何新工作必须先新增 fresh gap entry，再进入实现，包括：
 
-- deterministic harness tests 必须在 CI 中通过；
-- `npm run test:pi-acceptance` 是硬内容门槛，NovelFabric pi config 或 LLM 凭据不可用时必须失败，不能 skip；
-- 真实 pi/Web acceptance tests 在未实现前应作为 pending contract tests 存在；
-- 没有 completed pi runtime evidence 与内容校验的 deterministic shell 不能被描述为 semantic business success；
-- `workflow verify` 必须持续要求 pi-task stages 同时具备 validated pi task evidence 与对应 domain artifact evidence；该已完成要求已归档，但不能回退。
+- 影响的 CLI/Web/runtime family；
+- 预期 workspace artifacts 与 audit/evidence paths；
+- 验证内容有效性的 acceptance tests，而不是只检查文件存在；
+- reviewer/verifier 用来判断能否归档的标准。
+
+### 11.2 已归档工作的回归门槛
+
+已归档 gap 只有在以下回归门槛保持绿色时才继续算完成：
+
+- Web workflow orchestration 必须持续通过 Playwright UI-only workflow tests，使用 50000+ ports，无 console/API shortcut。
+- Semantic import 必须持续通过 source-grounded semantic import service、CLI、workflow、browser workflow tests。
+- External swarm REST/MCP compatibility 必须持续通过 REST/MCP golden tests 与 shared service idempotency tests。
+- Domain-specific capabilities 必须持续通过 cards、memory、swarm、report、writing 的 success/denial/audit tests。
+- `workflow verify` 必须继续要求 pi-task stages 同时具备 validated pi task evidence 与对应 domain artifact evidence。
+- `npm run test:pi-acceptance` 仍是硬内容门槛，NovelFabric pi config 或 LLM 凭据不可用时必须失败，不能 skip。
 
 ## 12. 实施阶段
 
@@ -297,8 +302,8 @@ novelfabric-timeline-branch-proposal
 6. **StoryGraph / StoryRAG CLI** — 从源文件重建 `knowledge/`，提供 search/context-pack。
 7. **Simulation / StorySwarm CLI** — session、context packs、turn append、validation、swarm plan/task/output/finalize。
 8. **Report / Writing CLI** — report task/validate/apply/list/show；writing context-pack、draft task、apply-draft、review、export。
-9. **Web-Safe pi SDK Runtime Bridge** — 基于已归档的 `agent run --runtime pi-sdk` opt-in AgentSession path、Web-safe SDK tools foundations、mutation tools foundation、structured event stream foundation、async/SSE bridge foundation 与 browser runtime task UI foundation，继续补齐 Web workflow orchestration；保持现有 agent task create/inspect/run/output validate/status/abort 命令契约，并继续记录 session/task evidence。
-10. **Web Shell Rewire** — 用基于已归档 browser runtime task UI 与 SSE stream foundations 的 Web workflow orchestration 控件替换 template-only business paths，展示 runtime policy、证据、retry/cancel 控件，并用 Playwright UI-only acceptance 验证 upload/import、workflow start/status/stream/cancel/retry、visible runtime evidence 与最终 domain artifact。
+9. **Web-Safe pi SDK Runtime Bridge** — 将 `agent run --runtime pi-sdk` opt-in AgentSession path、Web-safe SDK tools foundations、mutation tools foundation、structured event stream foundation、async/SSE bridge foundation、browser runtime task UI foundation，以及 Web workflow orchestration 都视为已归档完成项；后续 runtime bridge 扩展必须先新增 fresh active gap 与测试标准，不能把已归档的 SDK/Web orchestration 基础重新描述为待完成工作。
+10. **Web Shell Rewire** — 将 template-only business paths 替换为 Web workflow orchestration 控件这一项视为已完成并归档到 `archive/v4-web-workflow-orchestration-archive.md`；job stage、evidence、artifacts、validation errors、audit paths、runtime policy、retry/cancel controls 与 final domain artifact visibility 应由回归测试持续覆盖，后续 Web UI 扩展必须新增 fresh gap 与 Playwright UI-only acceptance。
 11. **End-to-End Acceptance** — 两个 source fixture，十轮 browser run，必须有 pi-backed semantic evidence，无 console/direct API/fixture 特判。
 
 ## 13. 成功标准

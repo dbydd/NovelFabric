@@ -1,6 +1,6 @@
 # V4 Completed Gap Archive — Web-safe SDK Tools Suite Foundation
 
-> Archived completion snapshot. Active gaps now move to mutation tools, Web runtime event stream, Web workflow orchestration, extension packaging, and full usability acceptance.
+> Archived completion snapshot. Subsequent work has since completed mutation tools, Web runtime event stream foundations, Web workflow orchestration, semantic import, external swarm adapters, and domain capabilities; see active docs for any newly opened gap.
 
 ## Completed Slice: Web-safe SDK Tools Suite Foundation
 
@@ -86,24 +86,28 @@ All validation targets have namespace restrictions enforced via `precheckNonProt
 - Custom tools exposed in session options
 - No raw tools available
 
-### Known Limitations
+### Historical Limitations at Archive Time
 
-This is a **read-only foundation**. The following are NOT covered:
+This is a **read-only foundation**. Not yet covered at the time of this archive:
 
-- **Mutation tools**: `novelfabric_write_file`, `novelfabric_apply_proposal`, `novelfabric_apply_domain_artifact`
-- **Real-time event streaming**: Current bridge stream is snapshot-only
-- **Web UI workflow binding**: No browser-side runtime controls yet
-- **NovelFabric SDK extensions**: Current implementation uses custom tools, not distributable extension packages
-- **Tool request/denial trace**: Policy-level denial exists, but runtime-level denial events not fully proven
-- **Full usability acceptance**: Several `it.todo` contract tests remain pending
+- **Mutation tools**: at archive time, `novelfabric_write_file`, `novelfabric_apply_proposal`, and domain apply tools had not yet landed
+- **Real-time event streaming**: at archive time, the bridge stream was snapshot-only
+- **Web UI workflow binding**: at archive time, browser-side runtime controls had not yet landed
+- **NovelFabric SDK extensions**: at archive time, implementation used custom tools rather than distributable extension packages
+- **Tool request/denial trace**: at archive time, policy-level denial existed but runtime-level denial events had not yet been fully proven
+- **At archive time**: several full-usability contract tests had not yet been closed; completed foundations are now represented by archive-status regression tests.
 
-## Next Active Gap
+Subsequent archives completed the foundations listed here; this section is historical context, not current follow-up scope.
 
-After this foundation, the next active gap is:
+## Historical Next Steps (later archived)
+
+At the time of this archive, the next work was:
 
 **Mutation tools + Web runtime event stream + Web workflow orchestration**
 
 Priority order:
+
+The follow-up foundations listed below were later completed and archived; they are retained here only to preserve the historical handoff context.
 
 1. Implement `novelfabric_write_file` (restricted namespace, capability, audit)
 2. Implement `novelfabric_apply_proposal` (card/memory/report/draft/swarm apply)
@@ -111,4 +115,4 @@ Priority order:
 4. Add browser-visible runtime controls and event trace
 5. Complete Web workflow binding (upload → import → cards → RAG → swarm → report → chapter → editor)
 6. Package NovelFabric SDK extensions for distribution
-7. Close remaining `it.todo` acceptance contracts
+7. Close then-open `it.todo` acceptance contracts

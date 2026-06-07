@@ -1,6 +1,6 @@
 # V4 Completed Gap Archive — Browser Runtime Task UI Foundation
 
-> Archived completion snapshot. Active gaps now move to Web workflow orchestration, Playwright UI-only acceptance, semantic import, external swarm adapters, and domain capabilities.
+> Archived completion snapshot. Subsequent work has since completed Web workflow orchestration, Playwright UI-only acceptance, semantic import, external swarm adapters, and domain capabilities; see active docs for any newly opened gap.
 
 ## Completed Slice
 
@@ -67,20 +67,19 @@ Frontend (manual browser verification):
 - Cancel/retry controls functional
 - Offline buffer behavior explicit
 
-### Known Limitations
+### Historical Limitations at Archive Time
 
-This is a **browser runtime task UI foundation**. NOT covered:
+This is a **browser runtime task UI foundation**. Not yet covered at the time of this archive:
 
-- **Web workflow orchestration**: No full workflow binding (upload → import → cards → RAG → swarm → report → chapter → editor)
-- **Playwright UI-only acceptance**: No automated browser-only workflow test
-- **SSE/EventSource consumption**: Frontend uses polling, not real-time SSE
-- **Result/artifact display**: No complete model output, domain artifacts, evidence, audit path display
-- **Workflow job UI**: No workflow job/stage/artifact/evidence navigation
-- **Semantic import/materialization**: No pi-backed import flow in browser
+- **At archive time**: full workflow binding and automated browser-only workflow acceptance had not yet landed; later archive entries record their completion.
+- **SSE/EventSource consumption**: at archive time, the frontend used polling rather than real-time SSE
+- **Result/artifact display**: at archive time, complete model output, domain artifacts, evidence, and audit path display had not yet landed
+- **Workflow job UI**: at archive time, workflow job/stage/artifact/evidence navigation had not yet landed
+- **At archive time**: semantic import/materialization had not yet landed; later archive entries record its completion.
 
-## Next Active Gap
+## Historical Next Steps (later archived)
 
-After this foundation, the next active gap is:
+At the time of this archive, the next work was:
 
 **Web workflow orchestration + Playwright UI-only acceptance**
 
@@ -92,8 +91,4 @@ Priority:
 4. Result/artifact display
 5. Workflow job UI
 
-Remaining higher-level gaps:
-
-- Semantic import/materialization
-- External swarm REST/MCP adapters
-- Domain-specific capability tightening
+The listed higher-level gaps have since been archived as completed foundations; they are retained here only to preserve the historical handoff context.

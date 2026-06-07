@@ -235,7 +235,7 @@ Required gates:
 - CLI tests for every command family with JSON envelope and failure behavior;
 - workflow state tests that distinguish deterministic harness completion from pi-backed semantic completion;
 - runtime policy tests proving NovelFabric-owned pi config roots and Web-safe tool denial;
-- pending contract tests for unavailable real pi/Web business loops, kept visible until implemented;
+- acceptance contract tests that either prove archived completed foundations or explicitly name any newly opened gap;
 - Playwright-only browser tests for Web surfaces, without console or direct API bypass.
 
 The active QA contract is `../qa/v4-full-usability-acceptance.md`. A feature may be described as harness-complete only when deterministic CLI tests pass; it may be described as business-complete only when pi runtime evidence and browser/control evidence satisfy that QA contract.
@@ -299,24 +299,29 @@ Each skill should define:
 
 ## 11. Active Gap Plan And Test-First Gate
 
-The completed pi-backed semantic evidence loop is archived in `archive/v4-pi-evidence-loop-archive.md`; completed domain artifact materialization is archived in `archive/v4-domain-artifact-materialization-archive.md`; completed opt-in SDK AgentSession execution is archived in `archive/v4-sdk-agent-session-opt-in-archive.md`; completed Web-safe read-only SDK tools foundation is archived in `archive/v4-web-safe-sdk-tools-foundation-archive.md`; completed Web-safe mutation tools foundation is archived in `archive/v4-web-safe-mutation-tools-foundation-archive.md`; completed structured event stream foundation is archived in `archive/v4-structured-event-stream-foundation-archive.md`; completed async Web bridge run registry + persistent SSE foundation is archived in `archive/v4-async-sse-foundation-archive.md`; completed browser runtime task UI foundation is archived in `archive/v4-browser-runtime-task-ui-foundation-archive.md`. Do not keep re-litigating completed hardening, materialization, opt-in SDK execution, SDK tool foundation, mutation tool foundation, structured event stream foundation, async/SSE bridge foundation, or browser runtime task UI foundation details in the active plan. This section tracks only the gaps still blocking a complete product/business loop.
+Completed pi-evidence hardening is archived in `archive/v4-pi-evidence-loop-archive.md`; completed domain artifact materialization is archived in `archive/v4-domain-artifact-materialization-archive.md`; completed opt-in SDK AgentSession execution is archived in `archive/v4-sdk-agent-session-opt-in-archive.md`; completed Web-safe read-only SDK tools foundation is archived in `archive/v4-web-safe-sdk-tools-foundation-archive.md`; completed Web-safe mutation tools foundation is archived in `archive/v4-web-safe-mutation-tools-foundation-archive.md`; completed structured event stream foundation is archived in `archive/v4-structured-event-stream-foundation-archive.md`; completed async Web bridge run registry + persistent SSE foundation is archived in `archive/v4-async-sse-foundation-archive.md`; completed browser runtime task UI foundation is archived in `archive/v4-browser-runtime-task-ui-foundation-archive.md`; completed Web workflow orchestration + Playwright UI-only acceptance is archived in `archive/v4-web-workflow-orchestration-archive.md`; completed semantic import/materialization is archived in `archive/v4-semantic-import-archive.md`; completed external swarm REST/MCP adapters are archived in `archive/v4-external-swarm-adapters-archive.md`; completed domain-specific capabilities are archived in `archive/v4-domain-capabilities-archive.md`.
 
-### 11.1 Active Gaps In Priority Order
+Do not keep re-litigating archived work in the active plan. The prior next-iteration ledger is closed: Web workflow orchestration, semantic import/materialization, external swarm REST/MCP adapters, and domain-specific capabilities have all reached their documented test standards.
 
-| Priority | Gap                                                  | Required output                                                                                                                                                                                                 | Minimum test standard                                                                                                                                                                                       |
-| -------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1        | Web workflow orchestration + Playwright UI-only gate | Web controls orchestrate workflow jobs end to end over the archived browser runtime task UI, async/SSE bridge, sanitized event stream, SDK tools, mutation tools, pi evidence, and domain artifact foundations. | Playwright tests use UI controls only, 50000+ ports, no console/API shortcuts, visible live updates, bounded/redacted rendering, no internal path/session leakage, cancel/retry, and final artifact checks. |
-| 2        | Semantic import/materialization                      | Source text becomes chapters, character/world/rule cards, timeline, memory, and context packs through pi-backed outputs with reversible apply.                                                                  | Acceptance tests use at least two source fixtures; generated assets must cite source excerpts, pass content-quality checks, and avoid fixture-specific hardcoding.                                          |
-| 3        | External swarm REST/MCP adapters                     | Frozen external swarm REST/MCP endpoints/tools call shared TypeScript services and preserve existing request/response/idempotency/artifact semantics.                                                           | Golden fixture tests cover REST POST/GET and MCP tools/list/tools/call, including Hermes/OpenAlice/TraderAlice-style payloads.                                                                              |
-| 4        | Domain-specific capabilities                         | Cards/memory/swarm/report/writing commands use narrow capability names instead of broad project/file write authority.                                                                                           | Capability tests prove main agent can perform approved domain operations, role agents are denied cross-domain/protected operations, and audit records include actor/capability/reason/path/hash.            |
+### 11.1 Active Gap Ledger
 
-### 11.2 Global Testing Policy
+There are currently **no open gaps from the previous V4 next-iteration ledger**. New work must create a fresh gap entry before implementation, including:
 
-- deterministic harness tests must pass in CI;
-- `npm run test:pi-acceptance` is a hard content gate and must fail, not skip, when NovelFabric pi config or LLM credentials are unavailable;
-- true pi/Web acceptance tests should exist as pending contract tests until implemented;
-- no deterministic shell may be described as semantic business success without completed pi runtime evidence and content validation;
-- `workflow verify` must keep requiring both validated pi task evidence and corresponding domain artifact evidence for pi-task stages; this completed materialization requirement is archived, not removed.
+- the affected CLI/Web/runtime families;
+- expected workspace artifacts and audit/evidence paths;
+- acceptance tests that validate content, not only file existence;
+- reviewer/verifier criteria for archiving the gap once complete.
+
+### 11.2 Regression Gate For Archived Work
+
+Archived gaps stay accepted only while their regression gates remain green:
+
+- Web workflow orchestration stays covered by Playwright UI-only workflow tests on 50000+ ports with no console/API shortcuts.
+- Semantic import stays covered by source-grounded semantic import service, CLI, workflow, and browser workflow tests.
+- External swarm REST/MCP compatibility stays covered by REST/MCP golden tests and shared service idempotency tests.
+- Domain-specific capabilities stay covered by success/denial/audit tests for cards, memory, swarm, report, and writing operations.
+- `workflow verify` must keep requiring both validated pi task evidence and corresponding domain artifact evidence for pi-task stages.
+- `npm run test:pi-acceptance` remains a hard content gate and must fail, not skip, when NovelFabric pi config or LLM credentials are unavailable.
 
 ## 12. Implementation Phases
 
@@ -369,16 +374,16 @@ The completed pi-backed semantic evidence loop is archived in `archive/v4-pi-evi
 
 ### Phase 9 — Web-Safe pi SDK Runtime Bridge
 
-- Build on the archived opt-in `agent run --runtime pi-sdk` AgentSession path, archived Web-safe SDK tools foundations, archived mutation tools foundation, archived structured event stream foundation, archived async/SSE bridge foundation, and archived browser runtime task UI foundation rather than treating SDK execution, tool coverage, event shaping, stream delivery, or basic browser runtime task controls as absent.
-- Implement Web workflow orchestration over the existing browser runtime task UI, sanitized SSE/evidence envelope, cancellation/retry controls, and visible event rendering.
-- Preserve the existing `agent task create/inspect/run/output validate/status/abort` command contract while routing Web sessions through SDK-backed evidence envelopes.
-- Record session/task evidence without owning a separate provider stack or exposing raw dangerous tools to Web users.
+- Treat the opt-in `agent run --runtime pi-sdk` AgentSession path, Web-safe SDK tools foundations, mutation tools foundation, structured event stream foundation, async/SSE bridge foundation, and browser runtime task UI foundation as archived completed foundations.
+- Treat Web workflow orchestration over browser runtime task UI, sanitized SSE/evidence envelopes, cancellation/retry controls, and visible event rendering as archived in `archive/v4-web-workflow-orchestration-archive.md`.
+- Preserve the existing `agent task create/inspect/run/output validate/status/abort` command contract and SDK-backed evidence envelopes when adding future runtime features.
+- New runtime bridge work must open a fresh active gap with tests; do not restate archived Web orchestration or SDK bridge foundations as pending work.
 
 ### Phase 10 — Web Shell Rewire
 
-- Replace template-only business paths with Web workflow orchestration controls that consume the archived browser runtime task UI and SSE stream foundations.
-- Display job stage, evidence, artifacts, validation errors, audit paths, runtime policy, and retry controls.
-- Add Playwright UI-only acceptance for upload/import, workflow start/status/stream/cancel/retry, visible runtime evidence, and final domain artifact visibility before claiming Web workflow completion.
+- Treat the replacement of template-only business paths with Web workflow orchestration controls as completed and archived in `archive/v4-web-workflow-orchestration-archive.md`.
+- Keep job stage, evidence, artifacts, validation errors, audit paths, runtime policy, retry/cancel controls, and final domain artifact visibility covered by regression tests rather than active planning text.
+- Future Web UI expansion must add a fresh gap entry and Playwright UI-only acceptance before implementation; do not reopen archived workflow start/status/stream/cancel/retry coverage as an unfinished Phase 10 item.
 
 ### Phase 11 — End-to-End Acceptance
 

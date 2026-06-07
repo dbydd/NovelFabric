@@ -1,6 +1,6 @@
 # V4 Completed Gap Archive — Opt-In SDK AgentSession Execution
 
-> Archived completion snapshot. Do not treat this file as the active next-iteration plan. Active gaps live in `../v4-cli-workspace-harness-plan.md`, `../v4-cli-command-contract.md`, and `../../qa/v4-full-usability-acceptance.md`.
+> Archived completion snapshot. Do not treat this file as the active next-iteration plan. Historical follow-up scope at archive time were in `../v4-cli-workspace-harness-plan.md`, `../v4-cli-command-contract.md`, and `../../qa/v4-full-usability-acceptance.md`. Subsequent archives completed the follow-up gaps referenced by this snapshot.
 
 ## Commit-Level Traceability
 
@@ -19,14 +19,16 @@ The V4 mono app has completed an **opt-in SDK AgentSession execution surface**:
 - SDK acceptance is exposed through `npm run test:pi-sdk-acceptance`.
 - Tests cover the injectable SDK seam, CLI runtime selection, assistant-output handling, stale-message rejection, and real acceptance execution.
 
-## Known Limitations
+## Historical Limitations
 
-This archive does **not** complete the full Web-safe runtime gap:
+At the time of this archive, the opt-in SDK path did **not** complete the full Web-safe runtime gap:
 
-- the SDK path currently runs with raw model execution controls such as `noTools: "all"` and `noExtensions: true`;
-- NovelFabric Web-safe pi extensions are not yet executing as SDK tools;
-- browser session lifecycle, progress streaming, cancellation, retry, and visible runtime trace are not wired through the Web bridge;
-- Web users still do not have the full `AgentSession` orchestration surface needed for nontechnical operation.
+- the SDK path ran with raw model execution controls such as `noTools: "all"` and `noExtensions: true`;
+- NovelFabric Web-safe pi extensions were not yet executing as SDK tools;
+- browser session lifecycle, progress streaming, cancellation, retry, and visible runtime trace were not yet wired through the Web bridge;
+- Web users did not yet have the full `AgentSession` orchestration surface needed for nontechnical operation.
+
+Those follow-up foundations were completed later and archived separately: Web-safe SDK tools, Web-safe mutation tools, structured event streaming, async/SSE runtime foundations, browser runtime task UI, and Web workflow orchestration. Treat the bullets above as historical context, not as current follow-up scope.
 
 ## Archived Verification Evidence
 
@@ -43,4 +45,4 @@ npm run test:pi-sdk-acceptance
 
 ## Important Boundary
 
-This archive proves that an opt-in SDK AgentSession execution path exists and is testable. The next active gap is narrower: **Web-safe runtime extensions and Web bridge session orchestration**. That gap must prove NovelFabric-controlled SDK tools/extensions, denied raw dangerous tools, browser-visible event traces, and bridge lifecycle controls.
+This archive proves that an opt-in SDK AgentSession execution path exists and is testable. Subsequent archived work has since completed Web-safe tools, mutation tools, structured events, async/SSE foundations, browser runtime task UI, Web workflow orchestration, semantic import/materialization, external swarm REST/MCP adapters, and domain-specific capabilities. Consult active docs for any newly opened gap instead of using this historical boundary as a plan.

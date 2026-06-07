@@ -1,6 +1,6 @@
 # V4 Completed Gap Archive — Web-safe Mutation Tools Foundation
 
-> Archived completion snapshot. Active gaps now move to Web runtime event stream, lifecycle orchestration, Web workflow binding, semantic import, external swarm adapters, and domain capabilities.
+> Archived completion snapshot. Subsequent work has since completed Web runtime event stream, lifecycle orchestration, Web workflow binding, semantic import, external swarm adapters, and domain capabilities; see active docs for any newly opened gap.
 
 ## Completed Slice: Web-safe Mutation Tools Foundation
 
@@ -63,34 +63,14 @@ After fix `202f90c`, `novelfabric_apply_proposal` is present in:
 - Session options include all custom tools
 - Policy validation accepts apply_proposal
 
-### Known Limitations
+### Historical Limitations at Archive Time
 
-This is a **mutation tools foundation**. The following are NOT covered:
+This archive captured the **mutation tools foundation** only. At the time of this archive, the following foundations had not yet landed:
 
-- **Web runtime event stream**: Current bridge stream is snapshot-only, not real-time
-- **Web workflow binding**: No browser-side runtime controls yet
-- **Semantic import**: Source text → cards/chapters/timeline/memory not yet implemented
-- **External swarm REST/MCP adapters**: Frozen compatibility surface not yet landed
-- **Domain-specific capabilities**: Still using broad project/file capabilities
+- Web runtime event stream and lifecycle orchestration;
+- browser-side runtime controls and workflow binding;
+- semantic import/materialization;
+- external swarm REST/MCP adapters;
+- domain-specific capability tightening.
 
-## Next Active Gap
-
-After this foundation, the next active gap is:
-
-**Web runtime event stream and lifecycle orchestration**
-
-Priority:
-
-1. Browser-visible runtime event stream
-2. Bounded/redacted event envelopes
-3. Denial trace
-4. Retry/cancel lifecycle evidence
-5. Stable Web bridge session/task event model
-6. Web UI binding to runtime/session controls
-
-After that:
-
-- Web full workflow binding
-- Semantic import/materialization
-- External swarm REST/MCP adapters
-- Domain-specific capability tightening
+Those follow-up foundations were completed later and archived separately: structured event streaming, async/SSE runtime foundations, browser runtime task UI, Web workflow orchestration, semantic import/materialization, external swarm adapters, and domain-specific capabilities. Treat this section as historical context, not as current follow-up scope.

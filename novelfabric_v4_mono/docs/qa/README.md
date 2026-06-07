@@ -6,7 +6,7 @@ This directory contains QA contracts, evidence notes, and report templates for t
 
 Read first:
 
-- `v4-full-usability-acceptance.md` defines the full usability standard, test layers, pending contracts, fixture requirements, and evidence requirements.
+- `v4-full-usability-acceptance.md` defines the full usability standard, test layers, archived contract regression ledger, fixture requirements, and evidence requirements.
 
 ## Evidence Notes
 
@@ -18,7 +18,7 @@ That smoke is retained only as evidence for UI controls, bridge writes, file vis
 
 - `templates/acceptance-report.md` is the required report shape for future full acceptance runs.
 
-Future business-flow acceptance must prove NovelFabric-wrapped pi-agent-SDK semantic execution through CLI-backed Web controls, task/event traces, workspace artifacts, validation output, audit JSONL, and Playwright-visible user actions.
+Business-flow regression acceptance must keep proving NovelFabric-wrapped pi-agent-SDK semantic execution through CLI-backed Web controls, task/event traces, workspace artifacts, validation output, audit JSONL, and Playwright-visible user actions.
 
 For content-level LLM validation, run:
 
@@ -26,4 +26,4 @@ For content-level LLM validation, run:
 npm run test:pi-acceptance
 ```
 
-This is a hard gate: missing NovelFabric pi model config or LLM credentials must fail, not skip. Runtime model roles are split deliberately: `generic-writer` drives future NovelFabric LLM workflow stages, while `flash-vibe` is reserved for acceptance/testing agents.
+This is a hard gate: missing NovelFabric pi model config or LLM credentials must fail, not skip. Runtime model roles are split deliberately: `generic-writer` drives NovelFabric LLM workflow stages, while `flash-vibe` is reserved for acceptance/testing agents.
