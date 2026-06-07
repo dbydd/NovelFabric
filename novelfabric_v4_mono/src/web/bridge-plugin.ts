@@ -5,10 +5,12 @@ import type { Plugin } from "vite";
 import { z } from "zod";
 
 import {
+  abortAgentTask,
   createAgentTask,
   getAgentTaskStatus,
   inspectAgentTask,
   runAgentTask,
+  type AgentTaskAbortResult,
   type AgentTaskCreateResult,
   type AgentTaskEvent,
   type AgentTaskInspectResult,
@@ -69,6 +71,10 @@ const agentTaskReadRequestSchema = z.object({
   workspacePath: z.string().min(1),
   actor: z.string().min(1),
   task: z.string().min(1)
+});
+
+const agentTaskLifecycleRequestSchema = agentTaskReadRequestSchema.extend({
+  reason: z.string().min(1).optional()
 });
 
 export function novelFabricBridgePlugin(): Plugin {
@@ -267,6 +273,80 @@ export async function handleBridgeRequest(
       return;
     }
 
+    if (request.method === "POST" && routePath === "/api/bridge/agent/tasks/cancel") {
+      const body = agentTaskLifecycleRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      assertBridgeAgentTaskIdSafe(body.task);
+      const current = await inspectAgentTask({ workspacePath, task: body.task });
+      if (current.result.status === "completed") {
+        throw new CommandFailure(
+          "bridge_agent_task_already_completed",
+          "Completed agent tasks cannot be cancelled through the web bridge.",
+          409
+        );
+      }
+      const result = await abortAgentTask({
+        workspacePath,
+        actor: body.actor,
+        task: body.task,
+        ...(body.reason === undefined ? {} : { reason: body.reason })
+      });
+      const inspected = await inspectAgentTask({ workspacePath, task: result.taskId });
+      writeJson(response, 200, {
+        ok: true,
+        data: summarizeAgentTaskAbortResult(result, inspected)
+      });
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/api/bridge/agent/tasks/retry") {
+      const body = agentTaskLifecycleRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      assertBridgeAgentTaskIdSafe(body.task);
+      const inspected = await inspectAgentTask({ workspacePath, task: body.task });
+      const retryTaskId = retryAgentTaskId(body.task);
+      const created = await createAgentTask({
+        workspacePath,
+        actor: body.actor,
+        title: `${inspected.task.title} retry`,
+        instruction: inspected.task.instruction,
+        taskId: retryTaskId,
+        inputJson: JSON.stringify(inspected.input),
+        outputSchemaJson: JSON.stringify(inspected.outputSchema),
+        reason: body.reason ?? `web bridge retry of ${body.task}`
+      });
+      const retryPaths = agentTaskBridgePaths(retryTaskId);
+      await writeWorkspaceFile({
+        workspacePath,
+        path: retryPaths.contextPack,
+        content: JSON.stringify(inspected.contextPack, null, 2),
+        actor: body.actor,
+        reason: body.reason ?? `web bridge retry context copy for ${body.task}`
+      });
+      const retryInspected = await inspectAgentTask({ workspacePath, task: retryTaskId });
+      writeJson(response, 200, {
+        ok: true,
+        data: summarizeAgentTaskRetryResult({
+          original: inspected,
+          created,
+          retry: retryInspected
+        })
+      });
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/api/bridge/agent/tasks/stream") {
+      const body = agentTaskReadRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      assertBridgeAgentTaskIdSafe(body.task);
+      const inspected = await inspectAgentTask({ workspacePath, task: body.task });
+      writeAgentTaskEventStream(response, summarizeAgentTaskEventsResult(inspected));
+      return;
+    }
+
     throw new CommandFailure(
       "bridge_route_not_found",
       `Unsupported bridge route ${request.method ?? "GET"} ${routePath}.`,
@@ -361,6 +441,76 @@ function summarizeAgentTaskEventsResult(inspected: AgentTaskInspectResult): {
     eventsAvailable: inspected.events.length > 0,
     events: inspected.events.map(summarizeAgentTaskEvent)
   };
+}
+
+function summarizeAgentTaskAbortResult(
+  result: AgentTaskAbortResult,
+  inspected: AgentTaskInspectResult
+): {
+  readonly taskId: string;
+  readonly status: "aborted";
+  readonly eventCount: number;
+  readonly writeCount: number;
+  readonly resultAvailable: true;
+  readonly eventsAvailable: boolean;
+} {
+  return {
+    taskId: result.taskId,
+    status: result.status,
+    eventCount: inspected.events.length,
+    writeCount: result.writes.length,
+    resultAvailable: true,
+    eventsAvailable: inspected.events.length > 0
+  };
+}
+
+function summarizeAgentTaskRetryResult(input: {
+  readonly original: AgentTaskInspectResult;
+  readonly created: AgentTaskCreateResult;
+  readonly retry: AgentTaskInspectResult;
+}): {
+  readonly originalTaskId: string;
+  readonly retryTaskId: string;
+  readonly status: "retry-prepared";
+  readonly retryStatus: string;
+  readonly previousStatus: string;
+  readonly previousEvidencePreserved: true;
+  readonly writeCount: number;
+  readonly eventCount: number;
+  readonly packageCreated: true;
+} {
+  return {
+    originalTaskId: input.original.taskId,
+    retryTaskId: input.retry.taskId,
+    status: "retry-prepared",
+    retryStatus: input.retry.result.status,
+    previousStatus: input.original.result.status,
+    previousEvidencePreserved: true,
+    writeCount: input.created.writes.length + 1,
+    eventCount: input.retry.events.length,
+    packageCreated: true
+  };
+}
+
+function retryAgentTaskId(taskId: string): string {
+  const suffix = Date.now().toString(36);
+  const marker = "-retry-";
+  const baseLength = Math.max(1, 80 - marker.length - suffix.length);
+  return `${taskId.slice(0, baseLength)}${marker}${suffix}`;
+}
+
+function agentTaskBridgePaths(taskId: string): { readonly contextPack: string } {
+  return { contextPack: `.novelfabric/tasks/${taskId}/context-pack.json` };
+}
+
+function writeAgentTaskEventStream(
+  response: ServerResponse,
+  data: ReturnType<typeof summarizeAgentTaskEventsResult>
+): void {
+  response.statusCode = 200;
+  response.setHeader("content-type", "text/event-stream; charset=utf-8");
+  response.setHeader("cache-control", "no-cache");
+  response.end(`event: snapshot\ndata: ${JSON.stringify({ ok: true, data })}\n\n`);
 }
 
 function summarizePiSdkAvailability(piSdk: AgentTaskRunResult["piSdk"]): {
@@ -481,7 +631,7 @@ function writeBridgeError(response: ServerResponse, error: unknown): void {
   if (error instanceof Error && isCommandFailure(error)) {
     writeJson(response, httpStatusForCommandFailure(error), {
       ok: false,
-      error: { code: error.code, message: error.message }
+      error: { code: error.code, message: sanitizeBridgeErrorMessage(error.message) }
     });
     return;
   }
@@ -489,7 +639,10 @@ function writeBridgeError(response: ServerResponse, error: unknown): void {
   if (error instanceof z.ZodError) {
     writeJson(response, 400, {
       ok: false,
-      error: { code: "invalid_bridge_request", message: z.prettifyError(error) }
+      error: {
+        code: "invalid_bridge_request",
+        message: sanitizeBridgeErrorMessage(z.prettifyError(error))
+      }
     });
     return;
   }
@@ -497,8 +650,24 @@ function writeBridgeError(response: ServerResponse, error: unknown): void {
   const message = error instanceof Error ? error.message : "Unexpected non-error bridge failure.";
   writeJson(response, 500, {
     ok: false,
-    error: { code: "bridge_unexpected_error", message }
+    error: { code: "bridge_unexpected_error", message: sanitizeBridgeErrorMessage(message) }
   });
+}
+
+function sanitizeBridgeErrorMessage(message: string): string {
+  return message
+    .replace(/\.novelfabric\/tasks\/[^\s"'`)]+/gu, "[internal-task-path]")
+    .replace(
+      /\b(?:result|events|task|input|context-pack|output\.schema|allowed-commands)\.jsonl?\b/gu,
+      "[internal-file]"
+    )
+    .replace(/\b(?:sessionFile|rawText|parsedJson)\b/gu, "[redacted]")
+    .replace(/Bearer\s+[^\s"']+/giu, "Bearer [redacted]")
+    .replace(/sk-[A-Za-z0-9_-]+/gu, "[redacted-secret]")
+    .replace(
+      /(?:[A-Za-z]:\\|\/)(?:[^\s"'`{}[\],;:|]+[\\/])+[^\s"'`{}[\],;:|]*/gu,
+      "[internal-path]"
+    );
 }
 
 function httpStatusForCommandFailure(error: CommandFailure): number {

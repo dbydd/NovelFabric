@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { promises as fs } from "node:fs";
 import os from "node:os";
@@ -50,16 +51,23 @@ describe("NovelFabric web bridge agent task routes", () => {
   it("returns bridge_disabled when bridge is not enabled", async () => {
     delete process.env["NOVELFABRIC_WEB_BRIDGE"];
     const fixture = fixtureWorkspace();
-    const response = await postBridge("/api/bridge/agent/tasks/status", {
-      workspacePath: fixture,
-      actor: "main_agent",
-      task: "missing-task"
-    });
+    for (const routePath of [
+      "/api/bridge/agent/tasks/status",
+      "/api/bridge/agent/tasks/cancel",
+      "/api/bridge/agent/tasks/retry",
+      "/api/bridge/agent/tasks/stream"
+    ] as const) {
+      const response = await postBridge(routePath, {
+        workspacePath: fixture,
+        actor: "main_agent",
+        task: "missing-task"
+      });
 
-    expect(response.status).toBe(404);
-    expect(response.body.ok).toBe(false);
-    if (!response.body.ok) {
-      expect(response.body.error.code).toBe("bridge_disabled");
+      expect(response.status).toBe(404);
+      expect(response.body.ok).toBe(false);
+      if (!response.body.ok) {
+        expect(response.body.error.code).toBe("bridge_disabled");
+      }
     }
   });
 
@@ -67,26 +75,33 @@ describe("NovelFabric web bridge agent task routes", () => {
     const workspacePath = await tempWorkspace();
     configureBridge({ workspacePath, actor: "main_agent" });
 
-    const workspaceMismatch = await postBridge("/api/bridge/agent/tasks/status", {
-      workspacePath: path.join(workspacePath, "..", "other"),
-      actor: "main_agent",
-      task: "missing-task"
-    });
-    expect(workspaceMismatch.status).toBe(403);
-    expect(workspaceMismatch.body.ok).toBe(false);
-    if (!workspaceMismatch.body.ok) {
-      expect(workspaceMismatch.body.error.code).toBe("bridge_workspace_mismatch");
-    }
+    for (const routePath of [
+      "/api/bridge/agent/tasks/status",
+      "/api/bridge/agent/tasks/cancel",
+      "/api/bridge/agent/tasks/retry",
+      "/api/bridge/agent/tasks/stream"
+    ] as const) {
+      const workspaceMismatch = await postBridge(routePath, {
+        workspacePath: path.join(workspacePath, "..", "other"),
+        actor: "main_agent",
+        task: "missing-task"
+      });
+      expect(workspaceMismatch.status).toBe(403);
+      expect(workspaceMismatch.body.ok).toBe(false);
+      if (!workspaceMismatch.body.ok) {
+        expect(workspaceMismatch.body.error.code).toBe("bridge_workspace_mismatch");
+      }
 
-    const actorMismatch = await postBridge("/api/bridge/agent/tasks/status", {
-      workspacePath,
-      actor: "role_agent",
-      task: "missing-task"
-    });
-    expect(actorMismatch.status).toBe(403);
-    expect(actorMismatch.body.ok).toBe(false);
-    if (!actorMismatch.body.ok) {
-      expect(actorMismatch.body.error.code).toBe("bridge_actor_mismatch");
+      const actorMismatch = await postBridge(routePath, {
+        workspacePath,
+        actor: "role_agent",
+        task: "missing-task"
+      });
+      expect(actorMismatch.status).toBe(403);
+      expect(actorMismatch.body.ok).toBe(false);
+      if (!actorMismatch.body.ok) {
+        expect(actorMismatch.body.error.code).toBe("bridge_actor_mismatch");
+      }
     }
   });
 
@@ -272,13 +287,16 @@ describe("NovelFabric web bridge agent task routes", () => {
     }
   });
 
-  it("rejects path-like task ids from status and events routes", async () => {
+  it("rejects path-like task ids from status, events, and lifecycle routes", async () => {
     const workspacePath = await tempWorkspace();
     configureBridge({ workspacePath, actor: "main_agent" });
 
     for (const routePath of [
       "/api/bridge/agent/tasks/status",
-      "/api/bridge/agent/tasks/events"
+      "/api/bridge/agent/tasks/events",
+      "/api/bridge/agent/tasks/cancel",
+      "/api/bridge/agent/tasks/retry",
+      "/api/bridge/agent/tasks/stream"
     ] as const) {
       const response = await postBridge(routePath, {
         workspacePath,
@@ -394,6 +412,212 @@ describe("NovelFabric web bridge agent task routes", () => {
     expect(serialized).not.toContain("sk-secret-token");
     expect(serialized).not.toContain("Bearer");
     expect(serialized).not.toContain("/tmp/novelfabric-sdk-session.jsonl");
+  });
+
+  it("does not leak internal task paths in missing task lifecycle errors", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+
+    for (const routePath of [
+      "/api/bridge/agent/tasks/status",
+      "/api/bridge/agent/tasks/events",
+      "/api/bridge/agent/tasks/cancel",
+      "/api/bridge/agent/tasks/retry",
+      "/api/bridge/agent/tasks/stream"
+    ] as const) {
+      const response =
+        routePath === "/api/bridge/agent/tasks/stream"
+          ? await postBridgeText(routePath, {
+              workspacePath,
+              actor: "main_agent",
+              task: "missing-web-task"
+            })
+          : await postBridge(routePath, {
+              workspacePath,
+              actor: "main_agent",
+              task: "missing-web-task"
+            });
+      const serialized =
+        typeof response.body === "string" ? response.body : JSON.stringify(response.body);
+
+      expect(response.status).toBeGreaterThanOrEqual(400);
+      expect(serialized).not.toContain(workspacePath);
+      expect(serialized).not.toContain(".novelfabric/tasks/");
+      expect(serialized).not.toContain("result.json");
+      expect(serialized).not.toContain("events.jsonl");
+      expect(serialized).not.toContain("sessionFile");
+      expect(serialized).not.toContain("rawText");
+      expect(serialized).not.toContain("parsedJson");
+    }
+  });
+
+  it("cancels a task through the lifecycle route with a sanitized response", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    await createAgentTask({
+      workspacePath,
+      actor: "main_agent",
+      title: "Cancelable web task",
+      instruction: "Return JSON.",
+      taskId: "cancelable-web-task",
+      outputSchemaJson: JSON.stringify({ type: "object" })
+    });
+
+    const response = await postBridge("/api/bridge/agent/tasks/cancel", {
+      workspacePath,
+      actor: "main_agent",
+      task: "cancelable-web-task",
+      reason: "operator cancelled from web"
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    if (response.body.ok) {
+      expect(response.body.data).toMatchObject({
+        taskId: "cancelable-web-task",
+        status: "aborted",
+        resultAvailable: true,
+        eventsAvailable: true,
+        writeCount: 2
+      });
+      expectNoInternalTaskPaths(response.body.data, workspacePath);
+    }
+    const resultFile = await fs.readFile(
+      path.join(workspacePath, ".novelfabric", "tasks", "cancelable-web-task", "result.json"),
+      "utf8"
+    );
+    expect(resultFile).toContain('"status": "aborted"');
+  });
+
+  it("rejects cancel for completed tasks without overwriting result evidence", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    await createAgentTask({
+      workspacePath,
+      actor: "main_agent",
+      title: "Completed cancel guard task",
+      instruction: "Return JSON.",
+      taskId: "completed-cancel-guard-task",
+      outputSchemaJson: JSON.stringify({ type: "object" })
+    });
+    await writeSyntheticCompletedResult(workspacePath, "completed-cancel-guard-task");
+    const resultPath = path.join(
+      workspacePath,
+      ".novelfabric",
+      "tasks",
+      "completed-cancel-guard-task",
+      "result.json"
+    );
+    const before = await fs.readFile(resultPath, "utf8");
+    const beforeHash = sha256(before);
+
+    const response = await postBridge("/api/bridge/agent/tasks/cancel", {
+      workspacePath,
+      actor: "main_agent",
+      task: "completed-cancel-guard-task",
+      reason: "operator cancelled after completion"
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body.ok).toBe(false);
+    if (!response.body.ok) {
+      expect(response.body.error.code).toBe("bridge_agent_task_already_completed");
+      expectNoInternalTaskPaths(response.body.error, workspacePath);
+    }
+    const after = await fs.readFile(resultPath, "utf8");
+    expect(after).toBe(before);
+    expect(sha256(after)).toBe(beforeHash);
+  });
+
+  it("prepares retry tasks without overwriting previous evidence", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    await createAgentTask({
+      workspacePath,
+      actor: "main_agent",
+      title: "Retry source task",
+      instruction: "Return JSON.",
+      taskId: "retry-source-task",
+      inputJson: JSON.stringify({ source: "retry" }),
+      outputSchemaJson: JSON.stringify({ type: "object" })
+    });
+    await writeSyntheticCompletedResult(workspacePath, "retry-source-task");
+    const originalResultPath = path.join(
+      workspacePath,
+      ".novelfabric",
+      "tasks",
+      "retry-source-task",
+      "result.json"
+    );
+    const originalBefore = await fs.readFile(originalResultPath, "utf8");
+
+    const response = await postBridge("/api/bridge/agent/tasks/retry", {
+      workspacePath,
+      actor: "main_agent",
+      task: "retry-source-task",
+      reason: "web retry preparation"
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    if (response.body.ok) {
+      expect(response.body.data["originalTaskId"]).toBe("retry-source-task");
+      expect(response.body.data["retryTaskId"]).toMatch(/^retry-source-task-retry-/u);
+      expect(response.body.data["status"]).toBe("retry-prepared");
+      expect(response.body.data["retryStatus"]).toBe("pending-pi-runtime");
+      expect(response.body.data["previousEvidencePreserved"]).toBe(true);
+      expectNoInternalTaskPaths(response.body.data, workspacePath);
+      const retryTaskId = String(response.body.data["retryTaskId"]);
+      const retryResult = await fs.readFile(
+        path.join(workspacePath, ".novelfabric", "tasks", retryTaskId, "result.json"),
+        "utf8"
+      );
+      expect(retryResult).toContain('"status": "pending-pi-runtime"');
+    }
+    const originalAfter = await fs.readFile(originalResultPath, "utf8");
+    expect(originalAfter).toBe(originalBefore);
+  });
+
+  it("streams a sanitized event snapshot without raw messages or internal paths", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    await createAgentTask({
+      workspacePath,
+      actor: "main_agent",
+      title: "Stream web task",
+      instruction: "Return JSON.",
+      taskId: "stream-web-task",
+      outputSchemaJson: JSON.stringify({ type: "object" })
+    });
+    await writeSyntheticEvent(
+      workspacePath,
+      "stream-web-task",
+      [
+        "leak .novelfabric/tasks/stream-web-task/result.json",
+        "sessionFile=/tmp/novelfabric-sdk-session.jsonl",
+        "rawText parsedJson",
+        workspacePath,
+        "Bearer secret-token sk-secret-token"
+      ].join(" | ")
+    );
+
+    const stream = await postBridgeText("/api/bridge/agent/tasks/stream", {
+      workspacePath,
+      actor: "main_agent",
+      task: "stream-web-task"
+    });
+
+    expect(stream.status).toBe(200);
+    expect(stream.contentType).toContain("text/event-stream");
+    expect(stream.body).toContain("event: snapshot");
+    expect(stream.body).toContain("stream-web-task");
+    expect(stream.body).not.toContain("message");
+    expect(stream.body).not.toContain("secret-token");
+    expect(stream.body).not.toContain("sk-secret-token");
+    expect(stream.body).not.toContain("Bearer");
+    expect(stream.body).not.toContain("/tmp/novelfabric-sdk-session.jsonl");
+    expect(stream.body).not.toContain(workspacePath);
+    expect(stream.body).not.toContain(".novelfabric/tasks/");
   });
 });
 
@@ -529,6 +753,10 @@ describe("NovelFabric web bridge runtime session prepare route", () => {
     }
   });
 });
+
+function sha256(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
 
 function expectNoInternalTaskPaths(value: unknown, workspacePath?: string): void {
   const serialized = JSON.stringify(value);
@@ -699,6 +927,31 @@ async function postBridge(
     });
     const parsed = (await response.json()) as GenericBridgeEnvelope;
     return { status: response.status, body: parsed };
+  } finally {
+    await closeServer(server);
+  }
+}
+
+async function postBridgeText(
+  routePath: string,
+  body: Record<string, unknown>
+): Promise<{ readonly status: number; readonly body: string; readonly contentType: string }> {
+  const server = await listenBridgeServer();
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected bridge test server to listen on a TCP port.");
+    }
+    const response = await fetch(`http://127.0.0.1:${address.port.toString()}${routePath}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    return {
+      status: response.status,
+      body: await response.text(),
+      contentType: response.headers.get("content-type") ?? ""
+    };
   } finally {
     await closeServer(server);
   }
