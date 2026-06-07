@@ -53,7 +53,7 @@ When changing StoryGraph / StoryRAG / StorySwarm / ReportAgent semantics, also r
 - Do not extend the deprecated backend LLM adapter path unless the V4 planning document explicitly reopens that scope.
 - Keep frontend code in this same package (`src/web/`) for the V4 mono app; do not create a separate frontend package for new V4 work.
 - Layout-only web demos must use static/mock data and must not call backend APIs.
-- The future `@earendil-works/pi-coding-agent` bridge must not bypass NovelFabric CLI/capability checks for protected writes.
+- The implemented `@earendil-works/pi-coding-agent` bridge and Web-safe runtime routes must not bypass NovelFabric CLI/capability checks for protected writes.
 - Do not break the current external swarm HTTP/MCP API shape. Existing Hermes/OpenAlice/TraderAlice profiles may depend on it.
 - Do not add special-case fallback code to hide invalid state. Report validation failures clearly and let callers repair the input.
 - Implement general workspace primitives rather than case-specific behavior for one fixture or one user path.
@@ -87,7 +87,7 @@ V4 should absorb the proven workspace patterns from OpenAlice, autogal/RPG-Harne
 - Prefer one `novelfabric` CLI with capability-scoped subcommands over many unrelated binaries. Subcommands should be thin wrappers over shared TypeScript services.
 - Skill-facing commands should stay coarse and stable: `context-pack`, `recall`, `propose-action`, `append-turn`, `validate`, `report`, `workspace doctor`, and capability-checked `files read` / `files write` for editor-grade workspace file operations.
 - `files read` / `files write` must route through the shared TypeScript workspace file service, not ad hoc filesystem access. Writes require actor capability checks, safe path containment, protected-file policy, optional base-hash conflict detection, atomic replacement, and `.novelfabric/audit/files/*.jsonl` audit records.
-- Implement authorization through a workspace capability manifest, not by scattering ad hoc checks in skills. Planned capabilities include `project.manage`, `knowledge.rebuild`, `swarm.run`, `external_swarm.run`, `memory.recall`, `memory.write_own`, `memory.propose_shared`, `files.write`, `files.patch_allowed`, and `files.patch_protected`.
+- Implement authorization through a workspace capability manifest, not by scattering ad hoc checks in skills. Workspace capabilities include `project.manage`, `knowledge.rebuild`, `swarm.run`, `external_swarm.run`, `memory.recall`, `memory.write_own`, `memory.propose_shared`, `files.write`, `files.patch_allowed`, and `files.patch_protected`.
 - Main-agent capabilities and role-agent capabilities must be separate. Role agents are deny-by-default for project management, external swarm, global knowledge rebuilds, protected files, and other profiles' private memory.
 - Memory recall must resolve actor/profile/card identity. Calling recall inside a workspace may infer the project, but must not infer permission to read every profile's memory.
 

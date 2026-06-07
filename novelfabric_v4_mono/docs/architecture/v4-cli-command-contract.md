@@ -1,6 +1,6 @@
 # NovelFabric V4 CLI Command Contract
 
-> Status: planning contract. This document defines the CLI-first target surface for the V4 workspace harness. Commands listed here are the intended executable boundary before Web UI or pi agent SDK orchestration is considered complete.
+> Status: implemented command contract and maintenance ledger. This document records the CLI-first executable boundary for the V4 workspace harness, including the Web bridge and NovelFabric-owned pi runtime orchestration surfaces that are now implemented and must remain covered by tests.
 
 ## 1. Contract Rules
 
