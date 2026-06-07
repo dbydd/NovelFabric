@@ -1,3 +1,10 @@
+import {
+  assertSourceAnchorsGrounded,
+  readCitationEvidence,
+  readCompletedAgentTaskDomainOutput,
+  requireMarkdownOutput,
+  requireWorkflowOutputKind
+} from "../agent-runtime/materialization.js";
 import { CommandFailure } from "../errors.js";
 import { actorHasCapability, readCapabilityManifest } from "../workspace/capabilities.js";
 import {
@@ -49,6 +56,22 @@ export type ReportApplyResult = {
 
 export type ReportListRequest = {
   readonly workspacePath: string;
+};
+
+export type ReportMaterializeFromAgentTaskRequest = {
+  readonly workspacePath: string;
+  readonly taskId: string;
+  readonly actor: string;
+  readonly reportKind: string;
+  readonly session?: string | null;
+  readonly outputPath?: string;
+  readonly reason?: string;
+};
+
+export type ReportMaterializeFromAgentTaskResult = {
+  readonly artifactPath: string;
+  readonly sourceTaskResultPath: string;
+  readonly write: ArtifactWriteSummary;
 };
 
 export type ReportListResult = {
@@ -259,6 +282,48 @@ export async function applyReportArtifact(request: ReportApplyRequest): Promise<
     reportPath: write.path,
     reportHash: contentHash(content),
     sourceArtifactPath: request.artifactPath,
+    write: summarizeWrite(write)
+  };
+}
+
+export async function materializeReportArtifactFromAgentTask(
+  request: ReportMaterializeFromAgentTaskRequest
+): Promise<ReportMaterializeFromAgentTaskResult> {
+  await requireAnyCapability(request.workspacePath, request.actor, [
+    REPORT_RENDER_CAPABILITY,
+    PROJECT_MANAGE_CAPABILITY
+  ]);
+  const output = await readCompletedAgentTaskDomainOutput({
+    workspacePath: request.workspacePath,
+    taskId: request.taskId
+  });
+  requireWorkflowOutputKind(output, "novelfabric.workflow.report-output");
+  const citationEvidence = await readCitationEvidence(request.workspacePath, output.citations);
+  assertSourceAnchorsGrounded(output.sourceAnchors, citationEvidence, output.resultPath);
+  const markdown = requireMarkdownOutput(output, "Report markdown");
+  const taskResultCitation: ArtifactCitation = { path: output.resultPath, hash: output.resultHash };
+  const artifact: NovelFabricReportArtifact = {
+    kind: "novelfabric.report.artifact",
+    version: 1,
+    reportKind: request.reportKind,
+    session: request.session ?? null,
+    title: output.title ?? `${request.reportKind} report`,
+    markdown: `${markdown}\n\n## Source anchors\n${output.sourceAnchors.map((anchor) => `- ${anchor}`).join("\n")}`,
+    citations: [taskResultCitation, ...citationEvidence]
+  };
+  const artifactPath =
+    request.outputPath ??
+    `reports/artifacts/${safePathSegment(request.reportKind)}-${shortHash(output.resultHash)}.json`;
+  const write = await writeWorkspaceFile({
+    workspacePath: request.workspacePath,
+    path: artifactPath,
+    content: stableJson(artifact),
+    actor: request.actor,
+    reason: request.reason ?? "report materialize from agent task"
+  });
+  return {
+    artifactPath: write.path,
+    sourceTaskResultPath: output.resultPath,
     write: summarizeWrite(write)
   };
 }

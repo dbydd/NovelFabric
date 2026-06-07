@@ -1,3 +1,10 @@
+import {
+  assertSourceAnchorsGrounded,
+  readCitationEvidence,
+  readCompletedAgentTaskDomainOutput,
+  requireMarkdownOutput,
+  requireWorkflowOutputKind
+} from "../agent-runtime/materialization.js";
 import { CommandFailure } from "../errors.js";
 import { actorHasCapability, readCapabilityManifest } from "../workspace/capabilities.js";
 import {
@@ -56,6 +63,20 @@ export type WritingApplyDraftResult = {
 export type WritingReviewRequest = {
   readonly workspacePath: string;
   readonly chapterPath: string;
+};
+
+export type WritingMaterializeFromAgentTaskRequest = {
+  readonly workspacePath: string;
+  readonly taskId: string;
+  readonly actor: string;
+  readonly outputPath?: string;
+  readonly reason?: string;
+};
+
+export type WritingMaterializeFromAgentTaskResult = {
+  readonly draftPath: string;
+  readonly sourceTaskResultPath: string;
+  readonly write: ArtifactWriteSummary;
 };
 
 export type WritingReviewResult = ValidationResult & {
@@ -289,6 +310,52 @@ export async function applyWritingDraft(
     sourceDraftPath: request.draftPath,
     write: summarizeWrite(write)
   };
+}
+
+export async function materializeWritingDraftFromAgentTask(
+  request: WritingMaterializeFromAgentTaskRequest
+): Promise<WritingMaterializeFromAgentTaskResult> {
+  await requireAnyCapability(request.workspacePath, request.actor, [
+    WRITING_DRAFT_CAPABILITY,
+    PROJECT_MANAGE_CAPABILITY
+  ]);
+  const output = await readCompletedAgentTaskDomainOutput({
+    workspacePath: request.workspacePath,
+    taskId: request.taskId
+  });
+  requireWorkflowOutputKind(output, "novelfabric.workflow.writing-output");
+  const citationEvidence = await readCitationEvidence(request.workspacePath, output.citations);
+  assertSourceAnchorsGrounded(output.sourceAnchors, citationEvidence, output.resultPath);
+  const markdown = requireMarkdownOutput(output, "Writing draft markdown");
+  const draft: NovelFabricWritingDraft = {
+    kind: "novelfabric.writing.draft",
+    version: 1,
+    title: output.title ?? `Draft ${shortHash(output.resultHash)}`,
+    markdown: `${markdown}\n\n## Source anchors\n${output.sourceAnchors.map((anchor) => `- ${anchor}`).join("\n")}`,
+    citations: [{ path: output.resultPath, hash: output.resultHash }, ...citationEvidence]
+  };
+  const draftPath =
+    request.outputPath ??
+    `writing/drafts/${safePathSegment(draft.title)}-${shortHash(output.resultHash)}.json`;
+  const write = await writeWorkspaceFile({
+    workspacePath: request.workspacePath,
+    path: draftPath,
+    content: stableJson(draft),
+    actor: request.actor,
+    reason: request.reason ?? "writing materialize from agent task"
+  });
+  return {
+    draftPath: write.path,
+    sourceTaskResultPath: output.resultPath,
+    write: summarizeWrite(write)
+  };
+}
+
+export async function validateWritingDraftArtifact(
+  workspacePath: string,
+  draftPath: string
+): Promise<ValidationResult> {
+  return validateDraftArtifact(workspacePath, draftPath);
 }
 
 export async function reviewChapter(request: WritingReviewRequest): Promise<WritingReviewResult> {

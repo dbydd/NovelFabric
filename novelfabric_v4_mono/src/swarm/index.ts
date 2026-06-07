@@ -14,6 +14,14 @@ import {
   type SimulationWriteSummary,
   type SwarmRoundStage
 } from "../simulation/index.js";
+import {
+  assertMaterializedContent,
+  assertSourceAnchorsGrounded,
+  readCitationEvidence,
+  readCompletedAgentTaskDomainOutput,
+  requireActionTextOutput,
+  requireWorkflowOutputKind
+} from "../agent-runtime/materialization.js";
 import { readWorkspaceFile, writeWorkspaceFile } from "../workspace/files.js";
 
 export const SWARM_TASK_SCHEMA_VERSION = "novelfabric.swarm.task.v1";
@@ -97,6 +105,27 @@ export type SwarmRoundFinalizeRequest = {
   readonly round: number;
   readonly actor: string;
   readonly reason?: string;
+};
+
+export type SwarmMaterializeFromAgentTaskRequest = {
+  readonly workspacePath: string;
+  readonly taskId: string;
+  readonly session: string;
+  readonly round: number;
+  readonly agent: string;
+  readonly actor: string;
+  readonly outputPath?: string;
+  readonly reason?: string;
+};
+
+export type SwarmMaterializeFromAgentTaskResult = {
+  readonly sessionId: string;
+  readonly round: number;
+  readonly agent: string;
+  readonly stage: SwarmRoundStage;
+  readonly artifactPath: string;
+  readonly sourceTaskResultPath: string;
+  readonly write: SimulationWriteSummary;
 };
 
 export type SwarmRoundFinalizeResult = {
@@ -220,6 +249,8 @@ export async function validateSwarmOutput(
         message: "Swarm output action text must be replaced before apply."
       });
     }
+    const citationHashIssues = await validateCitationHashes(request.workspacePath, read.content);
+    issues.push(...citationHashIssues);
     return {
       valid: issues.length === 0,
       artifactPath: read.path,
@@ -264,6 +295,63 @@ export async function applySwarmOutput(
     ...(request.reason === undefined ? {} : { reason: request.reason })
   });
   return { ...appended, artifactPath: request.artifactPath };
+}
+
+export async function materializeSwarmOutputFromAgentTask(
+  request: SwarmMaterializeFromAgentTaskRequest
+): Promise<SwarmMaterializeFromAgentTaskResult> {
+  assertPositiveInteger(request.round, "round");
+  const session = await inspectSimulationSession({
+    workspacePath: request.workspacePath,
+    session: request.session
+  });
+  const agent = normalizeAgent(request.agent);
+  const stage = stageForAgent(agent);
+  const output = await readCompletedAgentTaskDomainOutput({
+    workspacePath: request.workspacePath,
+    taskId: request.taskId
+  });
+  requireWorkflowOutputKind(output, "novelfabric.workflow.swarm-output");
+  const citationEvidence = await readCitationEvidence(request.workspacePath, output.citations);
+  assertSourceAnchorsGrounded(output.sourceAnchors, citationEvidence, output.resultPath);
+  const taskResultCitation = { path: output.resultPath, hash: output.resultHash };
+  const actionText = requireActionTextOutput(output, "Swarm action text");
+  const proposal = {
+    schemaVersion: SIMULATION_TURN_PROPOSAL_SCHEMA_VERSION,
+    sessionId: session.session.id,
+    round: request.round,
+    agent,
+    stage,
+    summary: assertMaterializedContent(output.summary, "Swarm summary"),
+    action: {
+      kind: "pi-agent-proposal",
+      text: actionText
+    },
+    citations: citationEvidence.map((citation) => citation.path),
+    evidence: [taskResultCitation.path, ...citationEvidence.map((citation) => citation.path)],
+    createdFromTask: output.resultPath,
+    sourceAnchors: output.sourceAnchors,
+    citationHashes: [taskResultCitation, ...citationEvidence]
+  } as const;
+  const artifactPath =
+    request.outputPath ??
+    `${roundDirectoryPath(session.session.id, request.round)}/proposals/${safePathSegment(agent)}-materialized.json`;
+  const write = await writeWorkspaceFile({
+    workspacePath: request.workspacePath,
+    path: artifactPath,
+    content: stableJson(proposal),
+    actor: request.actor,
+    reason: request.reason ?? "swarm materialize from agent task"
+  });
+  return {
+    sessionId: session.session.id,
+    round: request.round,
+    agent,
+    stage,
+    artifactPath: write.path,
+    sourceTaskResultPath: output.resultPath,
+    write: summarizeWrite(write)
+  };
 }
 
 export async function finalizeSwarmRound(
@@ -334,6 +422,43 @@ function requiredResultString(value: string | undefined, label: string): string 
     "invalid_swarm_output",
     `Validated swarm output did not include ${label}.`
   );
+}
+
+async function validateCitationHashes(
+  workspacePath: string,
+  artifactContent: string
+): Promise<SwarmOutputIssue[]> {
+  const parsed = JSON.parse(artifactContent) as unknown;
+  if (!isRecord(parsed)) return [];
+  const rawCitationHashes = parsed["citationHashes"];
+  if (!Array.isArray(rawCitationHashes)) return [];
+  const issues: SwarmOutputIssue[] = [];
+  for (const item of rawCitationHashes) {
+    if (!isRecord(item)) continue;
+    const citationPath = item["path"];
+    const citationHash = item["hash"];
+    if (typeof citationPath !== "string" || typeof citationHash !== "string") continue;
+    try {
+      const read = await readWorkspaceFile({ workspacePath, path: citationPath });
+      if (read.hash !== citationHash) {
+        issues.push({
+          code: "citation_hash_mismatch",
+          message: `Citation hash for '${citationPath}' does not match current workspace content.`
+        });
+      }
+    } catch (error) {
+      issues.push({
+        code: "citation_unreadable",
+        message:
+          error instanceof Error ? error.message : `Could not read citation '${citationPath}'.`
+      });
+    }
+  }
+  return issues;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function summarizeWrite(write: {
