@@ -92,7 +92,12 @@ export type AgentTaskPackageFiles = {
   readonly events: string;
 };
 
-export type AgentTaskResultStatus = "pending-pi-runtime" | "run-recorded" | "completed" | "aborted";
+export type AgentTaskResultStatus =
+  | "pending-pi-runtime"
+  | "run-recorded"
+  | "completed"
+  | "aborted"
+  | "failed";
 
 export type AgentTaskOutput = JsonObject & {
   readonly kind: "novelfabric.agent.task.output";
@@ -206,10 +211,18 @@ export type AgentTaskEvent = JsonObject & {
     | "pi-started"
     | "pi-completed"
     | "pi-sdk-event"
-    | "aborted";
+    | "aborted"
+    | "failed";
   readonly actor: string;
   readonly timestamp: string;
   readonly message: string;
+  readonly runtimeEventType?: PiSdkNormalizedEvent["type"];
+  readonly toolName?: string;
+  readonly denialCode?: string;
+  readonly valid?: boolean;
+  readonly textBytes?: number;
+  readonly terminal?: boolean;
+  readonly sequence?: number;
 };
 
 export type AgentTaskValidationIssue = {
@@ -421,99 +434,146 @@ export async function runAgentTask(request: AgentTaskRunRequest): Promise<AgentT
   if (inspected.result.status === "aborted") {
     throw new CommandFailure("agent_task_aborted", `Task '${taskId}' has been aborted.`);
   }
-  const piSdk = await checkPiSdkAvailabilityOrThrow();
-  const runtime = await loadPiWorkflowRuntime();
-  const prompt = buildPiTaskPrompt(inspected);
-  const startedAt = new Date().toISOString();
-  const startedEvent = taskEvent({
-    taskId,
-    actor: request.actor,
-    type: "pi-started",
-    timestamp: startedAt,
-    message: `Launching pi runtime with provider '${runtime.provider}' and workflow model '${runtime.model}'.`
-  });
-  const engine = resolvePiRuntimeEngine(request.runtime);
-  const pi = await runPiEngineUntilSchemaValid({
-    engine,
-    runtime,
-    prompt,
-    taskId,
-    workspacePath: request.workspacePath,
-    actor: request.actor,
-    outputSchema: inspected.outputSchema,
-    resultPath: paths.files.result
-  });
-  const output = pi.output;
-  const completedAt = new Date().toISOString();
-  const runtimeEvidence: AgentTaskRuntimeEvidence = {
-    runtimeRoot: runtime.runtimeRoot,
-    provider: runtime.provider,
-    model: runtime.model,
-    ...(runtime.thinking === undefined ? {} : { thinking: runtime.thinking }),
-    modelPurpose: "production",
-    piBin: runtime.piBin,
-    engine,
-    toolPolicy: engine === "sdk" ? "sdk-web-safe-custom-tools" : "--no-tools",
-    sessionPolicy: engine === "sdk" ? "workspace-session-dir" : "--no-session",
-    contextPolicy: engine === "sdk" ? "sdk-no-context-files" : "--no-context-files",
-    stdoutBytes: Buffer.byteLength(pi.stdout, "utf8"),
-    stderrBytes: Buffer.byteLength(pi.stderr, "utf8"),
-    ...(pi.sessionDirectory === undefined ? {} : { sessionDirectory: pi.sessionDirectory }),
-    ...(pi.sessionId === undefined ? {} : { sessionId: pi.sessionId }),
-    ...(pi.sessionFile === undefined ? {} : { sessionFile: pi.sessionFile })
-  };
-  const result: AgentTaskResult = {
-    kind: "novelfabric.agent.task.result",
-    version: 1,
-    taskId,
-    status: "completed",
-    runtime: request.runtime,
-    actor: request.actor,
-    updatedAt: completedAt,
-    piSdk,
-    runtimeEvidence,
-    output,
-    notes: [
-      `Launched the NovelFabric-owned pi runtime configuration through the ${engine} engine with ${engine === "sdk" ? "only NovelFabric web-safe custom tools enabled" : "tools disabled"}.`,
-      "The model could not write files directly; NovelFabric captured model output and wrote this result through the shared workspace file service."
-    ]
-  };
-  const completedEvent = taskEvent({
-    taskId,
-    actor: request.actor,
-    type: "pi-completed",
-    timestamp: completedAt,
-    message: `pi ${engine} runtime completed with non-empty ${output.format} output.`
-  });
-  const writes = [
-    summarizeWrite(
-      await writeWorkspaceFile({
-        workspacePath: request.workspacePath,
-        path: paths.files.result,
-        content: stableJson(result),
-        actor: request.actor,
-        reason: request.reason ?? "agent run pi result record"
-      })
-    ),
-    summarizeWrite(
-      await appendWorkspaceFile({
-        workspacePath: request.workspacePath,
-        path: paths.files.events,
-        content: `${jsonLine(startedEvent)}\n${pi.normalizedEvents.map((event) => jsonLine(taskSdkEvent(taskId, request.actor, event))).join("\n")}${pi.normalizedEvents.length === 0 ? "" : "\n"}${jsonLine(completedEvent)}\n`,
-        actor: request.actor,
-        reason: request.reason ?? "agent run pi event append"
-      })
-    )
-  ];
-  return {
-    taskId,
-    packagePath: paths.packagePath,
-    status: result.status,
-    piSdk,
-    resultPath: paths.files.result,
-    eventsPath: paths.files.events,
-    writes
-  };
+  let piSdk: PiSdkAvailability = unavailablePiSdkRecord("not_checked");
+  try {
+    piSdk = await checkPiSdkAvailabilityOrThrow();
+    const runtime = await loadPiWorkflowRuntime();
+    const prompt = buildPiTaskPrompt(inspected);
+    const startedAt = new Date().toISOString();
+    const startedEvent = taskEvent({
+      taskId,
+      actor: request.actor,
+      type: "pi-started",
+      timestamp: startedAt,
+      message: `Launching pi runtime with provider '${runtime.provider}' and workflow model '${runtime.model}'.`,
+      sequence: 0
+    });
+    const engine = resolvePiRuntimeEngine(request.runtime);
+    const pi = await runPiEngineUntilSchemaValid({
+      engine,
+      runtime,
+      prompt,
+      taskId,
+      workspacePath: request.workspacePath,
+      actor: request.actor,
+      outputSchema: inspected.outputSchema,
+      resultPath: paths.files.result
+    });
+    const output = pi.output;
+    const completedAt = new Date().toISOString();
+    const runtimeEvidence: AgentTaskRuntimeEvidence = {
+      runtimeRoot: runtime.runtimeRoot,
+      provider: runtime.provider,
+      model: runtime.model,
+      ...(runtime.thinking === undefined ? {} : { thinking: runtime.thinking }),
+      modelPurpose: "production",
+      piBin: runtime.piBin,
+      engine,
+      toolPolicy: engine === "sdk" ? "sdk-web-safe-custom-tools" : "--no-tools",
+      sessionPolicy: engine === "sdk" ? "workspace-session-dir" : "--no-session",
+      contextPolicy: engine === "sdk" ? "sdk-no-context-files" : "--no-context-files",
+      stdoutBytes: Buffer.byteLength(pi.stdout, "utf8"),
+      stderrBytes: Buffer.byteLength(pi.stderr, "utf8"),
+      ...(pi.sessionDirectory === undefined ? {} : { sessionDirectory: pi.sessionDirectory }),
+      ...(pi.sessionId === undefined ? {} : { sessionId: pi.sessionId }),
+      ...(pi.sessionFile === undefined ? {} : { sessionFile: pi.sessionFile })
+    };
+    const result: AgentTaskResult = {
+      kind: "novelfabric.agent.task.result",
+      version: 1,
+      taskId,
+      status: "completed",
+      runtime: request.runtime,
+      actor: request.actor,
+      updatedAt: completedAt,
+      piSdk,
+      runtimeEvidence,
+      output,
+      notes: [
+        `Launched the NovelFabric-owned pi runtime configuration through the ${engine} engine with ${engine === "sdk" ? "only NovelFabric web-safe custom tools enabled" : "tools disabled"}.`,
+        "The model could not write files directly; NovelFabric captured model output and wrote this result through the shared workspace file service."
+      ]
+    };
+    const completedEvent = taskEvent({
+      taskId,
+      actor: request.actor,
+      type: "pi-completed",
+      timestamp: completedAt,
+      message: `pi ${engine} runtime completed with non-empty ${output.format} output.`,
+      terminal: true,
+      sequence: pi.normalizedEvents.length + 1
+    });
+    const sdkEventLines = pi.normalizedEvents.map((event, index) =>
+      jsonLine(taskSdkEvent(taskId, request.actor, event, index + 1))
+    );
+    const writes = [
+      summarizeWrite(
+        await writeWorkspaceFile({
+          workspacePath: request.workspacePath,
+          path: paths.files.result,
+          content: stableJson(result),
+          actor: request.actor,
+          reason: request.reason ?? "agent run pi result record"
+        })
+      ),
+      summarizeWrite(
+        await appendWorkspaceFile({
+          workspacePath: request.workspacePath,
+          path: paths.files.events,
+          content: `${jsonLine(startedEvent)}\n${sdkEventLines.join("\n")}${sdkEventLines.length === 0 ? "" : "\n"}${jsonLine(completedEvent)}\n`,
+          actor: request.actor,
+          reason: request.reason ?? "agent run pi event append"
+        })
+      )
+    ];
+    return {
+      taskId,
+      packagePath: paths.packagePath,
+      status: result.status,
+      piSdk,
+      resultPath: paths.files.result,
+      eventsPath: paths.files.events,
+      writes
+    };
+  } catch (error) {
+    const failedAt = new Date().toISOString();
+    const result: AgentTaskResult = {
+      kind: "novelfabric.agent.task.result",
+      version: 1,
+      taskId,
+      status: "failed",
+      runtime: request.runtime,
+      actor: request.actor,
+      updatedAt: failedAt,
+      piSdk,
+      notes: [runtimeFailureNote(error)]
+    };
+    const event = taskEvent({
+      taskId,
+      actor: request.actor,
+      type: "failed",
+      timestamp: failedAt,
+      message: runtimeFailureNote(error),
+      runtimeEventType: "session.failed",
+      terminal: true,
+      sequence: 0
+    });
+    await writeWorkspaceFile({
+      workspacePath: request.workspacePath,
+      path: paths.files.result,
+      content: stableJson(result),
+      actor: request.actor,
+      reason: request.reason ?? "agent run failed result record"
+    });
+    await appendWorkspaceFile({
+      workspacePath: request.workspacePath,
+      path: paths.files.events,
+      content: `${jsonLine(event)}\n`,
+      actor: request.actor,
+      reason: request.reason ?? "agent run failed event append"
+    });
+    throw error;
+  }
 }
 
 export async function validateAgentOutput(
@@ -1287,7 +1347,8 @@ function parseTaskResult(content: string, filePath: string): AgentTaskResult {
     status !== "pending-pi-runtime" &&
     status !== "run-recorded" &&
     status !== "completed" &&
-    status !== "aborted"
+    status !== "aborted" &&
+    status !== "failed"
   ) {
     throw new CommandFailure(
       "invalid_agent_task_result",
@@ -1359,10 +1420,17 @@ function defaultOutputSchema(): JsonObject {
 
 function taskEvent(request: {
   readonly taskId: string;
-  readonly type: "created" | "run-recorded" | "pi-started" | "pi-completed" | "aborted";
+  readonly type: AgentTaskEvent["type"];
   readonly actor: string;
   readonly timestamp: string;
   readonly message: string;
+  readonly runtimeEventType?: PiSdkNormalizedEvent["type"];
+  readonly toolName?: string;
+  readonly denialCode?: string;
+  readonly valid?: boolean;
+  readonly textBytes?: number;
+  readonly terminal?: boolean;
+  readonly sequence?: number;
 }): AgentTaskEvent {
   return {
     kind: "novelfabric.agent.task.event",
@@ -1371,20 +1439,82 @@ function taskEvent(request: {
     type: request.type,
     actor: request.actor,
     timestamp: request.timestamp,
-    message: request.message
+    message: request.message,
+    ...(request.runtimeEventType === undefined
+      ? {}
+      : { runtimeEventType: request.runtimeEventType }),
+    ...(request.toolName === undefined ? {} : { toolName: request.toolName }),
+    ...(request.denialCode === undefined ? {} : { denialCode: request.denialCode }),
+    ...(request.valid === undefined ? {} : { valid: request.valid }),
+    ...(request.textBytes === undefined ? {} : { textBytes: request.textBytes }),
+    ...(request.terminal === undefined ? {} : { terminal: request.terminal }),
+    ...(request.sequence === undefined ? {} : { sequence: request.sequence })
   };
 }
 
-function taskSdkEvent(taskId: string, actor: string, event: PiSdkNormalizedEvent): AgentTaskEvent {
-  return {
-    kind: "novelfabric.agent.task.event",
-    version: 1,
+function taskSdkEvent(
+  taskId: string,
+  actor: string,
+  event: PiSdkNormalizedEvent,
+  sequence: number
+): AgentTaskEvent {
+  return taskEvent({
     taskId,
     type: "pi-sdk-event",
     actor,
-    timestamp: new Date().toISOString(),
-    message: summarizePiSdkEvent(event)
-  };
+    timestamp: event.timestamp ?? new Date().toISOString(),
+    message: summarizePiSdkEvent(event),
+    runtimeEventType: event.type,
+    ...structuredPiSdkEventFields(event),
+    sequence
+  });
+}
+
+function structuredPiSdkEventFields(event: PiSdkNormalizedEvent): Partial<AgentTaskEvent> {
+  if (event.type === "model.output") {
+    return { textBytes: Buffer.byteLength(event.text, "utf8") };
+  }
+  if (event.type === "tool.requested") {
+    return { toolName: event.toolName };
+  }
+  if (event.type === "tool.denied") {
+    return { toolName: event.toolName, denialCode: "web_safe_policy_denied" };
+  }
+  if (event.type === "validation.completed") {
+    return { valid: event.valid };
+  }
+  if (event.type === "session.completed" || event.type === "session.failed") {
+    return { terminal: true };
+  }
+  return {};
+}
+
+const MAX_RUNTIME_FAILURE_NOTE_LENGTH = 500;
+
+function runtimeFailureNote(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  return `pi runtime failed: ${sanitizeDurableRuntimeFailureText(raw)}`;
+}
+
+function sanitizeDurableRuntimeFailureText(value: string): string {
+  const sanitized = value
+    .replace(/\.novelfabric\/tasks\/[^\s"'`)]+/gu, "[internal-task-path]")
+    .replace(
+      /\b(?:result|events|task|input|context-pack|output\.schema|allowed-commands)\.jsonl?\b/gu,
+      "[internal-file]"
+    )
+    .replace(/\b(?:sessionFile|rawText|parsedJson)\b(?:\s*=\s*[^\s"'`)]+)?/giu, "[redacted]")
+    .replace(/Bearer\s+[^\s"']+/giu, "Bearer [redacted]")
+    .replace(/sk-[A-Za-z0-9_-]+/gu, "[redacted-secret]")
+    .replace(/\b(?:token|secret|api[_-]?key)\b\s*[:=]\s*[^\s"'`)]+/giu, "[redacted-secret]")
+    .replace(/\b(?:token|secret)-[A-Za-z0-9_-]+\b/giu, "[redacted-secret]")
+    .replace(
+      /(?:[A-Za-z]:\\|\/)(?:[^\s"'`{}[\],;:|]+[\\/])+[^\s"'`{}[\],;:|]*/gu,
+      "[internal-path]"
+    )
+    .trim();
+  if (sanitized.length <= MAX_RUNTIME_FAILURE_NOTE_LENGTH) return sanitized;
+  return `${sanitized.slice(0, MAX_RUNTIME_FAILURE_NOTE_LENGTH - 1)}…`;
 }
 
 function summarizePiSdkEvent(event: PiSdkNormalizedEvent): string {
@@ -1394,7 +1524,8 @@ function summarizePiSdkEvent(event: PiSdkNormalizedEvent): string {
   if (event.type === "tool.denied") return `sdk tool denied: ${event.toolName}`;
   if (event.type === "validation.completed")
     return `sdk validation completed: ${event.valid ? "valid" : "invalid"}`;
-  if (event.type === "session.failed") return `sdk session failed: ${event.message}`;
+  if (event.type === "session.failed")
+    return `sdk session failed: ${sanitizeDurableRuntimeFailureText(event.message)}`;
   return `sdk ${event.type}`;
 }
 

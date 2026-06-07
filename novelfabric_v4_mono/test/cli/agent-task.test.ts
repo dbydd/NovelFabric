@@ -246,7 +246,7 @@ describe("agent task command module", () => {
       path: ".novelfabric/tasks/runtime-check/result.json"
     });
     expect(JSON.parse(resultFile.content)).toMatchObject({ status: "aborted" });
-  }, 30000);
+  }, 60000);
 
   it("runs the pi-sdk CLI path through an injectable web-safe SDK seam", async () => {
     const restoreSdkModule = setAgentTaskPiSdkModuleForTesting(

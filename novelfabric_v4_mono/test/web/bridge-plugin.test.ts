@@ -578,6 +578,166 @@ describe("NovelFabric web bridge agent task routes", () => {
     expect(originalAfter).toBe(originalBefore);
   });
 
+  it("streams structured runtime subtypes, supports cursor, and emits terminal task events", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    await writeTestRuntimeSettings(workspacePath);
+    const streamOutputText =
+      '{"kind":"novelfabric.web.stream-output","version":1,"summary":"structured stream output"}';
+    const restoreSdkModule = setAgentTaskPiSdkModuleForTesting(
+      fakePiSdkModuleForWebTest({
+        outputText: streamOutputText,
+        eventsBeforeOutput: [{ type: "tool.denied", toolName: "bash", reason: "raw tools denied" }]
+      })
+    );
+    try {
+      await createAgentTask({
+        workspacePath,
+        actor: "main_agent",
+        title: "Stream structured task",
+        instruction: "Return stream JSON.",
+        taskId: "stream-structured-task",
+        outputSchemaJson: JSON.stringify({
+          type: "object",
+          required: ["kind", "version", "summary"],
+          properties: {
+            kind: { type: "string" },
+            version: { type: "number" },
+            summary: { type: "string", containsText: "structured stream output" }
+          }
+        })
+      });
+
+      const run = await postBridge("/api/bridge/agent/tasks/run", {
+        workspacePath,
+        actor: "main_agent",
+        task: "stream-structured-task"
+      });
+      expect(run.status).toBe(200);
+
+      const stream = await postBridgeText("/api/bridge/agent/tasks/stream", {
+        workspacePath,
+        actor: "main_agent",
+        task: "stream-structured-task",
+        cursor: 2
+      });
+
+      expect(stream.status).toBe(200);
+      expect(stream.contentType).toContain("text/event-stream");
+      expect(stream.body).toContain("event: snapshot");
+      expect(stream.body).toContain("event: task.terminal");
+      const snapshot = parseStreamFrame(stream.body, "snapshot");
+      expect(snapshot.ok).toBe(true);
+      if (snapshot.ok) {
+        expect(snapshot.data["cursor"]).toBe(2);
+        expect(snapshot.data["nextCursor"]).toBeGreaterThan(2);
+        expect(snapshot.data["events"]).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "pi-sdk-event",
+              runtimeEventType: "tool.denied",
+              toolName: "bash",
+              denialCode: "web_safe_policy_denied"
+            }),
+            expect.objectContaining({
+              type: "pi-sdk-event",
+              runtimeEventType: "model.output",
+              textBytes: Buffer.byteLength(streamOutputText, "utf8")
+            }),
+            expect.objectContaining({
+              type: "pi-completed",
+              terminal: true
+            })
+          ])
+        );
+        expect(snapshot.data["events"]).not.toEqual(
+          expect.arrayContaining([expect.objectContaining({ type: "created" })])
+        );
+      }
+      const terminal = parseStreamFrame(stream.body, "task.terminal");
+      expect(terminal.ok).toBe(true);
+      if (terminal.ok) {
+        expect(terminal.data).toMatchObject({
+          taskId: "stream-structured-task",
+          status: "completed"
+        });
+      }
+      expect(stream.body).not.toContain("message");
+      expect(stream.body).not.toContain("structured stream output");
+      expectNoInternalTaskPaths(stream.body, workspacePath);
+    } finally {
+      restoreSdkModule();
+    }
+  });
+
+  it("writes durable failed result and event records when web task run fails", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    await writeTestRuntimeSettings(workspacePath);
+    const leakySdkError = [
+      `SDK failed at ${path.join(workspacePath, ".novelfabric", "tasks", "failing-web-task", "result.json")}`,
+      "sessionFile=/tmp/novelfabric-failing-session.jsonl",
+      "events.jsonl task.json",
+      "Bearer secret-token sk-secret-token",
+      "secret=internal-secret-token"
+    ].join(" | ");
+    const restoreSdkModule = setAgentTaskPiSdkModuleForTesting(
+      fakeFailingPiSdkModuleForWebTest(leakySdkError)
+    );
+    try {
+      await createAgentTask({
+        workspacePath,
+        actor: "main_agent",
+        title: "Failing web task",
+        instruction: "Return JSON.",
+        taskId: "failing-web-task",
+        outputSchemaJson: JSON.stringify({ type: "object" })
+      });
+
+      const response = await postBridge("/api/bridge/agent/tasks/run", {
+        workspacePath,
+        actor: "main_agent",
+        task: "failing-web-task"
+      });
+
+      expect(response.status).toBeGreaterThanOrEqual(400);
+      expect(response.body.ok).toBe(false);
+      const serializedResponse = JSON.stringify(response.body);
+      expect(serializedResponse).not.toContain(workspacePath);
+      expect(serializedResponse).not.toContain(".novelfabric/tasks/failing-web-task/result.json");
+      expect(serializedResponse).not.toContain("/tmp/novelfabric-failing-session.jsonl");
+      expect(serializedResponse).not.toContain("secret-token");
+      expect(serializedResponse).not.toContain("sk-secret-token");
+      expect(serializedResponse).not.toContain("internal-secret-token");
+      const resultFile = await fs.readFile(
+        path.join(workspacePath, ".novelfabric", "tasks", "failing-web-task", "result.json"),
+        "utf8"
+      );
+      expect(resultFile).toContain('"status": "failed"');
+      expect(resultFile).not.toContain(workspacePath);
+      expect(resultFile).not.toContain(".novelfabric/tasks/failing-web-task/result.json");
+      expect(resultFile).not.toContain("/tmp/novelfabric-failing-session.jsonl");
+      expect(resultFile).not.toContain("secret-token");
+      expect(resultFile).not.toContain("sk-secret-token");
+      expect(resultFile).not.toContain("internal-secret-token");
+      const eventsFile = await fs.readFile(
+        path.join(workspacePath, ".novelfabric", "tasks", "failing-web-task", "events.jsonl"),
+        "utf8"
+      );
+      expect(eventsFile).toContain('"type":"failed"');
+      expect(eventsFile).toContain('"runtimeEventType":"session.failed"');
+      expect(eventsFile).toContain('"terminal":true');
+      expect(eventsFile).not.toContain(workspacePath);
+      expect(eventsFile).not.toContain(".novelfabric/tasks/failing-web-task/result.json");
+      expect(eventsFile).not.toContain("/tmp/novelfabric-failing-session.jsonl");
+      expect(eventsFile).not.toContain("secret-token");
+      expect(eventsFile).not.toContain("sk-secret-token");
+      expect(eventsFile).not.toContain("internal-secret-token");
+    } finally {
+      restoreSdkModule();
+    }
+  });
+
   it("streams a sanitized event snapshot without raw messages or internal paths", async () => {
     const workspacePath = await tempWorkspace();
     configureBridge({ workspacePath, actor: "main_agent" });
@@ -756,6 +916,16 @@ describe("NovelFabric web bridge runtime session prepare route", () => {
 
 function sha256(content: string): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+function parseStreamFrame(body: string, eventName: string): GenericBridgeEnvelope {
+  const marker = `event: ${eventName}\ndata: `;
+  const start = body.indexOf(marker);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const dataStart = start + marker.length;
+  const dataEnd = body.indexOf("\n\n", dataStart);
+  expect(dataEnd).toBeGreaterThan(dataStart);
+  return JSON.parse(body.slice(dataStart, dataEnd)) as GenericBridgeEnvelope;
 }
 
 function expectNoInternalTaskPaths(value: unknown, workspacePath?: string): void {
@@ -1015,8 +1185,32 @@ async function closeServer(server: Server): Promise<void> {
   });
 }
 
+function fakeFailingPiSdkModuleForWebTest(errorMessage: string): PiSdkAgentSessionModule {
+  return {
+    ...fakePiSdkModuleForWebTest({ outputText: "{}" }),
+    createAgentSession: () =>
+      Promise.resolve({
+        session: {
+          sessionId: "sdk-failing-web-session",
+          sessionFile: "/tmp/novelfabric-failing-session.jsonl",
+          messages: [],
+          subscribe() {
+            return () => undefined;
+          },
+          prompt() {
+            return Promise.reject(new Error(errorMessage));
+          },
+          dispose() {
+            return undefined;
+          }
+        }
+      })
+  };
+}
+
 function fakePiSdkModuleForWebTest(input: {
   readonly outputText: string;
+  readonly eventsBeforeOutput?: readonly Record<string, unknown>[];
 }): PiSdkAgentSessionModule {
   let emit: (event: unknown) => void = () => undefined;
   return {
@@ -1031,6 +1225,9 @@ function fakePiSdkModuleForWebTest(input: {
             return () => undefined;
           },
           prompt() {
+            for (const event of input.eventsBeforeOutput ?? []) {
+              emit(event);
+            }
             emit({ type: "model_output", text: input.outputText });
             return Promise.resolve();
           },

@@ -73,6 +73,10 @@ const agentTaskReadRequestSchema = z.object({
   task: z.string().min(1)
 });
 
+const agentTaskStreamRequestSchema = agentTaskReadRequestSchema.extend({
+  cursor: z.number().int().nonnegative().optional()
+});
+
 const agentTaskLifecycleRequestSchema = agentTaskReadRequestSchema.extend({
   reason: z.string().min(1).optional()
 });
@@ -338,12 +342,16 @@ export async function handleBridgeRequest(
     }
 
     if (request.method === "POST" && routePath === "/api/bridge/agent/tasks/stream") {
-      const body = agentTaskReadRequestSchema.parse(await readJsonBody(request));
+      const body = agentTaskStreamRequestSchema.parse(await readJsonBody(request));
       assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
       assertBridgeActorMatches(body.actor, bridgeActor());
       assertBridgeAgentTaskIdSafe(body.task);
       const inspected = await inspectAgentTask({ workspacePath, task: body.task });
-      writeAgentTaskEventStream(response, summarizeAgentTaskEventsResult(inspected));
+      writeAgentTaskEventStream(
+        response,
+        summarizeAgentTaskEventsResult(inspected, body.cursor ?? 0),
+        inspected.result.status
+      );
       return;
     }
 
@@ -429,17 +437,26 @@ function summarizeAgentTaskStatusResult(
   };
 }
 
-function summarizeAgentTaskEventsResult(inspected: AgentTaskInspectResult): {
+function summarizeAgentTaskEventsResult(
+  inspected: AgentTaskInspectResult,
+  cursor = 0
+): {
   readonly taskId: string;
   readonly eventCount: number;
+  readonly cursor: number;
+  readonly nextCursor: number;
   readonly eventsAvailable: boolean;
   readonly events: ReturnType<typeof summarizeAgentTaskEvent>[];
 } {
+  const boundedCursor = Math.min(Math.max(0, cursor), inspected.events.length);
+  const events = inspected.events.slice(boundedCursor).map(summarizeAgentTaskEvent);
   return {
     taskId: inspected.taskId,
     eventCount: inspected.events.length,
-    eventsAvailable: inspected.events.length > 0,
-    events: inspected.events.map(summarizeAgentTaskEvent)
+    cursor: boundedCursor,
+    nextCursor: inspected.events.length,
+    eventsAvailable: events.length > 0,
+    events
   };
 }
 
@@ -505,12 +522,19 @@ function agentTaskBridgePaths(taskId: string): { readonly contextPack: string } 
 
 function writeAgentTaskEventStream(
   response: ServerResponse,
-  data: ReturnType<typeof summarizeAgentTaskEventsResult>
+  data: ReturnType<typeof summarizeAgentTaskEventsResult>,
+  status: string
 ): void {
   response.statusCode = 200;
   response.setHeader("content-type", "text/event-stream; charset=utf-8");
   response.setHeader("cache-control", "no-cache");
-  response.end(`event: snapshot\ndata: ${JSON.stringify({ ok: true, data })}\n\n`);
+  const frames = [`event: snapshot\ndata: ${JSON.stringify({ ok: true, data })}\n\n`];
+  if (isTerminalAgentTaskStatus(status)) {
+    frames.push(
+      `event: task.terminal\ndata: ${JSON.stringify({ ok: true, data: { taskId: data.taskId, status } })}\n\n`
+    );
+  }
+  response.end(frames.join(""));
 }
 
 function summarizePiSdkAvailability(piSdk: AgentTaskRunResult["piSdk"]): {
@@ -555,13 +579,31 @@ function summarizeAgentTaskEvent(event: AgentTaskEvent): {
   readonly type: AgentTaskEvent["type"];
   readonly actor: string;
   readonly timestamp: string;
+  readonly runtimeEventType?: AgentTaskEvent["runtimeEventType"];
+  readonly toolName?: string;
+  readonly denialCode?: string;
+  readonly valid?: boolean;
+  readonly textBytes?: number;
+  readonly terminal?: boolean;
+  readonly sequence?: number;
 } {
   return {
     taskId: event.taskId,
     type: event.type,
     actor: event.actor,
-    timestamp: event.timestamp
+    timestamp: event.timestamp,
+    ...(event.runtimeEventType === undefined ? {} : { runtimeEventType: event.runtimeEventType }),
+    ...(event.toolName === undefined ? {} : { toolName: event.toolName }),
+    ...(event.denialCode === undefined ? {} : { denialCode: event.denialCode }),
+    ...(event.valid === undefined ? {} : { valid: event.valid }),
+    ...(event.textBytes === undefined ? {} : { textBytes: event.textBytes }),
+    ...(event.terminal === undefined ? {} : { terminal: event.terminal }),
+    ...(event.sequence === undefined ? {} : { sequence: event.sequence })
   };
+}
+
+function isTerminalAgentTaskStatus(status: string): boolean {
+  return status === "completed" || status === "aborted" || status === "failed";
 }
 
 function bridgeWorkspacePath(): string {
@@ -661,9 +703,11 @@ function sanitizeBridgeErrorMessage(message: string): string {
       /\b(?:result|events|task|input|context-pack|output\.schema|allowed-commands)\.jsonl?\b/gu,
       "[internal-file]"
     )
-    .replace(/\b(?:sessionFile|rawText|parsedJson)\b/gu, "[redacted]")
+    .replace(/\b(?:sessionFile|rawText|parsedJson)\b(?:\s*=\s*[^\s"'`)]+)?/giu, "[redacted]")
     .replace(/Bearer\s+[^\s"']+/giu, "Bearer [redacted]")
     .replace(/sk-[A-Za-z0-9_-]+/gu, "[redacted-secret]")
+    .replace(/\b(?:token|secret|api[_-]?key)\b\s*[:=]\s*[^\s"'`)]+/giu, "[redacted-secret]")
+    .replace(/\b(?:token|secret)-[A-Za-z0-9_-]+\b/giu, "[redacted-secret]")
     .replace(
       /(?:[A-Za-z]:\\|\/)(?:[^\s"'`{}[\],;:|]+[\\/])+[^\s"'`{}[\],;:|]*/gu,
       "[internal-path]"
