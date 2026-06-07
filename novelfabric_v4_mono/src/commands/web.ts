@@ -29,7 +29,7 @@ export function addWebCommands(program: Command): void {
         port,
         url,
         backendApi: "disabled",
-        piAgentBridge: "planned-disabled",
+        piAgentBridge: "disabled",
         staticData: "src/web/App.vue inline static data",
         constraints: {
           noBackendCalls: true,
@@ -74,7 +74,7 @@ export function addWebCommands(program: Command): void {
         workspaceRoot: options.workspace,
         actor: options.actor,
         backendApi: "cli-backed-bridge",
-        piAgentBridge: "planned-disabled",
+        piAgentBridge: "web-safe-session-prepare",
         constraints: {
           noDirectWebWrites: true,
           fileWritesUseSharedServices: true,

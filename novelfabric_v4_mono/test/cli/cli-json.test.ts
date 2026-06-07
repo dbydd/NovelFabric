@@ -22,6 +22,7 @@ const cliSuccessEnvelopeSchema = z.object({
     mode: z.string().optional(),
     port: z.number().optional(),
     backendApi: z.string().optional(),
+    piAgentBridge: z.string().optional(),
     outputMode: outputModeSchema.optional()
   })
 });
@@ -83,7 +84,29 @@ describe("novelfabric CLI JSON contract", () => {
       expect(result.envelope.data.mode).toBe("layout-only-demo");
       expect(result.envelope.data.port).toBe(50021);
       expect(result.envelope.data.backendApi).toBe("disabled");
+      expect(result.envelope.data.piAgentBridge).toBe("disabled");
       expect(result.envelope.data.outputMode).toEqual({ format: "json", source: "explicit-flag" });
+    }
+  });
+
+  it("prints web bridge dry-run diagnostics with web-safe pi session prepare status", async () => {
+    const fixture = path.resolve(import.meta.dirname, "../../fixtures/workspaces/valid-basic");
+    const result = await runCli(
+      ["web", "bridge", "--workspace", fixture, "--port", "50023", "--dry-run", "--json"],
+      {
+        HOME: "/Users/dbydd",
+        XDG_CONFIG_HOME: ""
+      }
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.envelope.ok).toBe(true);
+    if (result.envelope.ok) {
+      expect(result.envelope.command).toBe("web bridge");
+      expect(result.envelope.data.mode).toBe("cli-backed-file-bridge");
+      expect(result.envelope.data.port).toBe(50023);
+      expect(result.envelope.data.backendApi).toBe("cli-backed-bridge");
+      expect(result.envelope.data.piAgentBridge).toBe("web-safe-session-prepare");
     }
   });
 

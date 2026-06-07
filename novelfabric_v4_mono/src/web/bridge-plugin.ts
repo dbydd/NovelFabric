@@ -4,6 +4,11 @@ import path from "node:path";
 import type { Plugin } from "vite";
 import { z } from "zod";
 
+import {
+  buildWebSafePiSessionOptions,
+  inspectPiSdkAvailability
+} from "../agent-runtime/pi-adapter.js";
+import { readProcessEnvironment } from "../environment.js";
 import { CommandFailure, isCommandFailure } from "../errors.js";
 import { readWorkspaceFile, readWorkspaceTree, writeWorkspaceFile } from "../workspace/files.js";
 
@@ -21,6 +26,12 @@ const writeRequestSchema = z.object({
   reason: z.string().min(1).optional()
 });
 
+const runtimeSessionPrepareRequestSchema = z.object({
+  workspacePath: z.string().min(1),
+  actor: z.string().min(1),
+  requestedTools: z.array(z.string().min(1)).optional()
+});
+
 export function novelFabricBridgePlugin(): Plugin {
   return {
     name: "novelfabric-local-file-bridge",
@@ -32,14 +43,14 @@ export function novelFabricBridgePlugin(): Plugin {
   };
 }
 
-async function handleBridgeRequest(
+export async function handleBridgeRequest(
   request: IncomingMessage,
   response: ServerResponse,
   next: () => void
 ): Promise<void> {
   const routePath =
     request.url === undefined ? "" : new URL(request.url, "http://localhost").pathname;
-  if (!routePath.startsWith("/api/bridge/files/")) {
+  if (!isBridgeRoute(routePath)) {
     next();
     return;
   }
@@ -91,6 +102,43 @@ async function handleBridgeRequest(
       return;
     }
 
+    if (request.method === "POST" && routePath === "/api/bridge/runtime/session/prepare") {
+      const body = runtimeSessionPrepareRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      const sessionOptions = buildWebSafePiSessionOptions({
+        environment: readProcessEnvironment(),
+        actor: body.actor,
+        ...(body.requestedTools === undefined ? {} : { requestedTools: body.requestedTools })
+      });
+      const sdkAvailability = await inspectPiSdkAvailability();
+      const missingExports = Object.entries(sdkAvailability.exports)
+        .filter(([, available]) => !available)
+        .map(([name]) => name);
+      writeJson(response, 200, {
+        ok: true,
+        data: {
+          actor: body.actor,
+          workspacePath,
+          runtimeRoot: sessionOptions.runtimeRoot,
+          policyProfile: sessionOptions.policyProfile,
+          requestedTools: sessionOptions.requestedTools,
+          allowedTools: sessionOptions.allowedTools,
+          deniedRawTools: sessionOptions.deniedRawTools,
+          valid: sessionOptions.valid,
+          violations: sessionOptions.violations,
+          rawBuiltinToolsEnabled: sessionOptions.rawBuiltinToolsEnabled,
+          sdk: {
+            packageName: sdkAvailability.packageName,
+            available: sdkAvailability.available,
+            version: sdkAvailability.version,
+            missingExports
+          }
+        }
+      });
+      return;
+    }
+
     throw new CommandFailure(
       "bridge_route_not_found",
       `Unsupported bridge route ${request.method ?? "GET"} ${routePath}.`,
@@ -99,6 +147,13 @@ async function handleBridgeRequest(
   } catch (error) {
     writeBridgeError(response, error);
   }
+}
+
+function isBridgeRoute(routePath: string): boolean {
+  return (
+    routePath.startsWith("/api/bridge/files/") ||
+    routePath === "/api/bridge/runtime/session/prepare"
+  );
 }
 
 function bridgeWorkspacePath(): string {
