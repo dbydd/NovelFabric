@@ -83,9 +83,9 @@ describe("pi SDK adapter skeleton", () => {
       "novelfabric_read_file",
       "novelfabric_validate",
       "novelfabric_context_pack",
-      "novelfabric_report"
+      "novelfabric_report",
+      "novelfabric_write_file"
     ]);
-    expect(policy.allowedNovelFabricTools).not.toContain("novelfabric_write_file");
     expect(policy.allowedNovelFabricTools).not.toContain("novelfabric_apply_proposal");
   });
 
@@ -111,14 +111,19 @@ describe("pi SDK adapter skeleton", () => {
     const options = buildWebSafePiSessionOptions({
       environment: makeEnvironment({ xdgConfigHome: "/tmp/xdg" }),
       actor: "main_agent",
-      requestedTools: ["novelfabric_read_file", "novelfabric_validate", "novelfabric_report"]
+      requestedTools: [
+        "novelfabric_read_file",
+        "novelfabric_validate",
+        "novelfabric_report",
+        "novelfabric_write_file"
+      ]
     });
 
     expect(options.valid).toBe(true);
     expect(options.violations).toEqual([]);
     expect(options.allowedTools).toContain("novelfabric_validate");
     expect(options.allowedTools).toContain("novelfabric_report");
-    expect(options.allowedTools).not.toContain("novelfabric_write_file");
+    expect(options.allowedTools).toContain("novelfabric_write_file");
     expect(options.deniedRawTools).toContain("bash");
   });
 
@@ -372,7 +377,8 @@ describe("pi SDK adapter skeleton", () => {
       "novelfabric_read_file",
       "novelfabric_validate",
       "novelfabric_context_pack",
-      "novelfabric_report"
+      "novelfabric_report",
+      "novelfabric_write_file"
     ]);
     const customTools = sessionOptions["customTools"];
     expect(Array.isArray(customTools)).toBe(true);
@@ -380,9 +386,10 @@ describe("pi SDK adapter skeleton", () => {
       expect.objectContaining({ name: "novelfabric_read_file" }),
       expect.objectContaining({ name: "novelfabric_validate" }),
       expect.objectContaining({ name: "novelfabric_context_pack" }),
-      expect.objectContaining({ name: "novelfabric_report" })
+      expect.objectContaining({ name: "novelfabric_report" }),
+      expect.objectContaining({ name: "novelfabric_write_file" })
     ]);
-    expect(JSON.stringify(sessionOptions)).not.toMatch(/novelfabric_write_file|bash|raw_write/);
+    expect(JSON.stringify(sessionOptions)).not.toMatch(/bash|raw_write/);
     expect(sessionOptions["thinkingLevel"]).toBe("medium");
     expect(recordValue(sessionOptions["authStorage"])["authPath"]).toBe(
       path.join(runtimeRoot, "auth.json")
@@ -659,13 +666,15 @@ describe("pi SDK adapter skeleton", () => {
       "novelfabric_read_file",
       "novelfabric_validate",
       "novelfabric_context_pack",
-      "novelfabric_report"
+      "novelfabric_report",
+      "novelfabric_write_file"
     ]);
     expect(sessionOptions["customTools"]).toEqual([
       expect.objectContaining({ name: "novelfabric_read_file" }),
       expect.objectContaining({ name: "novelfabric_validate" }),
       expect.objectContaining({ name: "novelfabric_context_pack" }),
-      expect.objectContaining({ name: "novelfabric_report" })
+      expect.objectContaining({ name: "novelfabric_report" }),
+      expect.objectContaining({ name: "novelfabric_write_file" })
     ]);
     expect(recordValue(sessionOptions["sessionManager"])["sessionDir"]).toBe(
       result.sessionDirectory

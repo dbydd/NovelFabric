@@ -10,6 +10,7 @@ import {
   createReadFileTool,
   createReportTool,
   createValidateTool,
+  createWriteFileTool,
   WEB_SAFE_CUSTOM_TOOL_NAMES
 } from "../../src/agent-runtime/web-safe-tools.js";
 import { readWorkspaceFile, writeWorkspaceFile } from "../../src/workspace/files.js";
@@ -18,6 +19,15 @@ const VALID_FIXTURE = path.resolve(import.meta.dirname, "../../fixtures/workspac
 
 function stableJson(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+async function pathExists(pathValue: string): Promise<boolean> {
+  try {
+    await fs.access(pathValue);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 describe("NovelFabric web-safe SDK custom tools", () => {
@@ -37,7 +47,8 @@ describe("NovelFabric web-safe SDK custom tools", () => {
       "novelfabric_read_file",
       "novelfabric_validate",
       "novelfabric_context_pack",
-      "novelfabric_report"
+      "novelfabric_report",
+      "novelfabric_write_file"
     ]);
 
     const wrapped = buildNovelFabricWebSafeCustomTools({
@@ -53,9 +64,10 @@ describe("NovelFabric web-safe SDK custom tools", () => {
       expect.objectContaining({ name: "novelfabric_read_file" }),
       expect.objectContaining({ name: "novelfabric_validate" }),
       expect.objectContaining({ name: "novelfabric_context_pack" }),
-      expect.objectContaining({ name: "novelfabric_report" })
+      expect.objectContaining({ name: "novelfabric_report" }),
+      expect.objectContaining({ name: "novelfabric_write_file" })
     ]);
-    expect(JSON.stringify(wrapped)).not.toMatch(/bash|raw_write|novelfabric_write_file/);
+    expect(JSON.stringify(wrapped)).not.toMatch(/bash|raw_write/);
   });
 
   it("reads an allowed workspace file through novelfabric_read_file", async () => {
@@ -649,5 +661,213 @@ describe("NovelFabric web-safe SDK custom tools", () => {
     await expect(
       tool.execute("tool-call-report-traversal", { mode: "show", path: "../secret.md" })
     ).rejects.toMatchObject({ code: "path_outside_workspace" });
+  });
+
+  it("writes card proposals through novelfabric_write_file", async () => {
+    const tool = createWriteFileTool({ workspacePath, actor: "main_agent" });
+
+    const result = await tool.execute("tool-call-write-card-proposal", {
+      path: "proposals/cards/generated-character.json",
+      content: stableJson({ kind: "test-card-proposal", title: "Generated Character" }),
+      reason: "create generated card proposal"
+    });
+    const payload = JSON.parse(result.content[0].text) as {
+      readonly ok: boolean;
+      readonly path: string;
+      readonly hash: string;
+      readonly previousHash: string | null;
+      readonly bytes: number;
+      readonly auditPath: string;
+    };
+
+    expect(payload).toMatchObject({
+      ok: true,
+      path: "proposals/cards/generated-character.json",
+      previousHash: null
+    });
+    expect(payload.hash).toMatch(/^sha256:/u);
+    expect(payload.bytes).toBeGreaterThan(0);
+    expect(payload.auditPath).toMatch(/^\.novelfabric\/audit\/files\//u);
+    const saved = await readWorkspaceFile({
+      workspacePath,
+      path: "proposals/cards/generated-character.json"
+    });
+    expect(saved.content).toContain("Generated Character");
+  });
+
+  it("ignores model-supplied workspacePath and actor parameters for novelfabric_write_file", async () => {
+    const otherWorkspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-web-safe-tools-other-"));
+    await fs.cp(VALID_FIXTURE, otherWorkspacePath, { recursive: true });
+    try {
+      const tool = createWriteFileTool({ workspacePath, actor: "main_agent" });
+      const targetPath = "proposals/cards/closure-bound-write.json";
+
+      const result = await tool.execute("tool-call-write-closure-bound", {
+        workspacePath: otherWorkspacePath,
+        actor: "role_agent",
+        path: targetPath,
+        content: stableJson({ kind: "test-card-proposal", title: "Closure Bound" }),
+        reason: "prove host-bound workspace and actor are used"
+      });
+
+      expect(JSON.parse(result.content[0].text)).toMatchObject({
+        ok: true,
+        path: targetPath
+      });
+      const saved = await readWorkspaceFile({ workspacePath, path: targetPath });
+      expect(saved.content).toContain("Closure Bound");
+      await expect(
+        readWorkspaceFile({ workspacePath: otherWorkspacePath, path: targetPath })
+      ).rejects.toMatchObject({ code: "file_not_found" });
+      expect(await pathExists(path.join(otherWorkspacePath, targetPath))).toBe(false);
+    } finally {
+      await fs.rm(otherWorkspacePath, { recursive: true, force: true });
+    }
+  });
+
+  it("does not echo written content in novelfabric_write_file responses", async () => {
+    const tool = createWriteFileTool({ workspacePath, actor: "main_agent" });
+    const secretContent = stableJson({
+      kind: "test-card-proposal",
+      title: "Sanitized Response",
+      body: "SECRET-WEB-SAFE-WRITE-CONTENT-SHOULD-NOT-ECHO"
+    });
+
+    const result = await tool.execute("tool-call-write-sanitized-response", {
+      path: "proposals/cards/sanitized-response.json",
+      content: secretContent,
+      reason: "verify response sanitization"
+    });
+
+    expect(result.content[0].text).not.toContain(secretContent);
+    expect(result.content[0].text).not.toContain("SECRET-WEB-SAFE-WRITE-CONTENT-SHOULD-NOT-ECHO");
+    expect(JSON.stringify(result.details)).not.toContain(
+      "SECRET-WEB-SAFE-WRITE-CONTENT-SHOULD-NOT-ECHO"
+    );
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      ok: true,
+      path: "proposals/cards/sanitized-response.json"
+    });
+  });
+
+  it("writes writing drafts through novelfabric_write_file", async () => {
+    const tool = createWriteFileTool({ workspacePath, actor: "main_agent" });
+
+    const result = await tool.execute("tool-call-write-draft", {
+      path: "writing/drafts/chapter-001.md",
+      content: "# Chapter 001\n\nDraft body from web-safe write tool.\n",
+      reason: "create generated draft"
+    });
+
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      ok: true,
+      path: "writing/drafts/chapter-001.md",
+      previousHash: null
+    });
+    const saved = await readWorkspaceFile({ workspacePath, path: "writing/drafts/chapter-001.md" });
+    expect(saved.content).toContain("Draft body from web-safe write tool.");
+  });
+
+  it("rejects protected and non-allowlisted paths through novelfabric_write_file", async () => {
+    const tool = createWriteFileTool({ workspacePath, actor: "main_agent" });
+    const params = { content: "blocked", reason: "negative test" };
+
+    for (const protectedPath of [
+      ".novelfabric/capabilities.toml",
+      "AGENTS.md",
+      "agents/main_agent/soul.md"
+    ]) {
+      await expect(
+        tool.execute("tool-call-write-protected", { path: protectedPath, ...params })
+      ).rejects.toMatchObject({ code: "web_safe_tool_protected_write_denied" });
+    }
+
+    for (const deniedPath of ["src/workflow/index.ts", "project.md"]) {
+      await expect(
+        tool.execute("tool-call-write-denied-namespace", { path: deniedPath, ...params })
+      ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    }
+
+    await expect(
+      tool.execute("tool-call-write-traversal", { path: "../outside.md", ...params })
+    ).rejects.toMatchObject({ code: "path_outside_workspace" });
+  });
+
+  it("requires expectedBaseHash for existing web-safe writes", async () => {
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "writing/drafts/existing.md",
+      content: "# Existing\n"
+    });
+    const tool = createWriteFileTool({ workspacePath, actor: "main_agent" });
+
+    await expect(
+      tool.execute("tool-call-write-existing-no-hash", {
+        path: "writing/drafts/existing.md",
+        content: "# Replacement\n",
+        reason: "replace existing draft"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_write_expected_hash_required" });
+  });
+
+  it("replaces existing files when expectedBaseHash matches", async () => {
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "writing/drafts/replace-with-hash.md",
+      content: "# First Draft\n"
+    });
+    const existing = await readWorkspaceFile({
+      workspacePath,
+      path: "writing/drafts/replace-with-hash.md"
+    });
+    const tool = createWriteFileTool({ workspacePath, actor: "main_agent" });
+
+    const result = await tool.execute("tool-call-write-replace-with-hash", {
+      path: "writing/drafts/replace-with-hash.md",
+      content: "# Replacement Draft\n\nUpdated through expectedBaseHash.\n",
+      expectedBaseHash: existing.hash,
+      reason: "replace existing draft with current hash"
+    });
+    const payload = JSON.parse(result.content[0].text) as {
+      readonly ok: boolean;
+      readonly path: string;
+      readonly previousHash: string | null;
+      readonly hash: string;
+    };
+
+    expect(payload).toMatchObject({
+      ok: true,
+      path: "writing/drafts/replace-with-hash.md",
+      previousHash: existing.hash
+    });
+    expect(payload.hash).toMatch(/^sha256:/u);
+    expect(payload.hash).not.toBe(existing.hash);
+    const replaced = await readWorkspaceFile({
+      workspacePath,
+      path: "writing/drafts/replace-with-hash.md"
+    });
+    expect(replaced.content).toContain("Replacement Draft");
+    expect(replaced.hash).toBe(payload.hash);
+  });
+
+  it("rejects stale expectedBaseHash through workspace conflict checks", async () => {
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "simulation/turns/existing.json",
+      content: stableJson({ turn: 1 })
+    });
+    const tool = createWriteFileTool({ workspacePath, actor: "main_agent" });
+
+    await expect(
+      tool.execute("tool-call-write-stale-hash", {
+        path: "simulation/turns/existing.json",
+        content: stableJson({ turn: 2 }),
+        expectedBaseHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        reason: "replace existing turn"
+      })
+    ).rejects.toMatchObject({ code: "file_conflict" });
   });
 });

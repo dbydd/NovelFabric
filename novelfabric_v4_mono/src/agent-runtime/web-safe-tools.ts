@@ -1,7 +1,7 @@
 import { CommandFailure } from "../errors.js";
 import { resolveInsideRoot } from "../fs/safe-path.js";
 import type { JsonObject } from "../output.js";
-import { readWorkspaceFile } from "../workspace/files.js";
+import { readWorkspaceFile, statWorkspaceFile, writeWorkspaceFile } from "../workspace/files.js";
 import { isProtectedWorkspacePath } from "../workspace/protection.js";
 
 export type WebSafeToolResult = {
@@ -37,7 +37,8 @@ export const WEB_SAFE_CUSTOM_TOOL_NAMES = [
   "novelfabric_read_file",
   "novelfabric_validate",
   "novelfabric_context_pack",
-  "novelfabric_report"
+  "novelfabric_report",
+  "novelfabric_write_file"
 ] as const;
 
 export type WebSafeCustomToolName = (typeof WEB_SAFE_CUSTOM_TOOL_NAMES)[number];
@@ -70,6 +71,13 @@ export const WEB_SAFE_CUSTOM_TOOL_MANIFEST: readonly WebSafeToolManifestEntry[] 
     mode: "custom-tool",
     description:
       "List, show bounded previews for, or validate report artifacts without exposing protected workspace content."
+  },
+  {
+    name: "novelfabric_write_file",
+    implemented: true,
+    mode: "custom-tool",
+    description:
+      "Write only to bounded proposal, draft, report, and simulation artifact namespaces through NovelFabric capability, conflict, safe-path, symlink, and audit guards. Workspace and actor are bound by the host runtime."
   }
 ];
 
@@ -83,6 +91,15 @@ const WRITING_DRAFT_NAMESPACE = "writing/drafts/";
 const SWARM_OUTPUT_NAMESPACE = "simulation/rounds/";
 const CARDS_PROPOSAL_NAMESPACE = "proposals/cards/";
 const MEMORY_PROPOSAL_NAMESPACE = "proposals/memory/";
+
+export const WEB_SAFE_WRITE_NAMESPACES = [
+  CARDS_PROPOSAL_NAMESPACE,
+  MEMORY_PROPOSAL_NAMESPACE,
+  WRITING_DRAFT_NAMESPACE,
+  "reports/generated/",
+  SWARM_OUTPUT_NAMESPACE,
+  "simulation/turns/"
+] as const;
 
 type ValidationTarget =
   | "context-pack"
@@ -104,7 +121,8 @@ export function buildNovelFabricWebSafeCustomTools(input: {
     createReadFileTool(input.context),
     createValidateTool(input.context),
     createContextPackTool(input.context),
-    createReportTool(input.context)
+    createReportTool(input.context),
+    createWriteFileTool(input.context)
   ];
   if (input.defineTool === undefined) return tools;
   return tools.map((tool) => input.defineTool?.(tool) ?? tool);
@@ -298,6 +316,80 @@ export function createReportTool(context: WebSafeToolContext): WebSafeToolDefini
         ...summary
       };
       return resultFromPayload(payload, summary);
+    }
+  };
+}
+
+export function createWriteFileTool(context: WebSafeToolContext): WebSafeToolDefinition {
+  return {
+    name: "novelfabric_write_file",
+    label: "NovelFabric Write File",
+    description:
+      "Write text only to Web-safe NovelFabric proposal, draft, report, and simulation artifact namespaces through capability-checked workspace services.",
+    promptSnippet:
+      "novelfabric_write_file: write a workspace artifact under an allowed namespace with a reason and expectedBaseHash for existing files.",
+    promptGuidelines: [
+      "Use novelfabric_write_file only for bounded NovelFabric artifact namespaces, never source code, project roots, protected files, or arbitrary paths.",
+      "Provide expectedBaseHash when replacing an existing file. If you do not know it, read the file first through an allowed tool and then write.",
+      "Do not pass workspace or actor; the host runtime binds those values."
+    ],
+    parameters: {
+      type: "object",
+      required: ["path", "content", "reason"],
+      additionalProperties: false,
+      properties: {
+        path: { type: "string", minLength: 1 },
+        content: { type: "string" },
+        expectedBaseHash: { type: "string", minLength: 1 },
+        reason: { type: "string", minLength: 1 }
+      }
+    },
+    async execute(_toolCallId, params, signal) {
+      assertNotAborted(signal);
+      const parsed = parseWriteFileParams(params);
+      const checkedPath = precheckWebSafeWritePath({
+        workspacePath: context.workspacePath,
+        requestedPath: parsed.path,
+        toolName: "novelfabric_write_file",
+        action: "write"
+      });
+      const existing = await statExistingWorkspaceFile({
+        workspacePath: context.workspacePath,
+        path: checkedPath
+      });
+      if (existing.exists && parsed.expectedBaseHash === undefined) {
+        throw new CommandFailure(
+          "web_safe_write_expected_hash_required",
+          `Web-safe tool 'novelfabric_write_file' requires expectedBaseHash when replacing existing file '${checkedPath}'.`,
+          4
+        );
+      }
+      const write = await writeWorkspaceFile({
+        workspacePath: context.workspacePath,
+        path: checkedPath,
+        actor: context.actor,
+        content: parsed.content,
+        reason: parsed.reason,
+        ...(parsed.expectedBaseHash === undefined
+          ? {}
+          : { expectedBaseHash: parsed.expectedBaseHash })
+      });
+      const details = {
+        ok: true,
+        path: write.path,
+        hash: write.hash,
+        previousHash: write.previousHash,
+        bytes: write.bytes,
+        auditPath: write.auditPath
+      } as const;
+      const payload = {
+        kind: "novelfabric.web_safe_tool.write_file.result",
+        version: 1,
+        tool: "novelfabric_write_file",
+        actor: context.actor,
+        ...details
+      };
+      return resultFromPayload(payload, details);
     }
   };
 }
@@ -720,6 +812,29 @@ function parseRequiredPathParams(params: unknown, toolName: string): string {
   return requireToolString(record["path"], "path", toolName);
 }
 
+function parseWriteFileParams(params: unknown): {
+  readonly path: string;
+  readonly content: string;
+  readonly expectedBaseHash?: string;
+  readonly reason: string;
+} {
+  const record = requireToolObject(params, "novelfabric_write_file");
+  const pathValue = requireToolString(record["path"], "path", "novelfabric_write_file");
+  const content = requireToolStringValue(record["content"], "content", "novelfabric_write_file");
+  const reason = requireToolString(record["reason"], "reason", "novelfabric_write_file");
+  const expectedBaseHash = optionalToolString(
+    record["expectedBaseHash"],
+    "expectedBaseHash",
+    "novelfabric_write_file"
+  );
+  return {
+    path: pathValue,
+    content,
+    reason,
+    ...(expectedBaseHash === undefined ? {} : { expectedBaseHash })
+  };
+}
+
 function requireToolObject(params: unknown, toolName: string): JsonObject {
   if (!isJsonObject(params)) {
     throw new CommandFailure(
@@ -751,6 +866,17 @@ function requireToolString(value: unknown, field: string, context: string): stri
     throw new CommandFailure(
       "web_safe_tool_invalid_params",
       `${context} requires a non-empty string ${field}.`,
+      2
+    );
+  }
+  return value;
+}
+
+function requireToolStringValue(value: unknown, field: string, context: string): string {
+  if (typeof value !== "string") {
+    throw new CommandFailure(
+      "web_safe_tool_invalid_params",
+      `${context} requires a string ${field}.`,
       2
     );
   }
@@ -843,6 +969,53 @@ function precheckNonProtectedPathInNamespace(input: {
     );
   }
   return normalizedPath;
+}
+
+function precheckWebSafeWritePath(input: {
+  readonly workspacePath: string;
+  readonly requestedPath: string;
+  readonly toolName: string;
+  readonly action: string;
+}): string {
+  const resolved = resolveInsideRoot(input.workspacePath, input.requestedPath);
+  const normalizedPath = normalizeWorkspacePath(resolved.relativePath);
+  if (isProtectedWorkspacePath(normalizedPath)) {
+    throw new CommandFailure(
+      "web_safe_tool_protected_write_denied",
+      `Web-safe tool '${input.toolName}' cannot ${input.action} protected path '${normalizedPath}'.`,
+      3
+    );
+  }
+  if (!WEB_SAFE_WRITE_NAMESPACES.some((namespace) => normalizedPath.startsWith(namespace))) {
+    throw new CommandFailure(
+      "web_safe_tool_path_namespace_denied",
+      `Web-safe tool '${input.toolName}' cannot ${input.action} path '${normalizedPath}'; expected path under one of: ${WEB_SAFE_WRITE_NAMESPACES.join(", ")}.`,
+      3
+    );
+  }
+  return normalizedPath;
+}
+
+async function statExistingWorkspaceFile(input: {
+  readonly workspacePath: string;
+  readonly path: string;
+}): Promise<{ readonly exists: boolean }> {
+  try {
+    const stat = await statWorkspaceFile(input);
+    if (stat.kind !== "file") {
+      throw new CommandFailure(
+        "web_safe_write_target_not_file",
+        `Web-safe writes can replace only files; '${stat.path}' is a ${stat.kind}.`,
+        3
+      );
+    }
+    return { exists: true };
+  } catch (error) {
+    if (error instanceof CommandFailure && error.code === "file_not_found") {
+      return { exists: false };
+    }
+    throw error;
+  }
 }
 
 function summarizeWriteForTool(write: {
