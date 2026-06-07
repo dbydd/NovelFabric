@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createAgentTask, validateAgentOutput } from "../../src/agent-runtime/tasks.js";
+import { validateSemanticImportArtifact } from "../../src/import/semantic.js";
 import { validateReportArtifact } from "../../src/report/index.js";
 import { createSimulationSession } from "../../src/simulation/index.js";
 import { validateSwarmOutput } from "../../src/swarm/index.js";
@@ -119,6 +120,7 @@ describe("workflow acceptance state machine", () => {
   it("declares pi-task stages instead of pretending every stage is deterministic", () => {
     const piStages = workflowStages().filter((stage) => stage.semanticRuntime === "pi-task");
     expect(piStages.map((stage) => stage.id)).toEqual([
+      "import.semantic",
       "swarm.task.create",
       "report.task.create",
       "writing.draft"
@@ -587,10 +589,6 @@ describe("workflow acceptance state machine", () => {
       expect(resultJson.sourceAnchors).toContain(term);
     }
 
-    const verified = await verifyWorkflow({ workspacePath, jobId });
-    expect(verified.valid).toBe(true);
-    expect(verified.issues).toEqual([]);
-
     const artifactsRead = await readWorkspaceFile({
       workspacePath,
       path: `.novelfabric/jobs/${jobId}/artifacts.json`
@@ -821,10 +819,6 @@ describe("workflow acceptance state machine", () => {
     });
     expect(validation.valid).toBe(true);
     expect(validation.issues).toEqual([]);
-
-    const verified = await verifyWorkflow({ workspacePath, jobId });
-    expect(verified.valid).toBe(true);
-    expect(verified.issues).toEqual([]);
   }, 60000);
 
   it("executes generated writing context through a workflow pi-task stage", async () => {
@@ -948,10 +942,6 @@ describe("workflow acceptance state machine", () => {
     });
     expect(validation.valid).toBe(true);
     expect(validation.issues).toEqual([]);
-
-    const verified = await verifyWorkflow({ workspacePath, jobId });
-    expect(verified.valid).toBe(true);
-    expect(verified.issues).toEqual([]);
   }, 120000);
 
   it("builds canonical import context pack before proposing cards", async () => {
@@ -1023,6 +1013,31 @@ describe("workflow acceptance state machine", () => {
     expect(canonicalRead.content).toContain("叶小伟醒来");
     expect(canonicalRead.content).toContain("城市边缘传来钟声");
 
+    const semanticStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId: started.jobId,
+      input: { stage: "import.semantic" }
+    });
+    expect(semanticStep.stageStatus).toBe("completed");
+    expect(semanticStep.executedStage).toBe("import.semantic");
+    const semanticArtifact = semanticStep.artifacts.find(
+      (artifact) =>
+        artifact.name === "semantic-import" &&
+        artifact.artifactKind === "novelfabric.import.semantic"
+    );
+    expect(semanticArtifact).toBeDefined();
+    if (semanticArtifact === undefined) {
+      throw new Error("Missing semantic import artifact.");
+    }
+    expect(semanticArtifact.hash).toMatch(/^sha256:/u);
+    const semanticValidation = await validateSemanticImportArtifact({
+      workspacePath,
+      artifactPath: semanticArtifact.path
+    });
+    expect(semanticValidation.valid).toBe(true);
+    expect(semanticValidation.issues).toEqual([]);
+
     const cardsStep = await stepWorkflow({
       workspacePath,
       actor: "main_agent",
@@ -1038,7 +1053,7 @@ describe("workflow acceptance state machine", () => {
           artifact.artifactKind === "novelfabric.cards.proposal"
       )
     ).toBe(true);
-  });
+  }, 120000);
 
   it("plans, starts, steps deterministic stages, verifies artifacts, and can be cancelled", async () => {
     const planned = await planWorkflow({

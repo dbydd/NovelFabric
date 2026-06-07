@@ -1,6 +1,11 @@
 import type { Command } from "commander";
 
 import { CommandFailure } from "../errors.js";
+import { runAgentTask } from "../agent-runtime/tasks.js";
+import {
+  materializeSemanticImportFromAgentTask,
+  createSemanticImportTask
+} from "../import/semantic.js";
 import {
   addImportSource,
   buildImportContextPack,
@@ -167,6 +172,47 @@ export function addImportCommands(program: Command): void {
     });
 
   imports
+    .command("semantic")
+    .description("Run pi-backed semantic import extraction and materialize an import artifact")
+    .requiredOption("--workspace <path>", "Workspace root path")
+    .requiredOption("--actor <actor>", "Capability manifest actor name")
+    .requiredOption("--context-pack <path>", "Workspace import context-pack path")
+    .requiredOption("--source <path>", "Workspace source text path")
+    .option("--output <path>", "Workspace semantic import artifact output path")
+    .option("--reason <reason>", "Audit log reason")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: ImportSemanticOptions) => {
+      const task = await createSemanticImportTask({
+        workspacePath: options.workspace,
+        actor: options.actor,
+        contextPackPath: options.contextPack,
+        sourcePath: options.source,
+        ...(options.reason === undefined ? {} : { reason: options.reason })
+      });
+      const run = await runAgentTask({
+        workspacePath: options.workspace,
+        actor: options.actor,
+        task: task.taskId,
+        runtime: "pi",
+        reason: options.reason ?? "import semantic agent run"
+      });
+      const result = await materializeSemanticImportFromAgentTask({
+        workspacePath: options.workspace,
+        actor: options.actor,
+        taskId: task.taskId,
+        contextPackPath: options.contextPack,
+        sourcePath: options.source,
+        ...(options.output === undefined ? {} : { outputPath: options.output }),
+        ...(options.reason === undefined ? {} : { reason: options.reason })
+      });
+      writeJson({
+        ok: true,
+        command: "import semantic",
+        data: { ...result, run, outputMode: resolveOutputMode(options) }
+      });
+    });
+
+  imports
     .command("validate")
     .description("Validate import source readability and normalization health")
     .requiredOption("--workspace <path>", "Workspace root path")
@@ -230,6 +276,15 @@ type ImportContextPackOptions = JsonOutputOptions & {
   readonly actor: string;
   readonly source?: string;
   readonly chapterManifest?: string;
+  readonly output?: string;
+  readonly reason?: string;
+};
+
+type ImportSemanticOptions = JsonOutputOptions & {
+  readonly workspace: string;
+  readonly actor: string;
+  readonly contextPack: string;
+  readonly source: string;
   readonly output?: string;
   readonly reason?: string;
 };

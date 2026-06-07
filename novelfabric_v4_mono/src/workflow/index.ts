@@ -3,6 +3,11 @@ import { CommandFailure } from "../errors.js";
 import { createAgentTask, runAgentTask, validateAgentOutput } from "../agent-runtime/tasks.js";
 import { applyCardProposal, proposeCards } from "../cards/proposals.js";
 import {
+  createSemanticImportTask,
+  materializeSemanticImportFromAgentTask,
+  validateSemanticImportArtifact
+} from "../import/semantic.js";
+import {
   buildImportContextPack,
   chapterizeImportSource,
   normalizeImportSource
@@ -46,6 +51,7 @@ export type WorkflowStageId =
   | "import.normalize"
   | "import.chapterize"
   | "import.context-pack"
+  | "import.semantic"
   | "cards.propose"
   | "cards.apply"
   | "knowledge.rebuild"
@@ -308,6 +314,14 @@ const WORKFLOW_STAGES: readonly WorkflowStageDefinition[] = [
     family: "import",
     description: "Build an import context pack for later agent work.",
     semanticRuntime: "none"
+  },
+  {
+    id: "import.semantic",
+    command: "novelfabric import semantic",
+    family: "import",
+    description:
+      "Run pi-backed semantic import extraction for downstream cards and workflow stages.",
+    semanticRuntime: "pi-task"
   },
   {
     id: "cards.propose",
@@ -1079,6 +1093,62 @@ async function executeStage(request: {
             "context-pack",
             canonicalWrite,
             "novelfabric.context-pack"
+          )
+        ]
+      };
+    }
+    case "import.semantic": {
+      const contextPackPath = requiredArtifactPath(
+        request.artifacts,
+        "import.context-pack",
+        "import-context-pack"
+      );
+      const task = await createSemanticImportTask({
+        workspacePath: request.workspacePath,
+        actor: request.actor,
+        taskId: `workflow-${sessionId}-${request.stage}`,
+        contextPackPath,
+        sourcePath: request.plan.sourcePath,
+        reason: "workflow import.semantic task create"
+      });
+      const run = await runAgentTask({
+        workspacePath: request.workspacePath,
+        actor: request.actor,
+        task: task.taskId,
+        runtime: "pi",
+        reason: "workflow import.semantic task run"
+      });
+      const resultWrite = run.writes.find((write) => write.path === task.files.result);
+      if (resultWrite === undefined) {
+        throw new CommandFailure(
+          "workflow_agent_task_result_missing",
+          `Semantic import task '${task.taskId}' did not produce a completed result evidence file.`
+        );
+      }
+      const semantic = await materializeSemanticImportFromAgentTask({
+        workspacePath: request.workspacePath,
+        actor: request.actor,
+        taskId: task.taskId,
+        contextPackPath,
+        sourcePath: request.plan.sourcePath,
+        outputPath: `imports/semantic/${sessionId}.json`,
+        reason: "workflow import.semantic materialize"
+      });
+      const agentTask: AgentTaskEvidence = {
+        taskId: task.taskId,
+        packagePath: task.packagePath,
+        resultPath: task.files.result,
+        resultWrite
+      };
+      return {
+        output: { ...objectFromResult(semantic), agentTaskEvidence: agentTaskOutput(agentTask) },
+        artifacts: [
+          agentTaskEvidenceArtifact(request.stage, agentTask),
+          artifactFromWrite(
+            request.stage,
+            "semantic-import",
+            semantic.write,
+            workflowDomainArtifactDefinition(request.stage).kind
           )
         ]
       };
@@ -1931,6 +2001,8 @@ async function materializeWorkflowDomainArtifact(request: {
 
 function workflowDomainArtifactDefinition(stage: WorkflowStageId): WorkflowDomainArtifactSpec {
   switch (stage) {
+    case "import.semantic":
+      return { name: "semantic-import", kind: "novelfabric.import.semantic" };
     case "swarm.task.create":
       return { name: "swarm-output", kind: "novelfabric.swarm.output" };
     case "report.task.create":
@@ -2208,6 +2280,18 @@ function domainArtifactBindsCurrentResult(request: {
 }): boolean {
   if (!isRecord(request.artifact)) return false;
   switch (request.stage) {
+    case "import.semantic": {
+      const createdFromTask = request.artifact["createdFromTask"];
+      return (
+        isRecord(createdFromTask) &&
+        createdFromTask["resultPath"] === request.expectedResultPath &&
+        createdFromTask["resultHash"] === request.expectedResultHash &&
+        citationRecordsContain(request.artifact["citations"], {
+          path: request.expectedResultPath,
+          hash: request.expectedResultHash
+        })
+      );
+    }
     case "swarm.task.create":
       return (
         request.artifact["createdFromTask"] === request.expectedResultPath &&
@@ -2248,6 +2332,13 @@ async function validateWorkflowDomainArtifact(request: {
   readonly path: string;
 }): Promise<{ readonly valid: boolean; readonly issues: readonly string[] }> {
   switch (request.stage) {
+    case "import.semantic": {
+      const result = await validateSemanticImportArtifact({
+        workspacePath: request.workspacePath,
+        artifactPath: request.path
+      });
+      return { valid: result.valid, issues: result.issues.map((issue) => issue.message) };
+    }
     case "swarm.task.create": {
       const result = await validateSwarmOutput({
         workspacePath: request.workspacePath,

@@ -1395,7 +1395,7 @@ describe("NovelFabric web bridge workflow routes", () => {
         status: "running",
         completedStages: [],
         nextStage: "import.normalize",
-        progress: { completed: 0, total: 14 }
+        progress: { completed: 0, total: 15 }
       });
       expectNoInternalTaskPaths(start.body.data, workspacePath);
     }

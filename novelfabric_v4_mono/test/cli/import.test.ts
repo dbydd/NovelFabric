@@ -17,7 +17,8 @@ const importEnvelopeSchema = z.object({
     sourcePath: z.string().optional(),
     manifestPath: z.string().optional(),
     fallback: z.boolean().optional(),
-    write: z.looseObject({ path: z.string() }).optional()
+    write: z.looseObject({ path: z.string() }).optional(),
+    artifactPath: z.string().optional()
   })
 });
 
@@ -29,13 +30,14 @@ describe("novelfabric import CLI commands", () => {
   beforeEach(async () => {
     workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-import-cli-test-"));
     await fs.cp(VALID_FIXTURE, workspacePath, { recursive: true });
+    await grantProtectedTaskWrite(workspacePath);
   });
 
   afterEach(async () => {
     await fs.rm(workspacePath, { recursive: true, force: true });
   });
 
-  it("runs add, chapterize, context-pack, inbox, and validate commands through commander", async () => {
+  it("runs add, chapterize, context-pack, semantic, inbox, and validate commands through commander", async () => {
     const add = await runImportCommand([
       "import",
       "add",
@@ -81,6 +83,31 @@ describe("novelfabric import CLI commands", () => {
     expect(contextPack.command).toBe("import context-pack");
     expect(contextPack.data.sourcePath).toBe("imports/source/cli-import.txt");
 
+    const semantic = await runImportCommand([
+      "import",
+      "semantic",
+      "--workspace",
+      workspacePath,
+      "--actor",
+      "main_agent",
+      "--source",
+      "imports/source/cli-import.txt",
+      "--context-pack",
+      "simulation/context-packs/import-cli-import.json",
+      "--output",
+      "imports/semantic/cli-import.json",
+      "--json"
+    ]);
+    expect(semantic.command).toBe("import semantic");
+    expect(semantic.data).toMatchObject({ artifactPath: "imports/semantic/cli-import.json" });
+    const savedSemantic = JSON.parse(
+      await fs.readFile(path.join(workspacePath, "imports/semantic/cli-import.json"), "utf8")
+    ) as { readonly sourceAnchors: readonly string[]; readonly cardSeeds: readonly unknown[] };
+    expect(savedSemantic.sourceAnchors).toEqual(
+      expect.arrayContaining(["第一章 起点", "第二章 回声"])
+    );
+    expect(savedSemantic.cardSeeds.length).toBeGreaterThan(0);
+
     const inbox = await runImportCommand([
       "import",
       "inbox",
@@ -100,8 +127,24 @@ describe("novelfabric import CLI commands", () => {
       "--json"
     ]);
     expect(validate.command).toBe("import validate");
-  });
+  }, 120000);
 });
+
+async function grantProtectedTaskWrite(workspacePath: string): Promise<void> {
+  await fs.writeFile(
+    path.join(workspacePath, ".novelfabric", "capabilities.toml"),
+    [
+      "[main_agent]",
+      'allow = ["project.manage", "files.patch_protected", "report.render", "knowledge.query"]',
+      "",
+      "[role_agent]",
+      'allow = ["memory.recall", "simulation.append_turn"]',
+      'deny = ["files.patch_protected", "external_swarm.run"]',
+      ""
+    ].join("\n"),
+    "utf8"
+  );
+}
 
 async function runImportCommand(args: readonly string[]): Promise<ImportEnvelope> {
   const program = new Command();
