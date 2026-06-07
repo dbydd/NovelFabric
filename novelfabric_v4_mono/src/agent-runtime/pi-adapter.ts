@@ -1,13 +1,15 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { Environment } from "../environment.js";
+import { CommandFailure } from "../errors.js";
 import type { JsonObject, JsonValue } from "../output.js";
 import {
   getRuntimePolicy,
   resolveRuntimeConfigPaths,
-  type RuntimeFileStatus
+  type RuntimeFileStatus,
+  type RuntimeThinkingLevel
 } from "../runtime/config.js";
 import type { AgentRuntimeAdapter, AgentRuntimeLaunchPlan } from "./types.js";
 
@@ -120,6 +122,70 @@ export type PiSdkNormalizedEvent =
       readonly message: string;
       readonly timestamp?: string;
     };
+
+export type PiSdkWorkflowRuntimeConfig = {
+  readonly runtimeRoot: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly thinking?: RuntimeThinkingLevel;
+};
+
+export type PiSdkAgentTaskRunRequest = {
+  readonly workspacePath: string;
+  readonly taskId: string;
+  readonly prompt: string;
+  readonly runtime: PiSdkWorkflowRuntimeConfig;
+  readonly sessionDirectory?: string;
+  readonly sdkModule?: unknown;
+};
+
+export type PiSdkAgentTaskRunResult = {
+  readonly outputText: string;
+  readonly normalizedEvents: readonly PiSdkNormalizedEvent[];
+  readonly sessionId?: string;
+  readonly sessionFile?: string;
+  readonly sessionDirectory: string;
+  readonly engine: "sdk";
+};
+
+type PiSdkAgentSession = {
+  readonly sessionId?: string;
+  readonly sessionFile?: string;
+  readonly messages?: readonly unknown[];
+  readonly isStreaming?: boolean;
+  subscribe(listener: (event: unknown) => void): () => void;
+  prompt(text: string, options?: Readonly<Record<string, unknown>>): Promise<void>;
+  dispose(): void;
+};
+
+type PiSdkAgentSessionResult = {
+  readonly session: PiSdkAgentSession;
+};
+
+export type PiSdkAgentSessionModule = {
+  readonly createAgentSession: (
+    options: Readonly<Record<string, unknown>>
+  ) => Promise<PiSdkAgentSessionResult>;
+  readonly AuthStorage: {
+    create(authPath?: string): unknown;
+  };
+  readonly ModelRegistry: {
+    create(authStorage: unknown, modelsJsonPath?: string): PiSdkModelRegistry;
+  };
+  readonly SettingsManager: {
+    create(cwd: string, agentDir?: string): unknown;
+  };
+  readonly SessionManager: {
+    create(cwd: string, sessionDir?: string): unknown;
+    inMemory(cwd?: string): unknown;
+  };
+  readonly DefaultResourceLoader: new (options: Readonly<Record<string, unknown>>) => unknown;
+};
+
+type PiSdkModelRegistry = {
+  readonly raw: unknown;
+  find(provider: string, modelId: string): unknown;
+};
 
 const PI_PACKAGE_NAME = "@earendil-works/pi-coding-agent" as const;
 const REQUIRED_SDK_EXPORTS: readonly PiSdkExportName[] = [
@@ -358,6 +424,235 @@ export async function assertPiSdkImportAvailable(): Promise<AgentRuntimeLaunchPl
   }
 
   return piAgentRuntimeAdapter.describeLaunchPlan(process.cwd());
+}
+
+export async function runPiSdkAgentTask(
+  request: PiSdkAgentTaskRunRequest
+): Promise<PiSdkAgentTaskRunResult> {
+  const sdkModule = toPiSdkAgentSessionModule(request.sdkModule ?? (await import(PI_PACKAGE_NAME)));
+  const sessionDirectory =
+    request.sessionDirectory ??
+    path.join(request.workspacePath, ".novelfabric", "pi-sessions", request.taskId);
+  await mkdir(sessionDirectory, { recursive: true });
+
+  const authStorage = sdkModule.AuthStorage.create(
+    path.join(request.runtime.runtimeRoot, "auth.json")
+  );
+  const modelRegistry = sdkModule.ModelRegistry.create(
+    authStorage,
+    path.join(request.runtime.runtimeRoot, "models.json")
+  );
+  const model = modelRegistry.find(request.runtime.provider, request.runtime.model);
+  if (model === undefined) {
+    throw new CommandFailure(
+      "pi_sdk_model_unavailable",
+      `NovelFabric pi SDK runtime could not find workflow model '${request.runtime.provider}/${request.runtime.model}' in '${request.runtime.runtimeRoot}'.`,
+      2
+    );
+  }
+
+  const settingsManager = sdkModule.SettingsManager.create(
+    request.workspacePath,
+    request.runtime.runtimeRoot
+  );
+  const resourceLoader = new sdkModule.DefaultResourceLoader({
+    cwd: request.workspacePath,
+    agentDir: request.runtime.runtimeRoot,
+    settingsManager,
+    noExtensions: true,
+    noContextFiles: true,
+    systemPrompt:
+      "You are the NovelFabric web-safe pi SDK runtime. Raw read/write/edit/bash/network tools are disabled. Return only the requested final answer."
+  });
+  if (isJsonObject(resourceLoader)) {
+    const reload = Reflect.get(resourceLoader, "reload");
+    if (typeof reload === "function") {
+      await Reflect.apply(reload, resourceLoader, []);
+    }
+  }
+
+  const { session } = await sdkModule.createAgentSession({
+    cwd: request.workspacePath,
+    agentDir: request.runtime.runtimeRoot,
+    model,
+    ...(request.runtime.thinking === undefined ? {} : { thinkingLevel: request.runtime.thinking }),
+    authStorage,
+    modelRegistry: modelRegistry.raw,
+    settingsManager,
+    resourceLoader,
+    noTools: "all",
+    tools: [],
+    customTools: [],
+    sessionManager: sdkModule.SessionManager.create(request.workspacePath, sessionDirectory)
+  });
+
+  const normalizedEvents: PiSdkNormalizedEvent[] = [];
+  const outputParts: string[] = [];
+  const unsubscribe = session.subscribe((event) => {
+    const normalized = normalizePiSdkEvent(event);
+    normalizedEvents.push(normalized);
+    if (normalized.type === "model.output") {
+      outputParts.push(normalized.text);
+    }
+  });
+
+  try {
+    normalizedEvents.push({
+      type: "session.started",
+      ...(session.sessionId === undefined ? {} : { sessionId: session.sessionId })
+    });
+    await session.prompt(request.prompt, { expandPromptTemplates: false, source: "novelfabric" });
+    normalizedEvents.push({ type: "session.completed" });
+    const outputText = outputParts.join("").trim();
+    if (outputText.length === 0) {
+      throw new CommandFailure("pi_sdk_empty_output", "pi SDK session returned empty output.", 2);
+    }
+    return {
+      outputText,
+      normalizedEvents,
+      ...(session.sessionId === undefined ? {} : { sessionId: session.sessionId }),
+      ...(session.sessionFile === undefined ? {} : { sessionFile: session.sessionFile }),
+      sessionDirectory,
+      engine: "sdk"
+    };
+  } catch (error) {
+    normalizedEvents.push({
+      type: "session.failed",
+      message: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
+  } finally {
+    unsubscribe();
+    session.dispose();
+  }
+}
+
+function toPiSdkAgentSessionModule(moduleExports: unknown): PiSdkAgentSessionModule {
+  if (!isJsonObject(moduleExports)) {
+    throw new CommandFailure("pi_sdk_unavailable", "pi SDK module exports are not an object.", 2);
+  }
+  const createAgentSession = callableExport(moduleExports, "createAgentSession");
+  const AuthStorage = staticMethodOwnerExport(moduleExports, "AuthStorage");
+  const ModelRegistry = staticMethodOwnerExport(moduleExports, "ModelRegistry");
+  const SettingsManager = staticMethodOwnerExport(moduleExports, "SettingsManager");
+  const SessionManager = staticMethodOwnerExport(moduleExports, "SessionManager");
+  const DefaultResourceLoader = constructorExport(moduleExports, "DefaultResourceLoader");
+
+  return {
+    createAgentSession: async (options) => {
+      const result: unknown = await Reflect.apply(createAgentSession, moduleExports, [options]);
+      if (!isJsonObject(result) || !isPiSdkAgentSession(result["session"])) {
+        throw new CommandFailure(
+          "pi_sdk_session_unavailable",
+          "pi SDK createAgentSession did not return a usable session.",
+          2
+        );
+      }
+      return { session: result["session"] };
+    },
+    AuthStorage: {
+      create(authPath) {
+        return Reflect.apply(callableExport(AuthStorage, "create"), AuthStorage, [authPath]);
+      }
+    },
+    ModelRegistry: {
+      create(authStorage, modelsJsonPath) {
+        const raw = Reflect.apply(callableExport(ModelRegistry, "create"), ModelRegistry, [
+          authStorage,
+          modelsJsonPath
+        ]);
+        const find = callableProperty(raw, "find", "ModelRegistry.find");
+        return {
+          raw,
+          find(provider, modelId) {
+            return Reflect.apply(find, raw, [provider, modelId]);
+          }
+        };
+      }
+    },
+    SettingsManager: {
+      create(cwd, agentDir) {
+        return Reflect.apply(callableExport(SettingsManager, "create"), SettingsManager, [
+          cwd,
+          agentDir
+        ]);
+      }
+    },
+    SessionManager: {
+      create(cwd, sessionDir) {
+        return Reflect.apply(callableExport(SessionManager, "create"), SessionManager, [
+          cwd,
+          sessionDir
+        ]);
+      },
+      inMemory(cwd) {
+        return Reflect.apply(callableExport(SessionManager, "inMemory"), SessionManager, [cwd]);
+      }
+    },
+    DefaultResourceLoader
+  };
+}
+
+function isPiSdkAgentSession(value: unknown): value is PiSdkAgentSession {
+  return (
+    isJsonObject(value) &&
+    typeof Reflect.get(value, "subscribe") === "function" &&
+    typeof Reflect.get(value, "prompt") === "function" &&
+    typeof Reflect.get(value, "dispose") === "function"
+  );
+}
+
+function callableExport(moduleExports: object, name: string): (...args: unknown[]) => unknown {
+  return callableProperty(moduleExports, name, `pi SDK export ${name}`);
+}
+
+function staticMethodOwnerExport(moduleExports: object, name: string): object {
+  const value = reflectGet(moduleExports, name);
+  if (!isStaticMethodOwner(value)) {
+    throw new CommandFailure("pi_sdk_unavailable", `pi SDK export ${name} is unavailable.`, 2);
+  }
+  return value;
+}
+
+function constructorExport(
+  moduleExports: object,
+  name: string
+): new (options: Readonly<Record<string, unknown>>) => unknown {
+  const value = reflectGet(moduleExports, name);
+  if (!isResourceLoaderConstructor(value)) {
+    throw new CommandFailure("pi_sdk_unavailable", `pi SDK export ${name} is unavailable.`, 2);
+  }
+  return value;
+}
+
+function callableProperty(
+  owner: unknown,
+  name: string,
+  label: string
+): (...args: unknown[]) => unknown {
+  const value = isStaticMethodOwner(owner) ? reflectGet(owner, name) : undefined;
+  if (!isCallableFunction(value)) {
+    throw new CommandFailure("pi_sdk_unavailable", `${label} is unavailable.`, 2);
+  }
+  return value;
+}
+
+function isCallableFunction(value: unknown): value is (...args: unknown[]) => unknown {
+  return typeof value === "function";
+}
+
+function reflectGet(owner: object, name: string): unknown {
+  return Reflect.get(owner, name) as unknown;
+}
+
+function isStaticMethodOwner(value: unknown): value is object {
+  return (typeof value === "object" && value !== null) || typeof value === "function";
+}
+
+function isResourceLoaderConstructor(
+  value: unknown
+): value is new (options: Readonly<Record<string, unknown>>) => unknown {
+  return typeof value === "function";
 }
 
 function exportStatus(moduleExports: object): Readonly<Record<PiSdkExportName, boolean>> {

@@ -6,6 +6,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import type { PiSdkAgentSessionModule } from "../../src/agent-runtime/pi-adapter.js";
+import { setAgentTaskPiSdkModuleForTesting } from "../../src/agent-runtime/tasks.js";
 import { addAgentTaskCommands } from "../../src/commands/agent.js";
 import { readWorkspaceFile, writeWorkspaceFile } from "../../src/workspace/files.js";
 
@@ -245,6 +247,87 @@ describe("agent task command module", () => {
     });
     expect(JSON.parse(resultFile.content)).toMatchObject({ status: "aborted" });
   }, 30000);
+
+  it("runs the pi-sdk CLI path through an injectable web-safe SDK seam", async () => {
+    const restoreSdkModule = setAgentTaskPiSdkModuleForTesting(
+      fakePiSdkModuleForCliTest({
+        outputText:
+          '{"kind":"novelfabric.agent.sdk-test-output","version":1,"summary":"sdk engine processed cli task"}'
+      })
+    );
+    try {
+      await runCommand([
+        "agent",
+        "task",
+        "create",
+        "--workspace",
+        workspacePath,
+        "--actor",
+        "main_agent",
+        "--task-id",
+        "sdk-cli-check",
+        "--title",
+        "SDK CLI Check",
+        "--instruction",
+        "Return the SDK CLI check JSON.",
+        "--output-schema-json",
+        JSON.stringify({
+          type: "object",
+          required: ["kind", "version", "summary"],
+          properties: {
+            kind: { type: "string" },
+            version: { type: "number" },
+            summary: { type: "string", containsText: "sdk engine" }
+          }
+        }),
+        "--json"
+      ]);
+
+      const runResult = await runCommand([
+        "agent",
+        "run",
+        "--workspace",
+        workspacePath,
+        "--actor",
+        "main_agent",
+        "--task",
+        "sdk-cli-check",
+        "--runtime",
+        "pi-sdk",
+        "--json"
+      ]);
+
+      expect(runResult.ok).toBe(true);
+      if (!runResult.ok) throw new Error("Expected pi-sdk run success.");
+      expect(runResult.data.status).toBe("completed");
+
+      const resultFile = await readWorkspaceFile({
+        workspacePath,
+        path: ".novelfabric/tasks/sdk-cli-check/result.json"
+      });
+      const resultJson = JSON.parse(resultFile.content) as {
+        runtime?: string;
+        runtimeEvidence?: { engine?: string; toolPolicy?: string; sessionPolicy?: string };
+        output?: { rawText?: string };
+      };
+      expect(resultJson.runtime).toBe("pi-sdk");
+      expect(resultJson.runtimeEvidence).toMatchObject({
+        engine: "sdk",
+        toolPolicy: "sdk-no-tools-all",
+        sessionPolicy: "workspace-session-dir"
+      });
+      expect(resultJson.output?.rawText).toContain("sdk engine processed cli task");
+
+      const eventsFile = await readWorkspaceFile({
+        workspacePath,
+        path: ".novelfabric/tasks/sdk-cli-check/events.jsonl"
+      });
+      expect(eventsFile.content).toContain('"type":"pi-sdk-event"');
+      expect(eventsFile.content).toContain("sdk model output");
+    } finally {
+      restoreSdkModule();
+    }
+  });
 
   it("rejects completed pi output that does not match output.schema.json", async () => {
     await runCommand([
@@ -539,4 +622,63 @@ async function captureStdout(action: () => Promise<void>): Promise<string> {
   } finally {
     process.stdout.write = originalWrite;
   }
+}
+
+function fakePiSdkModuleForCliTest(input: {
+  readonly outputText: string;
+}): PiSdkAgentSessionModule {
+  let emit: (event: unknown) => void = () => undefined;
+  return {
+    createAgentSession: () =>
+      Promise.resolve({
+        session: {
+          sessionId: "sdk-cli-session",
+          sessionFile: "/tmp/novelfabric-sdk-cli-session.jsonl",
+          subscribe(listener) {
+            emit = listener;
+            return () => undefined;
+          },
+          prompt() {
+            emit({ type: "model_output", text: input.outputText });
+            return Promise.resolve();
+          },
+          dispose() {
+            return undefined;
+          }
+        }
+      }),
+    AuthStorage: {
+      create(authPath) {
+        return { authPath };
+      }
+    },
+    ModelRegistry: {
+      create() {
+        return {
+          raw: { registry: true },
+          find(provider, modelId) {
+            return { provider, modelId };
+          }
+        };
+      }
+    },
+    SettingsManager: {
+      create(cwd, agentDir) {
+        return { cwd, agentDir };
+      }
+    },
+    SessionManager: {
+      create(cwd, sessionDir) {
+        return { cwd, sessionDir };
+      },
+      inMemory(cwd) {
+        return { cwd };
+      }
+    },
+    DefaultResourceLoader: class {
+      async reload(): Promise<void> {
+        await Promise.resolve();
+      }
+    }
+  };
 }

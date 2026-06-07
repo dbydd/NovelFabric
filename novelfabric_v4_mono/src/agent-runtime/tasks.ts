@@ -9,7 +9,14 @@ import { CommandFailure } from "../errors.js";
 import type { JsonObject, JsonValue } from "../output.js";
 import { resolveRuntimeConfigPaths, type RuntimeThinkingLevel } from "../runtime/config.js";
 import { readWorkspaceFile, writeWorkspaceFile, appendWorkspaceFile } from "../workspace/files.js";
-import { assertPiSdkImportAvailable, piAgentRuntimeAdapter } from "./pi-adapter.js";
+import {
+  assertPiSdkImportAvailable,
+  piAgentRuntimeAdapter,
+  runPiSdkAgentTask,
+  type PiSdkAgentSessionModule,
+  type PiSdkNormalizedEvent,
+  type PiSdkWorkflowRuntimeConfig
+} from "./pi-adapter.js";
 import type { AgentRuntimeLaunchPlan } from "./types.js";
 
 export type AgentTaskCreateRequest = {
@@ -34,9 +41,21 @@ export type AgentTaskRunRequest = {
   readonly workspacePath: string;
   readonly actor: string;
   readonly task: string;
-  readonly runtime: "pi";
+  readonly runtime: "pi" | "pi-sdk";
   readonly reason?: string;
 };
+
+let piSdkModuleForTesting: PiSdkAgentSessionModule | undefined;
+
+export function setAgentTaskPiSdkModuleForTesting(
+  sdkModule: PiSdkAgentSessionModule | undefined
+): () => void {
+  const previous = piSdkModuleForTesting;
+  piSdkModuleForTesting = sdkModule;
+  return () => {
+    piSdkModuleForTesting = previous;
+  };
+}
 
 export type AgentTaskAbortRequest = {
   readonly workspacePath: string;
@@ -89,12 +108,16 @@ export type AgentTaskRuntimeEvidence = JsonObject & {
   readonly model: string;
   readonly thinking?: RuntimeThinkingLevel;
   readonly modelPurpose: "production";
-  readonly piBin: string;
-  readonly toolPolicy: "--no-tools";
-  readonly sessionPolicy: "--no-session";
-  readonly contextPolicy: "--no-context-files";
+  readonly piBin?: string;
+  readonly engine: "cli" | "sdk";
+  readonly toolPolicy: "--no-tools" | "sdk-no-tools-all";
+  readonly sessionPolicy: "--no-session" | "workspace-session-dir";
+  readonly contextPolicy: "--no-context-files" | "sdk-no-context-files";
   readonly stdoutBytes: number;
   readonly stderrBytes: number;
+  readonly sessionDirectory?: string;
+  readonly sessionId?: string;
+  readonly sessionFile?: string;
 };
 
 export type AgentTaskResult = JsonObject & {
@@ -102,7 +125,7 @@ export type AgentTaskResult = JsonObject & {
   readonly version: 1;
   readonly taskId: string;
   readonly status: AgentTaskResultStatus;
-  readonly runtime: "pi";
+  readonly runtime: "pi" | "pi-sdk";
   readonly actor: string;
   readonly updatedAt: string;
   readonly piSdk: PiSdkAvailability;
@@ -177,7 +200,13 @@ export type AgentTaskEvent = JsonObject & {
   readonly kind: "novelfabric.agent.task.event";
   readonly version: 1;
   readonly taskId: string;
-  readonly type: "created" | "run-recorded" | "pi-started" | "pi-completed" | "aborted";
+  readonly type:
+    | "created"
+    | "run-recorded"
+    | "pi-started"
+    | "pi-completed"
+    | "pi-sdk-event"
+    | "aborted";
   readonly actor: string;
   readonly timestamp: string;
   readonly message: string;
@@ -403,10 +432,13 @@ export async function runAgentTask(request: AgentTaskRunRequest): Promise<AgentT
     timestamp: startedAt,
     message: `Launching pi runtime with provider '${runtime.provider}' and workflow model '${runtime.model}'.`
   });
-  const pi = runPiProcessUntilSchemaValid({
+  const engine = resolvePiRuntimeEngine(request.runtime);
+  const pi = await runPiEngineUntilSchemaValid({
+    engine,
     runtime,
     prompt,
     taskId,
+    workspacePath: request.workspacePath,
     outputSchema: inspected.outputSchema,
     resultPath: paths.files.result
   });
@@ -419,11 +451,15 @@ export async function runAgentTask(request: AgentTaskRunRequest): Promise<AgentT
     ...(runtime.thinking === undefined ? {} : { thinking: runtime.thinking }),
     modelPurpose: "production",
     piBin: runtime.piBin,
-    toolPolicy: "--no-tools",
-    sessionPolicy: "--no-session",
-    contextPolicy: "--no-context-files",
+    engine,
+    toolPolicy: engine === "sdk" ? "sdk-no-tools-all" : "--no-tools",
+    sessionPolicy: engine === "sdk" ? "workspace-session-dir" : "--no-session",
+    contextPolicy: engine === "sdk" ? "sdk-no-context-files" : "--no-context-files",
     stdoutBytes: Buffer.byteLength(pi.stdout, "utf8"),
-    stderrBytes: Buffer.byteLength(pi.stderr, "utf8")
+    stderrBytes: Buffer.byteLength(pi.stderr, "utf8"),
+    ...(pi.sessionDirectory === undefined ? {} : { sessionDirectory: pi.sessionDirectory }),
+    ...(pi.sessionId === undefined ? {} : { sessionId: pi.sessionId }),
+    ...(pi.sessionFile === undefined ? {} : { sessionFile: pi.sessionFile })
   };
   const result: AgentTaskResult = {
     kind: "novelfabric.agent.task.result",
@@ -437,8 +473,8 @@ export async function runAgentTask(request: AgentTaskRunRequest): Promise<AgentT
     runtimeEvidence,
     output,
     notes: [
-      "Launched the NovelFabric-owned pi runtime configuration with tools disabled.",
-      "The model could not write files directly; NovelFabric CLI captured stdout and wrote this result through the shared workspace file service."
+      `Launched the NovelFabric-owned pi runtime configuration through the ${engine} engine with tools disabled.`,
+      "The model could not write files directly; NovelFabric captured model output and wrote this result through the shared workspace file service."
     ]
   };
   const completedEvent = taskEvent({
@@ -446,7 +482,7 @@ export async function runAgentTask(request: AgentTaskRunRequest): Promise<AgentT
     actor: request.actor,
     type: "pi-completed",
     timestamp: completedAt,
-    message: `pi runtime completed with non-empty ${output.format} output.`
+    message: `pi ${engine} runtime completed with non-empty ${output.format} output.`
   });
   const writes = [
     summarizeWrite(
@@ -462,7 +498,7 @@ export async function runAgentTask(request: AgentTaskRunRequest): Promise<AgentT
       await appendWorkspaceFile({
         workspacePath: request.workspacePath,
         path: paths.files.events,
-        content: `${jsonLine(startedEvent)}\n${jsonLine(completedEvent)}\n`,
+        content: `${jsonLine(startedEvent)}\n${pi.normalizedEvents.map((event) => jsonLine(taskSdkEvent(taskId, request.actor, event))).join("\n")}${pi.normalizedEvents.length === 0 ? "" : "\n"}${jsonLine(completedEvent)}\n`,
         actor: request.actor,
         reason: request.reason ?? "agent run pi event append"
       })
@@ -799,18 +835,24 @@ export async function abortAgentTask(
   };
 }
 
-type PiWorkflowRuntimeConfig = {
-  readonly runtimeRoot: string;
-  readonly provider: string;
-  readonly model: string;
-  readonly thinking?: RuntimeThinkingLevel;
+type PiWorkflowRuntimeConfig = PiSdkWorkflowRuntimeConfig & {
   readonly piBin: string;
 };
+
+type PiRuntimeEngine = "cli" | "sdk";
 
 type PiProcessResult = {
   readonly stdout: string;
   readonly stderr: string;
   readonly outputText: string;
+};
+
+type PiEngineResult = PiProcessResult & {
+  readonly output: AgentTaskOutput;
+  readonly normalizedEvents: readonly PiSdkNormalizedEvent[];
+  readonly sessionDirectory?: string;
+  readonly sessionId?: string;
+  readonly sessionFile?: string;
 };
 
 async function loadPiWorkflowRuntime(): Promise<PiWorkflowRuntimeConfig> {
@@ -921,21 +963,24 @@ function buildPiTaskPrompt(inspected: AgentTaskInspectResult): string {
   ].join("\n");
 }
 
-function runPiProcessUntilSchemaValid(request: {
+function resolvePiRuntimeEngine(runtime: AgentTaskRunRequest["runtime"]): PiRuntimeEngine {
+  if (runtime === "pi-sdk") return "sdk";
+  return "cli";
+}
+
+async function runPiEngineUntilSchemaValid(request: {
+  readonly engine: PiRuntimeEngine;
   readonly runtime: PiWorkflowRuntimeConfig;
   readonly prompt: string;
   readonly taskId: string;
+  readonly workspacePath: string;
   readonly outputSchema: JsonValue;
   readonly resultPath: string;
-}): PiProcessResult & { readonly output: AgentTaskOutput } {
+}): Promise<PiEngineResult> {
   const attempts = Number(process.env["NOVELFABRIC_AGENT_RUN_ATTEMPTS"] ?? "3");
   let lastIssue = "pi runtime did not return valid output.";
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const pi = runPiProcess({
-      runtime: request.runtime,
-      prompt: request.prompt,
-      taskId: request.taskId
-    });
+    const pi = await runSinglePiEngineAttempt(request);
     const output = parsePiTaskOutput(pi.outputText);
     const outputIssues: AgentTaskValidationIssue[] = [];
     validateAgentTaskOutputContent(output, request.outputSchema, request.resultPath, outputIssues);
@@ -945,9 +990,42 @@ function runPiProcessUntilSchemaValid(request: {
   }
   throw new CommandFailure(
     "agent_task_output_schema_mismatch",
-    `pi runtime output failed output.schema.json validation after ${attempts.toString()} attempts: ${lastIssue}`,
+    `pi ${request.engine} runtime output failed output.schema.json validation after ${attempts.toString()} attempts: ${lastIssue}`,
     2
   );
+}
+
+async function runSinglePiEngineAttempt(request: {
+  readonly engine: PiRuntimeEngine;
+  readonly runtime: PiWorkflowRuntimeConfig;
+  readonly prompt: string;
+  readonly taskId: string;
+  readonly workspacePath: string;
+}): Promise<Omit<PiEngineResult, "output">> {
+  if (request.engine === "sdk") {
+    const sdkResult = await runPiSdkAgentTask({
+      workspacePath: request.workspacePath,
+      taskId: request.taskId,
+      prompt: request.prompt,
+      runtime: request.runtime,
+      ...(piSdkModuleForTesting === undefined ? {} : { sdkModule: piSdkModuleForTesting })
+    });
+    return {
+      stdout: sdkResult.outputText,
+      stderr: "",
+      outputText: sdkResult.outputText,
+      normalizedEvents: sdkResult.normalizedEvents,
+      sessionDirectory: sdkResult.sessionDirectory,
+      ...(sdkResult.sessionId === undefined ? {} : { sessionId: sdkResult.sessionId }),
+      ...(sdkResult.sessionFile === undefined ? {} : { sessionFile: sdkResult.sessionFile })
+    };
+  }
+  const cliResult = runPiProcess({
+    runtime: request.runtime,
+    prompt: request.prompt,
+    taskId: request.taskId
+  });
+  return { ...cliResult, normalizedEvents: [] };
 }
 
 function runPiProcess(request: {
@@ -1291,6 +1369,29 @@ function taskEvent(request: {
     timestamp: request.timestamp,
     message: request.message
   };
+}
+
+function taskSdkEvent(taskId: string, actor: string, event: PiSdkNormalizedEvent): AgentTaskEvent {
+  return {
+    kind: "novelfabric.agent.task.event",
+    version: 1,
+    taskId,
+    type: "pi-sdk-event",
+    actor,
+    timestamp: new Date().toISOString(),
+    message: summarizePiSdkEvent(event)
+  };
+}
+
+function summarizePiSdkEvent(event: PiSdkNormalizedEvent): string {
+  if (event.type === "model.output")
+    return `sdk model output (${event.text.length.toString()} chars)`;
+  if (event.type === "tool.requested") return `sdk tool requested: ${event.toolName}`;
+  if (event.type === "tool.denied") return `sdk tool denied: ${event.toolName}`;
+  if (event.type === "validation.completed")
+    return `sdk validation completed: ${event.valid ? "valid" : "invalid"}`;
+  if (event.type === "session.failed") return `sdk session failed: ${event.message}`;
+  return `sdk ${event.type}`;
 }
 
 function requireNonEmpty(value: string, label: string): string {

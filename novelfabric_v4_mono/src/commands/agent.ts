@@ -86,7 +86,7 @@ export function addAgentTaskCommands(program: Command): void {
     .requiredOption("--workspace <path>", "Workspace root path")
     .requiredOption("--actor <actor>", "Capability manifest actor name")
     .requiredOption("--task <id>", "Task id under .novelfabric/tasks/<id>")
-    .option("--runtime <runtime>", "Runtime name; currently only pi", "pi")
+    .option("--runtime <runtime>", "Runtime name; pi uses CLI engine, pi-sdk uses SDK engine", "pi")
     .option("--reason <reason>", "Audit log reason")
     .option("--json", "Print machine-readable JSON")
     .action(async (options: AgentRunOptions) => {
@@ -203,9 +203,12 @@ function collectRepeated(value: string, previous: readonly string[]): readonly s
   return [...previous, value];
 }
 
-function parseRuntime(runtime: string): "pi" {
-  if (runtime !== "pi") {
-    throw new CommandFailure("unsupported_agent_runtime", "Only --runtime pi is supported.");
+function parseRuntime(runtime: string): "pi" | "pi-sdk" {
+  if (runtime !== "pi" && runtime !== "pi-sdk") {
+    throw new CommandFailure(
+      "unsupported_agent_runtime",
+      "Only --runtime pi or --runtime pi-sdk is supported."
+    );
   }
   return runtime;
 }

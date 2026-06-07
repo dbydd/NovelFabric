@@ -1,6 +1,8 @@
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   buildWebSafePiSessionOptions,
@@ -8,7 +10,9 @@ import {
   normalizePiSdkEvent,
   piSdkAvailabilityDiagnostic,
   resolveNovelFabricPiRuntimeRoot,
+  runPiSdkAgentTask,
   webSafePiPolicyProfile,
+  type PiSdkAgentSessionModule,
   type PiSdkAvailability
 } from "../../src/agent-runtime/pi-adapter.js";
 import type { Environment } from "../../src/environment.js";
@@ -23,6 +27,14 @@ function makeEnvironment(overrides: Partial<Environment> = {}): Environment {
 }
 
 describe("pi SDK adapter skeleton", () => {
+  const tempPaths: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(
+      tempPaths.splice(0).map((tempPath) => fs.rm(tempPath, { recursive: true, force: true }))
+    );
+  });
+
   it("resolves NovelFabric-owned pi runtime root under XDG config, not global pi", () => {
     const environment = makeEnvironment({
       home: "/tmp/example-home",
@@ -194,4 +206,312 @@ describe("pi SDK adapter skeleton", () => {
       message: "Unrecognized pi SDK event."
     });
   });
+
+  it("runs a web-safe SDK agent task through the injectable SDK seam", async () => {
+    const workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-pi-sdk-workspace-"));
+    const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nf-pi-sdk-runtime-"));
+    tempPaths.push(workspacePath, runtimeRoot);
+    let capturedPrompt = "";
+    let subscribed = false;
+    let capturedSessionOptions: Readonly<Record<string, unknown>> | undefined;
+    const capturedSettingsCalls: { cwd: string; agentDir?: string }[] = [];
+    const capturedSessionManagerCalls: { cwd: string; sessionDir?: string }[] = [];
+    const capturedResourceLoaderOptions: Readonly<Record<string, unknown>>[] = [];
+    let emit: (event: unknown) => void = () => {
+      throw new Error("subscribe must install emit before prompt");
+    };
+    const sdkModule: PiSdkAgentSessionModule = {
+      createAgentSession: (options) => {
+        capturedSessionOptions = options;
+        return Promise.resolve({
+          session: {
+            sessionId: "sdk-session-1",
+            sessionFile: path.join(
+              workspacePath,
+              ".novelfabric",
+              "pi-sessions",
+              "sdk-session-1.jsonl"
+            ),
+            subscribe(listener) {
+              subscribed = true;
+              emit = listener;
+              return () => {
+                subscribed = false;
+              };
+            },
+            prompt(prompt) {
+              capturedPrompt = prompt;
+              emit({ type: "model_output", text: '{"kind":"novelfabric.test","version":1}' });
+              return Promise.resolve();
+            },
+            dispose() {
+              subscribed = false;
+            }
+          }
+        });
+      },
+      AuthStorage: {
+        create(authPath) {
+          return { authPath };
+        }
+      },
+      ModelRegistry: {
+        create() {
+          return {
+            raw: { registry: true },
+            find(provider, modelId) {
+              return { provider, modelId };
+            }
+          };
+        }
+      },
+      SettingsManager: {
+        create(cwd, agentDir) {
+          capturedSettingsCalls.push({ cwd, ...(agentDir === undefined ? {} : { agentDir }) });
+          return { kind: "settings-manager", cwd, agentDir };
+        }
+      },
+      SessionManager: {
+        create(cwd, sessionDir) {
+          capturedSessionManagerCalls.push({
+            cwd,
+            ...(sessionDir === undefined ? {} : { sessionDir })
+          });
+          return { kind: "session-manager", cwd, sessionDir };
+        },
+        inMemory(cwd) {
+          return { cwd };
+        }
+      },
+      DefaultResourceLoader: class {
+        constructor(options: Readonly<Record<string, unknown>>) {
+          capturedResourceLoaderOptions.push(options);
+        }
+
+        async reload(): Promise<void> {
+          await Promise.resolve();
+        }
+      }
+    };
+
+    const result = await runPiSdkAgentTask({
+      workspacePath,
+      taskId: "sdk-task",
+      prompt: "Return JSON only.",
+      runtime: {
+        runtimeRoot,
+        provider: "axonhub",
+        model: "generic-writer",
+        thinking: "medium"
+      },
+      sdkModule
+    });
+
+    expect(capturedPrompt).toBe("Return JSON only.");
+    expect(subscribed).toBe(false);
+    expect(capturedSettingsCalls).toEqual([{ cwd: workspacePath, agentDir: runtimeRoot }]);
+    expect(capturedSessionManagerCalls).toHaveLength(1);
+    expect(capturedSessionManagerCalls[0]?.cwd).toBe(workspacePath);
+    expect(capturedSessionManagerCalls[0]?.sessionDir).toBe(result.sessionDirectory);
+    expect(capturedSessionManagerCalls[0]?.sessionDir).toContain(
+      path.join(workspacePath, ".novelfabric", "pi-sessions", "sdk-task")
+    );
+    expect(capturedResourceLoaderOptions).toEqual([
+      expect.objectContaining({
+        cwd: workspacePath,
+        agentDir: runtimeRoot,
+        noExtensions: true,
+        noContextFiles: true
+      })
+    ]);
+    const sessionOptions = capturedSessionOptions;
+    if (sessionOptions === undefined) throw new Error("Expected SDK session options.");
+    expect(sessionOptions["cwd"]).toBe(workspacePath);
+    expect(sessionOptions["agentDir"]).toBe(runtimeRoot);
+    expect(sessionOptions["noTools"]).toBe("all");
+    expect(sessionOptions["tools"]).toEqual([]);
+    expect(sessionOptions["customTools"]).toEqual([]);
+    expect(sessionOptions["thinkingLevel"]).toBe("medium");
+    expect(recordValue(sessionOptions["authStorage"])["authPath"]).toBe(
+      path.join(runtimeRoot, "auth.json")
+    );
+    expect(recordValue(sessionOptions["settingsManager"])).toMatchObject({
+      kind: "settings-manager",
+      cwd: workspacePath,
+      agentDir: runtimeRoot
+    });
+    expect(recordValue(sessionOptions["resourceLoader"])).toBeDefined();
+    expect(recordValue(sessionOptions["sessionManager"])).toMatchObject({
+      kind: "session-manager",
+      cwd: workspacePath,
+      sessionDir: result.sessionDirectory
+    });
+    expect(result.engine).toBe("sdk");
+    expect(result.outputText).toContain("novelfabric.test");
+    expect(result.sessionId).toBe("sdk-session-1");
+    expect(result.normalizedEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "session.started", sessionId: "sdk-session-1" }),
+        expect.objectContaining({
+          type: "model.output",
+          text: '{"kind":"novelfabric.test","version":1}'
+        }),
+        expect.objectContaining({ type: "session.completed" })
+      ])
+    );
+  });
+
+  it("accepts class-shaped SDK exports with static factory methods", async () => {
+    const workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-pi-sdk-class-workspace-"));
+    const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nf-pi-sdk-class-runtime-"));
+    tempPaths.push(workspacePath, runtimeRoot);
+    const staticCalls: string[] = [];
+    let capturedSessionOptions: Readonly<Record<string, unknown>> | undefined;
+    let capturedPrompt = "";
+    let emit: (event: unknown) => void = () => {
+      throw new Error("subscribe must install emit before prompt");
+    };
+
+    const AuthStorageExport = Object.assign(
+      function AuthStorageExport(): void {
+        return undefined;
+      },
+      {
+        create(authPath?: string): Record<string, unknown> {
+          staticCalls.push("AuthStorage.create");
+          return { authPath };
+        }
+      }
+    );
+
+    class ModelRegistryValue {
+      readonly providerModelPairs: string[] = [];
+
+      find(provider: string, modelId: string): Record<string, string> {
+        this.providerModelPairs.push(`${provider}/${modelId}`);
+        return { provider, modelId };
+      }
+    }
+
+    const ModelRegistryExport = Object.assign(
+      function ModelRegistryExport(): void {
+        return undefined;
+      },
+      {
+        create(): ModelRegistryValue {
+          staticCalls.push("ModelRegistry.create");
+          return new ModelRegistryValue();
+        }
+      }
+    );
+
+    const SettingsManagerExport = Object.assign(
+      function SettingsManagerExport(): void {
+        return undefined;
+      },
+      {
+        create(cwd: string, agentDir?: string): Record<string, unknown> {
+          staticCalls.push("SettingsManager.create");
+          return { cwd, agentDir };
+        }
+      }
+    );
+
+    const SessionManagerExport = Object.assign(
+      function SessionManagerExport(): void {
+        return undefined;
+      },
+      {
+        create(cwd: string, sessionDir?: string): Record<string, unknown> {
+          staticCalls.push("SessionManager.create");
+          return { cwd, sessionDir };
+        },
+        inMemory(cwd?: string): Record<string, unknown> {
+          staticCalls.push("SessionManager.inMemory");
+          return { cwd };
+        }
+      }
+    );
+
+    class DefaultResourceLoaderExport {
+      readonly options: Readonly<Record<string, unknown>>;
+
+      constructor(options: Readonly<Record<string, unknown>>) {
+        this.options = options;
+      }
+
+      async reload(): Promise<void> {
+        await Promise.resolve();
+      }
+    }
+
+    const sdkExports = {
+      createAgentSession(options: Readonly<Record<string, unknown>>) {
+        capturedSessionOptions = options;
+        return Promise.resolve({
+          session: {
+            sessionId: "class-sdk-session",
+            subscribe(listener: (event: unknown) => void) {
+              emit = listener;
+              return () => undefined;
+            },
+            prompt(prompt: string) {
+              capturedPrompt = prompt;
+              emit({ type: "model_output", text: '{"kind":"novelfabric.class-test"}' });
+              return Promise.resolve();
+            },
+            dispose() {
+              return undefined;
+            }
+          }
+        });
+      },
+      AuthStorage: AuthStorageExport,
+      ModelRegistry: ModelRegistryExport,
+      SettingsManager: SettingsManagerExport,
+      SessionManager: SessionManagerExport,
+      DefaultResourceLoader: DefaultResourceLoaderExport,
+      defineTool() {
+        return undefined;
+      }
+    };
+
+    const result = await runPiSdkAgentTask({
+      workspacePath,
+      taskId: "class-sdk-task",
+      prompt: "Return class SDK JSON only.",
+      runtime: {
+        runtimeRoot,
+        provider: "axonhub",
+        model: "generic-writer"
+      },
+      sdkModule: sdkExports
+    });
+
+    expect(staticCalls).toEqual([
+      "AuthStorage.create",
+      "ModelRegistry.create",
+      "SettingsManager.create",
+      "SessionManager.create"
+    ]);
+    expect(capturedPrompt).toBe("Return class SDK JSON only.");
+    expect(result.engine).toBe("sdk");
+    expect(result.outputText).toContain("novelfabric.class-test");
+    expect(result.sessionId).toBe("class-sdk-session");
+    const sessionOptions = capturedSessionOptions;
+    if (sessionOptions === undefined) throw new Error("Expected SDK session options.");
+    expect(sessionOptions["noTools"]).toBe("all");
+    expect(sessionOptions["tools"]).toEqual([]);
+    expect(sessionOptions["customTools"]).toEqual([]);
+    expect(recordValue(sessionOptions["sessionManager"])["sessionDir"]).toBe(
+      result.sessionDirectory
+    );
+  });
+
+  function recordValue(value: unknown): Record<string, unknown> {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new Error("Expected object value.");
+    }
+    return value as Record<string, unknown>;
+  }
 });
