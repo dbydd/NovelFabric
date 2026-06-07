@@ -17,11 +17,11 @@ export const test = base.extend<{
   readonly bridgePort: number;
   readonly baseURL: string;
 }>({
-  bridgePort: async (_fixtures, use) => {
+  bridgePort: async ({}, use) => {
     const port = await allocateNovelFabricPort();
     await use(port);
   },
-  workspacePath: async (_fixtures, use) => {
+  workspacePath: async ({}, use) => {
     const workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-e2e-workspace-"));
     await fs.cp(fixtureWorkspacePath(), workspacePath, { recursive: true });
     await fs.writeFile(
