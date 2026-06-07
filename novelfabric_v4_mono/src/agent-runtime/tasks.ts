@@ -110,7 +110,7 @@ export type AgentTaskRuntimeEvidence = JsonObject & {
   readonly modelPurpose: "production";
   readonly piBin?: string;
   readonly engine: "cli" | "sdk";
-  readonly toolPolicy: "--no-tools" | "sdk-no-tools-all";
+  readonly toolPolicy: "--no-tools" | "sdk-web-safe-custom-tools";
   readonly sessionPolicy: "--no-session" | "workspace-session-dir";
   readonly contextPolicy: "--no-context-files" | "sdk-no-context-files";
   readonly stdoutBytes: number;
@@ -439,6 +439,7 @@ export async function runAgentTask(request: AgentTaskRunRequest): Promise<AgentT
     prompt,
     taskId,
     workspacePath: request.workspacePath,
+    actor: request.actor,
     outputSchema: inspected.outputSchema,
     resultPath: paths.files.result
   });
@@ -452,7 +453,7 @@ export async function runAgentTask(request: AgentTaskRunRequest): Promise<AgentT
     modelPurpose: "production",
     piBin: runtime.piBin,
     engine,
-    toolPolicy: engine === "sdk" ? "sdk-no-tools-all" : "--no-tools",
+    toolPolicy: engine === "sdk" ? "sdk-web-safe-custom-tools" : "--no-tools",
     sessionPolicy: engine === "sdk" ? "workspace-session-dir" : "--no-session",
     contextPolicy: engine === "sdk" ? "sdk-no-context-files" : "--no-context-files",
     stdoutBytes: Buffer.byteLength(pi.stdout, "utf8"),
@@ -473,7 +474,7 @@ export async function runAgentTask(request: AgentTaskRunRequest): Promise<AgentT
     runtimeEvidence,
     output,
     notes: [
-      `Launched the NovelFabric-owned pi runtime configuration through the ${engine} engine with tools disabled.`,
+      `Launched the NovelFabric-owned pi runtime configuration through the ${engine} engine with ${engine === "sdk" ? "only NovelFabric web-safe custom tools enabled" : "tools disabled"}.`,
       "The model could not write files directly; NovelFabric captured model output and wrote this result through the shared workspace file service."
     ]
   };
@@ -974,6 +975,7 @@ async function runPiEngineUntilSchemaValid(request: {
   readonly prompt: string;
   readonly taskId: string;
   readonly workspacePath: string;
+  readonly actor: string;
   readonly outputSchema: JsonValue;
   readonly resultPath: string;
 }): Promise<PiEngineResult> {
@@ -1001,6 +1003,7 @@ async function runSinglePiEngineAttempt(request: {
   readonly prompt: string;
   readonly taskId: string;
   readonly workspacePath: string;
+  readonly actor: string;
 }): Promise<Omit<PiEngineResult, "output">> {
   if (request.engine === "sdk") {
     const sdkResult = await runPiSdkAgentTask({
@@ -1008,6 +1011,7 @@ async function runSinglePiEngineAttempt(request: {
       taskId: request.taskId,
       prompt: request.prompt,
       runtime: request.runtime,
+      actor: request.actor,
       ...(piSdkModuleForTesting === undefined ? {} : { sdkModule: piSdkModuleForTesting })
     });
     return {

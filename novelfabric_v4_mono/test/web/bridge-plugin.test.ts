@@ -249,7 +249,7 @@ describe("NovelFabric web bridge agent task routes", () => {
         });
         expect(response.body.data["runtimeEvidence"]).toMatchObject({
           engine: "sdk",
-          toolPolicy: "sdk-no-tools-all",
+          toolPolicy: "sdk-web-safe-custom-tools",
           sessionPolicy: "workspace-session-dir"
         });
         expectNoInternalTaskPaths(response.body.data, workspacePath);
@@ -818,6 +818,9 @@ function fakePiSdkModuleForWebTest(input: {
       async reload(): Promise<void> {
         await Promise.resolve();
       }
+    },
+    defineTool(tool) {
+      return tool;
     }
   };
 }

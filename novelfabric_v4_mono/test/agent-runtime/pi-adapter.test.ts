@@ -229,6 +229,13 @@ describe("pi SDK adapter skeleton", () => {
     let emit: (event: unknown) => void = () => {
       throw new Error("subscribe must install emit before prompt");
     };
+    await fs.mkdir(path.join(workspacePath, "imports", "source"), { recursive: true });
+    await fs.writeFile(
+      path.join(workspacePath, "imports", "source", "sdk-tool-readable.txt"),
+      "sdk custom tool controlled content",
+      "utf8"
+    );
+
     const sdkModule: PiSdkAgentSessionModule = {
       createAgentSession: (options) => {
         capturedSessionOptions = options;
@@ -248,10 +255,23 @@ describe("pi SDK adapter skeleton", () => {
                 subscribed = false;
               };
             },
-            prompt(prompt) {
+            async prompt(prompt) {
               capturedPrompt = prompt;
+              const customTools = Array.isArray(capturedSessionOptions?.["customTools"])
+                ? capturedSessionOptions["customTools"]
+                : [];
+              const readTool = customTools.find(
+                (tool): tool is { execute: (id: string, params: unknown) => Promise<unknown> } =>
+                  recordValue(tool)["name"] === "novelfabric_read_file" &&
+                  typeof recordValue(tool)["execute"] === "function"
+              );
+              if (readTool === undefined) throw new Error("Expected novelfabric_read_file tool.");
+              const toolResult = await readTool.execute("tool-call-sdk", {
+                path: "imports/source/sdk-tool-readable.txt"
+              });
+              expect(JSON.stringify(toolResult)).toContain("sdk custom tool controlled content");
+              emit({ type: "tool_call", name: "novelfabric_read_file" });
               emit({ type: "model_output", text: '{"kind":"novelfabric.test","version":1}' });
-              return Promise.resolve();
             },
             dispose() {
               subscribed = false;
@@ -300,6 +320,9 @@ describe("pi SDK adapter skeleton", () => {
         async reload(): Promise<void> {
           await Promise.resolve();
         }
+      },
+      defineTool(tool) {
+        return tool;
       }
     };
 
@@ -325,21 +348,30 @@ describe("pi SDK adapter skeleton", () => {
     expect(capturedSessionManagerCalls[0]?.sessionDir).toContain(
       path.join(workspacePath, ".novelfabric", "pi-sessions", "sdk-task")
     );
-    expect(capturedResourceLoaderOptions).toEqual([
-      expect.objectContaining({
-        cwd: workspacePath,
-        agentDir: runtimeRoot,
-        noExtensions: true,
-        noContextFiles: true
-      })
-    ]);
+    expect(capturedResourceLoaderOptions).toHaveLength(1);
+    const resourceLoaderOptions = recordValue(capturedResourceLoaderOptions[0]);
+    expect(resourceLoaderOptions).toMatchObject({
+      cwd: workspacePath,
+      agentDir: runtimeRoot,
+      noExtensions: true,
+      noContextFiles: true
+    });
+    const manifest = resourceLoaderOptions["webSafeToolManifest"];
+    expect(Array.isArray(manifest)).toBe(true);
+    expect(manifest).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "novelfabric_read_file", implemented: true })
+      ])
+    );
     const sessionOptions = capturedSessionOptions;
     if (sessionOptions === undefined) throw new Error("Expected SDK session options.");
     expect(sessionOptions["cwd"]).toBe(workspacePath);
     expect(sessionOptions["agentDir"]).toBe(runtimeRoot);
-    expect(sessionOptions["noTools"]).toBe("all");
-    expect(sessionOptions["tools"]).toEqual([]);
-    expect(sessionOptions["customTools"]).toEqual([]);
+    expect(sessionOptions["noTools"]).toBe("builtin");
+    expect(sessionOptions["tools"]).toEqual(["novelfabric_read_file"]);
+    const customTools = sessionOptions["customTools"];
+    expect(Array.isArray(customTools)).toBe(true);
+    expect(customTools).toEqual([expect.objectContaining({ name: "novelfabric_read_file" })]);
     expect(sessionOptions["thinkingLevel"]).toBe("medium");
     expect(recordValue(sessionOptions["authStorage"])["authPath"]).toBe(
       path.join(runtimeRoot, "auth.json")
@@ -582,8 +614,8 @@ describe("pi SDK adapter skeleton", () => {
       SettingsManager: SettingsManagerExport,
       SessionManager: SessionManagerExport,
       DefaultResourceLoader: DefaultResourceLoaderExport,
-      defineTool() {
-        return undefined;
+      defineTool(tool: unknown) {
+        return tool;
       }
     };
 
@@ -611,9 +643,11 @@ describe("pi SDK adapter skeleton", () => {
     expect(result.sessionId).toBe("class-sdk-session");
     const sessionOptions = capturedSessionOptions;
     if (sessionOptions === undefined) throw new Error("Expected SDK session options.");
-    expect(sessionOptions["noTools"]).toBe("all");
-    expect(sessionOptions["tools"]).toEqual([]);
-    expect(sessionOptions["customTools"]).toEqual([]);
+    expect(sessionOptions["noTools"]).toBe("builtin");
+    expect(sessionOptions["tools"]).toEqual(["novelfabric_read_file"]);
+    expect(sessionOptions["customTools"]).toEqual([
+      expect.objectContaining({ name: "novelfabric_read_file" })
+    ]);
     expect(recordValue(sessionOptions["sessionManager"])["sessionDir"]).toBe(
       result.sessionDirectory
     );
@@ -676,6 +710,9 @@ describe("pi SDK adapter skeleton", () => {
         async reload(): Promise<void> {
           await Promise.resolve();
         }
+      },
+      defineTool(tool) {
+        return tool;
       }
     };
   }

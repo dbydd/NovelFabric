@@ -11,6 +11,12 @@ import {
   type RuntimeFileStatus,
   type RuntimeThinkingLevel
 } from "../runtime/config.js";
+import {
+  buildNovelFabricWebSafeCustomTools,
+  WEB_SAFE_CUSTOM_TOOL_NAMES,
+  WEB_SAFE_CUSTOM_TOOL_MANIFEST,
+  type WebSafeDefineTool
+} from "./web-safe-tools.js";
 import type { AgentRuntimeAdapter, AgentRuntimeLaunchPlan } from "./types.js";
 
 export type PiSdkExportName =
@@ -136,6 +142,7 @@ export type PiSdkAgentTaskRunRequest = {
   readonly prompt: string;
   readonly runtime: PiSdkWorkflowRuntimeConfig;
   readonly sessionDirectory?: string;
+  readonly actor?: string;
   readonly sdkModule?: unknown;
 };
 
@@ -181,6 +188,7 @@ export type PiSdkAgentSessionModule = {
     inMemory(cwd?: string): unknown;
   };
   readonly DefaultResourceLoader: new (options: Readonly<Record<string, unknown>>) => unknown;
+  readonly defineTool: WebSafeDefineTool;
 };
 
 type PiSdkModelRegistry = {
@@ -457,14 +465,19 @@ export async function runPiSdkAgentTask(
     request.workspacePath,
     request.runtime.runtimeRoot
   );
+  const customTools = buildNovelFabricWebSafeCustomTools({
+    context: { workspacePath: request.workspacePath, actor: request.actor ?? "main_agent" },
+    defineTool: sdkModule.defineTool
+  });
   const resourceLoader = new sdkModule.DefaultResourceLoader({
     cwd: request.workspacePath,
     agentDir: request.runtime.runtimeRoot,
     settingsManager,
     noExtensions: true,
     noContextFiles: true,
+    webSafeToolManifest: WEB_SAFE_CUSTOM_TOOL_MANIFEST,
     systemPrompt:
-      "You are the NovelFabric web-safe pi SDK runtime. Raw read/write/edit/bash/network tools are disabled. Return only the requested final answer."
+      "You are the NovelFabric web-safe pi SDK runtime. Built-in raw read/write/edit/bash/network tools are disabled. Only NovelFabric custom tools in the explicit allowlist may be used. Return only the requested final answer."
   });
   if (isJsonObject(resourceLoader)) {
     const reload = Reflect.get(resourceLoader, "reload");
@@ -482,9 +495,9 @@ export async function runPiSdkAgentTask(
     modelRegistry: modelRegistry.raw,
     settingsManager,
     resourceLoader,
-    noTools: "all",
-    tools: [],
-    customTools: [],
+    noTools: "builtin",
+    tools: [...WEB_SAFE_CUSTOM_TOOL_NAMES],
+    customTools,
     sessionManager: sdkModule.SessionManager.create(request.workspacePath, sessionDirectory)
   });
 
@@ -581,6 +594,7 @@ function toPiSdkAgentSessionModule(moduleExports: unknown): PiSdkAgentSessionMod
   const SettingsManager = staticMethodOwnerExport(moduleExports, "SettingsManager");
   const SessionManager = staticMethodOwnerExport(moduleExports, "SessionManager");
   const DefaultResourceLoader = constructorExport(moduleExports, "DefaultResourceLoader");
+  const defineTool = callableExport(moduleExports, "defineTool");
 
   return {
     createAgentSession: async (options) => {
@@ -633,7 +647,10 @@ function toPiSdkAgentSessionModule(moduleExports: unknown): PiSdkAgentSessionMod
         return Reflect.apply(callableExport(SessionManager, "inMemory"), SessionManager, [cwd]);
       }
     },
-    DefaultResourceLoader
+    DefaultResourceLoader,
+    defineTool(tool) {
+      return Reflect.apply(defineTool, moduleExports, [tool]);
+    }
   };
 }
 

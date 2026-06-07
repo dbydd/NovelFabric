@@ -226,8 +226,8 @@ function validateResult(result, runtime, workspacePath) {
   assert(isObject(result.runtimeEvidence), "runtimeEvidence is required.");
   assert(result.runtimeEvidence.engine === "sdk", "runtimeEvidence.engine must be sdk.");
   assert(
-    result.runtimeEvidence.toolPolicy === "sdk-no-tools-all",
-    "runtimeEvidence.toolPolicy must be sdk-no-tools-all."
+    result.runtimeEvidence.toolPolicy === "sdk-web-safe-custom-tools",
+    "runtimeEvidence.toolPolicy must be sdk-web-safe-custom-tools."
   );
   assert(
     result.runtimeEvidence.contextPolicy === "sdk-no-context-files",

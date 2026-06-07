@@ -313,7 +313,7 @@ describe("agent task command module", () => {
       expect(resultJson.runtime).toBe("pi-sdk");
       expect(resultJson.runtimeEvidence).toMatchObject({
         engine: "sdk",
-        toolPolicy: "sdk-no-tools-all",
+        toolPolicy: "sdk-web-safe-custom-tools",
         sessionPolicy: "workspace-session-dir"
       });
       expect(resultJson.output?.rawText).toContain("sdk engine processed cli task");
@@ -758,6 +758,9 @@ function fakePiSdkModuleForCliTest(input: {
       async reload(): Promise<void> {
         await Promise.resolve();
       }
+    },
+    defineTool(tool) {
+      return tool;
     }
   };
 }
