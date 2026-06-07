@@ -297,41 +297,28 @@ Each skill should define:
 - validation commands to run before declaring success;
 - forbidden shortcuts, including direct filesystem writes and fixture-specific logic.
 
-## 11. Current Progress And Test-First Gate
+## 11. Active Gap Plan And Test-First Gate
 
-The V4 CLI harness now exposes these command families:
+The completed pi-backed semantic evidence loop is archived in `archive/v4-pi-evidence-loop-archive.md`. Do not keep re-litigating those completed hardening items in the active plan. This section tracks only the gaps still blocking a complete product/business loop.
 
-```text
-config, workspace, project, files, runtime, agents, agent, skills, import,
-cards, memory, knowledge, recall, context-pack, simulation, swarm,
-report, writing, workflow, external-swarm, web
-```
+### 11.1 Active Gaps In Priority Order
 
-This is harness progress, not full product completion. The next phase must prioritize the QA contract in `../qa/v4-full-usability-acceptance.md` before adding more command surface.
+| Priority | Gap                                              | Required output                                                                                                                                                                               | Minimum test standard                                                                                                                                                                                                                                                |
+| -------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1        | Domain artifact materialization from pi evidence | Validated `task/result.json` is transformed into durable StorySwarm output, ReportAgent markdown/JSON, and writing draft/chapter artifacts through shared validate/apply/audit/hash services. | Workflow tests fail when pi evidence exists but the expected domain artifact is missing, stale, hash-mismatched, outside workspace, or domain-invalid. CLI tests prove `swarm`/`report`/`writing` materialization commands return JSON envelopes and audited hashes. |
+| 2        | Full SDK AgentSession / Web-safe runtime         | NovelFabric-owned pi SDK `AgentSession` bridge with event stream, runtime trace, Web-safe tool policy enforcement, and NovelFabric config roots.                                              | Runtime tests instantiate the SDK bridge with temp config roots; policy tests prove raw `bash`/`write`/`edit`/network/arbitrary paths are denied for Web sessions; event-stream tests assert trace shape without relying on CLI stdout parsing.                      |
+| 3        | Web full workflow binding                        | Browser can run upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through CLI-backed services.     | Playwright test uses UI controls only, 50000+ ports, no console/API shortcuts, and asserts final domain artifacts and visible runtime evidence.                                                                                                                      |
+| 4        | Semantic import/materialization                  | Source text becomes chapters, character/world/rule cards, timeline, memory, and context packs through pi-backed outputs with reversible apply.                                                | Acceptance tests use at least two source fixtures; generated assets must cite source excerpts, pass content-quality checks, and avoid fixture-specific hardcoding.                                                                                                   |
+| 5        | External swarm REST/MCP adapters                 | Frozen external swarm REST/MCP endpoints/tools call shared TypeScript services and preserve existing request/response/idempotency/artifact semantics.                                         | Golden fixture tests cover REST POST/GET and MCP tools/list/tools/call, including Hermes/OpenAlice/TraderAlice-style payloads.                                                                                                                                       |
+| 6        | Domain-specific capabilities                     | Cards/memory/swarm/report/writing commands use narrow capability names instead of broad project/file write authority.                                                                         | Capability tests prove main agent can perform approved domain operations, role agents are denied cross-domain/protected operations, and audit records include actor/capability/reason.                                                                               |
 
-Current implemented strengths:
-
-- deterministic workspace/project/files/runtime/import/knowledge/proposal/simulation/report/writing/workflow/external-swarm CLI shells;
-- protected and audited workspace writes through shared services;
-- symlink escape regression coverage;
-- workflow job artifacts under `.novelfabric/jobs/<job-id>/`;
-- agent task package artifacts under `.novelfabric/tasks/<task-id>/`;
-- NovelFabric-owned pi runtime config and Web-safe policy metadata.
-
-Current blocking gaps for full usability:
-
-- full SDK AgentSession/Web binding: `agent run --runtime pi` now launches a real NovelFabric-owned pi CLI process with `generic-writer`, captures output, and writes audited result evidence, but the mono app still needs the documented SDK AgentSession bridge and event stream;
-- workflow pi evidence hardening: workflow pi-task stages now run agent tasks and verify completed result evidence, but currently only produce validated `task/result.json` evidence; they do NOT yet materialize domain-specific artifacts (StorySwarm output files, ReportAgent markdown, chapter drafts). A post-pi materialization step is needed that transforms validated pi output into durable domain artifacts.
-- Web binding: Web controls are not yet wired to the full workflow/agent runtime path under Web-safe policy;
-- external compatibility: external swarm REST/MCP adapters still need to call the shared CLI service and pass golden fixtures;
-- domain-specific capabilities must be tightened for cards/memory/swarm/report/chapter commands.
-
-Testing policy:
+### 11.2 Global Testing Policy
 
 - deterministic harness tests must pass in CI;
 - `npm run test:pi-acceptance` is a hard content gate and must fail, not skip, when NovelFabric pi config or LLM credentials are unavailable;
 - true pi/Web acceptance tests should exist as pending contract tests until implemented;
-- no deterministic shell may be described as semantic business success without completed pi runtime evidence and content validation.
+- no deterministic shell may be described as semantic business success without completed pi runtime evidence and content validation;
+- after gap 1 lands, `workflow verify` must require both validated pi task evidence and corresponding domain artifact evidence for pi-task stages.
 
 ## 12. Implementation Phases
 
@@ -382,11 +369,21 @@ Testing policy:
 - Add writing context-pack, draft task, apply-draft, review, export.
 - Chapters must cite accepted artifacts and pass validation before apply.
 
+### Phase 8.5 — Pi Output Domain Artifact Materialization (Next Iteration)
+
+- Read completed workflow pi `task/result.json` evidence only after schema/source-anchor/hash verification passes.
+- Materialize StorySwarm output, ReportAgent report, and writing draft/chapter artifacts through NovelFabric services, not by letting the agent write arbitrary files.
+- Run domain-specific validators before applying artifacts: citations/source anchors, expected stage/job/task binding, content length/structure, output path containment, and capability checks.
+- Write artifacts through shared workspace file services with audit JSONL and recorded hashes.
+- Update `workflow verify` so a pi-task stage is complete only when both validated task evidence and expected domain artifact evidence exist, once materialization is implemented.
+- Add tests that fail when `task/result.json` exists but the corresponding swarm/report/writing domain artifact is missing, stale, or hash-mismatched.
+
 ### Phase 9 — pi Agent SDK Bridge
 
-- Implement `agent task create/inspect/run/output validate/status/abort`.
-- Use NovelFabric-owned pi SDK sessions, settings, extensions, and skills.
-- Record session/task evidence without owning a separate provider stack.
+- Replace or augment the current CLI process bridge with the planned pi SDK `AgentSession` bridge.
+- Preserve the existing `agent task create/inspect/run/output validate/status/abort` command contract while moving runtime execution behind SDK sessions.
+- Use NovelFabric-owned pi SDK sessions, settings, extensions, skills, event streams, and Web-safe tool policies.
+- Record session/task evidence without owning a separate provider stack or exposing raw dangerous tools to Web users.
 
 ### Phase 10 — Web Shell Rewire
 

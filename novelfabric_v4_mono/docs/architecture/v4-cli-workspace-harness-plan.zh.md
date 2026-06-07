@@ -266,41 +266,28 @@ novelfabric-timeline-branch-proposal
 
 每个 skill 必须定义：触发条件与输入、允许 CLI/custom tools、可读范围、proposal/apply 路径、输出 schema、citation/evidence、成功前 validation、禁止 shortcut。
 
-## 11. 当前进展与测试优先门槛
+## 11. Active Gap Plan And Test-First Gate
 
-V4 CLI harness 当前已经暴露这些命令家族：
+已完成的 pi-backed semantic evidence loop 已归档到 `archive/v4-pi-evidence-loop-archive.md`。active plan 不再重复堆叠已完成 hardening 项，只保留阻塞完整业务闭环的未完成 gap。
 
-```text
-config, workspace, project, files, runtime, agents, agent, skills, import,
-cards, memory, knowledge, recall, context-pack, simulation, swarm,
-report, writing, workflow, external-swarm, web
-```
+### 11.1 未完成 Gap 与测试标准
 
-这说明 harness 已经成型，但不代表产品业务闭环完成。下一阶段必须优先执行 `../qa/v4-full-usability-acceptance.md` 中定义的 QA contract，再继续扩命令面。
+| 优先级 | Gap                                      | 必须产出                                                                                                                                                                             | 最低测试标准                                                                                                                                                                                                                                  |
+| ------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1      | 从 pi evidence 物化 domain artifacts     | 经过校验的 `task/result.json` 被转成 durable StorySwarm output、ReportAgent markdown/JSON、writing draft/chapter，并通过 shared validate/apply/audit/hash services 落盘。            | Workflow tests 必须证明：只有 pi evidence 不够；对应 domain artifact 缺失、过期、hash mismatch、越界或 domain-invalid 时会失败。CLI tests 必须证明 `swarm`/`report`/`writing` materialization commands 输出 JSON envelope 与 audited hashes。 |
+| 2      | 完整 SDK AgentSession / Web-safe runtime | NovelFabric-owned pi SDK `AgentSession` bridge、event stream、runtime trace、Web-safe tool policy enforcement、NovelFabric config roots。                                            | Runtime tests 用临时 config roots 实例化 SDK bridge；policy tests 证明 Web sessions 拒绝 raw `bash`/`write`/`edit`/network/arbitrary paths；event-stream tests 校验 trace shape，不依赖 CLI stdout parsing。                                  |
+| 3      | Web full workflow binding                | 浏览器能通过 CLI-backed services 跑通上传/导入原文 → semantic 拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save。 | Playwright test 只用 UI controls、50000+ ports、无 console/API shortcut，并断言最终 domain artifacts 与 visible runtime evidence。                                                                                                            |
+| 4      | Semantic import/materialization          | 原文通过 pi-backed outputs 生成 chapters、character/world/rule cards、timeline、memory、context packs，并支持 reversible apply。                                                     | Acceptance tests 至少使用两个 source fixtures；生成资产必须引用 source excerpts、通过 content-quality checks、禁止 fixture-specific hardcoding。                                                                                              |
+| 5      | External swarm REST/MCP adapters         | Frozen external swarm REST/MCP endpoints/tools 调 shared TypeScript services，并保持既有 request/response/idempotency/artifact semantics。                                           | Golden fixture tests 覆盖 REST POST/GET 与 MCP tools/list/tools/call，包含 Hermes/OpenAlice/TraderAlice 风格 payloads。                                                                                                                       |
+| 6      | Domain-specific capabilities             | cards/memory/swarm/report/writing 使用更窄 capability names，而不是 broad project/file write authority。                                                                             | Capability tests 证明 main agent 可执行授权 domain 操作，role agents 被拒绝跨域/保护操作，audit records 包含 actor/capability/reason。                                                                                                        |
 
-当前已经落地的强项：
-
-- deterministic workspace/project/files/runtime/import/knowledge/proposal/simulation/report/writing/workflow/external-swarm CLI shells；
-- 通过 shared services 执行 protected/audited workspace writes；
-- symlink escape regression coverage；
-- `.novelfabric/jobs/<job-id>/` workflow job artifacts；
-- `.novelfabric/tasks/<task-id>/` agent task package artifacts；
-- NovelFabric-owned pi runtime config 与 Web-safe policy metadata。
-
-距离完全可用仍然阻塞的 gap：
-
-- 完整 SDK AgentSession / Web binding：`agent run --runtime pi` 现在已经用 `generic-writer` 启动真实 NovelFabric-owned pi CLI process，捕获输出并写入 audited result evidence，但 mono app 仍需实现文档中的 SDK AgentSession bridge 与 event stream；
-- workflow pi evidence hardening：workflow pi-task stages 现在会运行 agent task 并校验 completed result evidence，但目前仅产出经过校验的 `task/result.json` 证据，尚未将语义拆书、role reasoning、StorySwarm output、ReportAgent analysis、chapter drafts 等结果物化为实际 domain 产物（如 swarm output 文件、report markdown、writing chapter draft）。需要在 pi 输出校验后增加 domain artifact 物化步骤；
-- Web binding：Web controls 尚未在 Web-safe policy 下接入完整 workflow/agent runtime path；
-- external compatibility：external swarm REST/MCP adapters 仍需接 shared CLI service 并通过 golden fixtures；
-- cards/memory/swarm/report/chapter 等 domain-specific capabilities 需要收紧。
-
-测试策略：
+### 11.2 全局测试策略
 
 - deterministic harness tests 必须在 CI 中通过；
 - `npm run test:pi-acceptance` 是硬内容门槛，NovelFabric pi config 或 LLM 凭据不可用时必须失败，不能 skip；
 - 真实 pi/Web acceptance tests 在未实现前应作为 pending contract tests 存在；
-- 没有 completed pi runtime evidence 与内容校验的 deterministic shell 不能被描述为 semantic business success。
+- 没有 completed pi runtime evidence 与内容校验的 deterministic shell 不能被描述为 semantic business success；
+- gap 1 落地后，`workflow verify` 必须要求 pi-task stages 同时具备 validated pi task evidence 与对应 domain artifact evidence。
 
 ## 12. 实施阶段
 
@@ -312,7 +299,8 @@ report, writing, workflow, external-swarm, web
 6. **StoryGraph / StoryRAG CLI** — 从源文件重建 `knowledge/`，提供 search/context-pack。
 7. **Simulation / StorySwarm CLI** — session、context packs、turn append、validation、swarm plan/task/output/finalize。
 8. **Report / Writing CLI** — report task/validate/apply/list/show；writing context-pack、draft task、apply-draft、review、export。
-9. **pi Agent SDK Bridge** — 实现 agent task create/inspect/run/output validate/status/abort，使用 NovelFabric-owned pi SDK sessions/settings/extensions/skills。
+   8.5. **Pi Output Domain Artifact Materialization（下一轮重点）** — 只有在 completed workflow pi `task/result.json` 通过 schema/source-anchor/hash 校验后，才把 StorySwarm output、ReportAgent report、writing draft/chapter 物化为 NovelFabric domain artifacts；物化必须走 shared workspace file services、audit JSONL、artifact hash、domain-specific validation 与 capability checks；实现后 `workflow verify` 应要求 pi-task evidence 与对应 domain artifact evidence 同时存在。
+9. **pi Agent SDK Bridge** — 保持现有 agent task create/inspect/run/output validate/status/abort 命令契约，同时用 planned pi SDK `AgentSession` bridge 替代或封装当前 CLI process bridge；使用 NovelFabric-owned sessions/settings/extensions/skills/event streams/Web-safe tool policies，并继续记录 session/task evidence。
 10. **Web Shell Rewire** — 用 CLI-backed workflow/task 调用替换 template-only business paths，展示 runtime policy 与证据。
 11. **End-to-End Acceptance** — 两个 source fixture，十轮 browser run，必须有 pi-backed semantic evidence，无 console/direct API/fixture 特判。
 

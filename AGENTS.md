@@ -66,6 +66,21 @@ V4 的方向不是继续扩大旧后端 agent runtime，而是：
 - V4 mono app 仍需要面向非技术网页用户的 LLM 运行时，但该运行时应是对 pi agent SDK 的受控包装：使用 NovelFabric 自己约定的配置路径（默认 `~/.config/novelfabric/pi/`）、NovelFabric 安装/管理的 sandbox/permission/CLI-only-write extensions，并默认阻止 raw `bash`、raw `write/edit`、任意网络和任意路径访问。
 - 集群推演 / external swarm inference 是已有外部依赖面，不等同于旧 LLM adapter；V4 必须保持其 HTTP/MCP API 兼容。
 
+#### 当前 V4 handoff gap（下一轮迭代入口）
+
+已完成的 pi-backed semantic evidence loop 已归档到 `novelfabric_v4_mono/docs/architecture/archive/v4-pi-evidence-loop-archive.md`。active handoff 不再堆叠已完成 hardening 细节，下一轮只聚焦未完成 gap。
+
+下一轮优先 gap：
+
+1. 将 validated pi `task/result.json` 物化为 domain artifacts：StorySwarm output、ReportAgent markdown/JSON、writing draft/chapter，并走 shared validate/apply/audit/hash。这是第一优先级；当前 workflow 只证明 task/result evidence，不等于最终业务产物。
+2. 接入 pi SDK `AgentSession` / event stream / Web-safe tool policy，替代或封装当前 CLI process bridge。
+3. 打通 Web 全流程：上传/导入原文 → semantic 拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save。
+4. 实现 semantic import/materialization：原文通过 pi 生成章节、角色/世界/规则卡、timeline、memory、context pack，并做内容质量校验。
+5. 落 frozen external swarm REST/MCP adapters 与 golden tests。
+6. 收紧 cards/memory/swarm/report/writing 的 domain-specific capabilities，避免用 broad file/project 权限代替业务授权。
+
+详细测试标准见 `novelfabric_v4_mono/docs/architecture/v4-cli-workspace-harness-plan.md` 与 `novelfabric_v4_mono/docs/qa/v4-full-usability-acceptance.md`。
+
 ### 3.3 融合 MiroFish 的边界
 
 允许吸收：
