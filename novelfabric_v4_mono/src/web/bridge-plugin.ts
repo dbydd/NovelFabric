@@ -23,6 +23,11 @@ import {
   type AgentTaskRunState
 } from "../agent-runtime/task-runner.js";
 import {
+  getWorkflowStepRunState,
+  startWorkflowStepRun,
+  type WorkflowStepRunState
+} from "../agent-runtime/workflow-runner.js";
+import {
   buildWebSafePiSessionOptions,
   inspectPiSdkAvailability
 } from "../agent-runtime/pi-adapter.js";
@@ -124,6 +129,11 @@ const workflowReadRequestSchema = z.object({
 
 const workflowCancelRequestSchema = workflowReadRequestSchema.extend({
   reason: z.string().min(1).optional()
+});
+
+const workflowStepRequestSchema = workflowReadRequestSchema.extend({
+  reason: z.string().min(1).optional(),
+  input: z.record(z.string(), z.unknown()).optional()
 });
 
 const DEFAULT_AGENT_TASK_STREAM_POLL_MS = 1000;
@@ -286,7 +296,42 @@ export async function handleBridgeRequest(
       assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
       assertBridgeActorMatches(body.actor, bridgeActor());
       const result = await statusWorkflow({ workspacePath, jobId: body.jobId });
-      writeJson(response, 200, { ok: true, data: summarizeWorkflowPeekResult(result) });
+      const runState = getWorkflowStepRunState(body.jobId, workspacePath);
+      writeJson(response, 200, {
+        ok: true,
+        data: summarizeWorkflowStatusResult(result, runState)
+      });
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/api/bridge/workflow/step") {
+      const body = workflowStepRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      const runState = startWorkflowStepRun({
+        workspacePath,
+        actor: body.actor,
+        jobId: body.jobId,
+        ...(body.input === undefined ? {} : { input: body.input }),
+        ...(body.reason === undefined ? {} : { reason: body.reason })
+      });
+      writeJson(response, 202, {
+        ok: true,
+        data: summarizeWorkflowStepRunResult(runState)
+      });
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/api/bridge/workflow/step/status") {
+      const body = workflowReadRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      const runState = getWorkflowStepRunState(body.jobId, workspacePath);
+      const status = await statusWorkflow({ workspacePath, jobId: body.jobId });
+      writeJson(response, 200, {
+        ok: true,
+        data: summarizeWorkflowStepStatusResult(status, runState)
+      });
       return;
     }
 
@@ -539,6 +584,67 @@ function summarizeWorkflowPeekResult(result: WorkflowPeekResult): {
     completedStages: result.completedStages,
     nextStage: result.nextStage?.id ?? null,
     progress: result.progress
+  };
+}
+
+function summarizeWorkflowStatusResult(
+  result: WorkflowPeekResult,
+  runState: WorkflowStepRunState | undefined
+): ReturnType<typeof summarizeWorkflowPeekResult> & {
+  readonly stepRun?: ReturnType<typeof summarizeWorkflowStepRunState>;
+} {
+  return {
+    ...summarizeWorkflowPeekResult(result),
+    ...(runState === undefined ? {} : { stepRun: summarizeWorkflowStepRunState(runState) })
+  };
+}
+
+function summarizeWorkflowStepRunResult(state: WorkflowStepRunState): {
+  readonly jobId: string;
+  readonly status: "running";
+  readonly runStartedAt: string;
+  readonly eventStreamAvailable: true;
+} {
+  return {
+    jobId: state.jobId,
+    status: "running",
+    runStartedAt: state.startedAt,
+    eventStreamAvailable: true
+  };
+}
+
+function summarizeWorkflowStepStatusResult(
+  workflowStatus: WorkflowPeekResult,
+  runState: WorkflowStepRunState | undefined
+): {
+  readonly jobId: string;
+  readonly workflowStatus: string;
+  readonly completedStages: readonly string[];
+  readonly nextStage: string | null;
+  readonly progress: WorkflowPeekResult["progress"];
+  readonly stepRun?: ReturnType<typeof summarizeWorkflowStepRunState>;
+} {
+  return {
+    jobId: workflowStatus.jobId,
+    workflowStatus: workflowStatus.status,
+    completedStages: workflowStatus.completedStages,
+    nextStage: workflowStatus.nextStage?.id ?? null,
+    progress: workflowStatus.progress,
+    ...(runState === undefined ? {} : { stepRun: summarizeWorkflowStepRunState(runState) })
+  };
+}
+
+function summarizeWorkflowStepRunState(state: WorkflowStepRunState): {
+  readonly status: WorkflowStepRunState["status"];
+  readonly startedAt: string;
+  readonly updatedAt: string;
+  readonly errorCode?: string;
+} {
+  return {
+    status: state.status,
+    startedAt: state.startedAt,
+    updatedAt: state.updatedAt,
+    ...(state.errorCode === undefined ? {} : { errorCode: state.errorCode })
   };
 }
 

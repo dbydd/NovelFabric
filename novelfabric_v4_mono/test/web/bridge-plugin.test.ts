@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { PiSdkAgentSessionModule } from "../../src/agent-runtime/pi-adapter.js";
 import { clearAgentTaskRunStateForTesting } from "../../src/agent-runtime/task-runner.js";
+import { clearWorkflowStepRunStateForTesting } from "../../src/agent-runtime/workflow-runner.js";
 import {
   createAgentTask,
   setAgentTaskPiSdkModuleForTesting
@@ -16,7 +17,7 @@ import {
   getActiveAgentTaskStreamCountForTesting,
   handleBridgeRequest
 } from "../../src/web/bridge-plugin.js";
-import { writeWorkspaceFile } from "../../src/workspace/files.js";
+import { readWorkspaceFile, writeWorkspaceFile } from "../../src/workspace/files.js";
 
 type BridgeEnvelope =
   | { readonly ok: true; readonly data: BridgeRuntimePrepareData }
@@ -50,6 +51,7 @@ const ORIGINAL_ENV = { ...process.env };
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
   clearAgentTaskRunStateForTesting();
+  clearWorkflowStepRunStateForTesting();
 });
 
 describe("NovelFabric web bridge agent task routes", () => {
@@ -1458,6 +1460,166 @@ describe("NovelFabric web bridge workflow routes", () => {
     }
   });
 
+  it("starts workflow steps asynchronously and exposes running status", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    process.env["NOVELFABRIC_WEB_BRIDGE_WORKFLOW_STEP_DELAY_MS"] = "150";
+    await postBridge("/api/bridge/workflow/plan", {
+      workspacePath,
+      actor: "main_agent",
+      sourcePath: "project.md",
+      role: "Aria",
+      planId: "web-workflow-step-async"
+    });
+    await postBridge("/api/bridge/workflow/start", {
+      workspacePath,
+      actor: "main_agent",
+      planId: "web-workflow-step-async"
+    });
+
+    const startedAt = Date.now();
+    const step = await postBridge("/api/bridge/workflow/step", {
+      workspacePath,
+      actor: "main_agent",
+      jobId: "web-workflow-step-async"
+    });
+    expect(Date.now() - startedAt).toBeLessThan(120);
+    expect(step.status).toBe(202);
+    expect(step.body.ok).toBe(true);
+    if (step.body.ok) {
+      expect(step.body.data).toMatchObject({
+        jobId: "web-workflow-step-async",
+        status: "running",
+        eventStreamAvailable: true
+      });
+      expect(step.body.data["runStartedAt"]).toEqual(expect.any(String));
+      expectNoInternalTaskPaths(step.body.data, workspacePath);
+    }
+
+    const duplicate = await postBridge("/api/bridge/workflow/step", {
+      workspacePath,
+      actor: "main_agent",
+      jobId: "web-workflow-step-async"
+    });
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.ok).toBe(false);
+    if (!duplicate.body.ok) {
+      expect(duplicate.body.error.code).toBe("bridge_workflow_step_already_running");
+      expectNoInternalTaskPaths(duplicate.body.error, workspacePath);
+    }
+
+    const running = await postBridge("/api/bridge/workflow/step/status", {
+      workspacePath,
+      actor: "main_agent",
+      jobId: "web-workflow-step-async"
+    });
+    expect(running.status).toBe(200);
+    expect(running.body.ok).toBe(true);
+    if (running.body.ok) {
+      expect(running.body.data).toMatchObject({
+        jobId: "web-workflow-step-async",
+        workflowStatus: "running",
+        nextStage: "import.normalize",
+        stepRun: { status: "running" }
+      });
+      expectNoInternalTaskPaths(running.body.data, workspacePath);
+    }
+
+    const completed = await waitForBridgeWorkflowStepStatus(
+      workspacePath,
+      "web-workflow-step-async",
+      "completed"
+    );
+    expect(completed.body.ok).toBe(true);
+    if (completed.body.ok) {
+      expect(completed.body.data).toMatchObject({
+        jobId: "web-workflow-step-async",
+        workflowStatus: "running",
+        completedStages: ["import.normalize"],
+        nextStage: "import.chapterize",
+        stepRun: { status: "completed" }
+      });
+      expectNoInternalTaskPaths(completed.body.data, workspacePath);
+    }
+
+    const status = await postBridge("/api/bridge/workflow/status", {
+      workspacePath,
+      actor: "main_agent",
+      jobId: "web-workflow-step-async"
+    });
+    expect(status.status).toBe(200);
+    expect(status.body.ok).toBe(true);
+    if (status.body.ok) {
+      expect(status.body.data).toMatchObject({
+        jobId: "web-workflow-step-async",
+        status: "running",
+        completedStages: ["import.normalize"],
+        nextStage: "import.chapterize",
+        stepRun: { status: "completed" }
+      });
+      expectNoInternalTaskPaths(status.body.data, workspacePath);
+    }
+  });
+
+  it("writes sanitized non-protected failure evidence for failed async workflow steps", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    await postBridge("/api/bridge/workflow/plan", {
+      workspacePath,
+      actor: "main_agent",
+      sourcePath: "project.md",
+      role: "Aria",
+      planId: "web-workflow-step-failure"
+    });
+    await postBridge("/api/bridge/workflow/start", {
+      workspacePath,
+      actor: "main_agent",
+      planId: "web-workflow-step-failure"
+    });
+
+    const step = await postBridge("/api/bridge/workflow/step", {
+      workspacePath,
+      actor: "main_agent",
+      jobId: "web-workflow-step-failure",
+      input: { stage: "import.chapterize" }
+    });
+    expect(step.status).toBe(202);
+
+    const failed = await waitForBridgeWorkflowStepStatus(
+      workspacePath,
+      "web-workflow-step-failure",
+      "failed"
+    );
+    expect(failed.body.ok).toBe(true);
+    if (failed.body.ok) {
+      expect(failed.body.data).toMatchObject({
+        jobId: "web-workflow-step-failure",
+        stepRun: { status: "failed" }
+      });
+      expectNoInternalTaskPaths(failed.body.data, workspacePath);
+    }
+
+    const evidence = await readWorkspaceFile({
+      workspacePath,
+      path: "reports/workflow-step-failures/web-workflow-step-failure.json"
+    });
+    expect(evidence.path).toBe("reports/workflow-step-failures/web-workflow-step-failure.json");
+    const evidenceJson = JSON.parse(evidence.content) as Record<string, unknown>;
+    expect(evidenceJson).toMatchObject({
+      kind: "novelfabric.workflow.async-step-failure",
+      version: 1,
+      jobId: "web-workflow-step-failure",
+      status: "failed",
+      actor: "main_agent"
+    });
+    expect(evidenceJson["errorCode"]).toEqual(expect.any(String));
+    expect(evidenceJson["failedAt"]).toEqual(expect.any(String));
+    expect(evidence.content).not.toContain(".novelfabric/jobs/");
+    expect(evidence.content).not.toContain(".novelfabric/tasks/");
+    expect(evidence.content).not.toContain(workspacePath);
+    expect(evidence.content).not.toMatch(/api[_-]?key|token|secret/i);
+  });
+
   it("sanitizes raw task paths from workflow artifact summaries", async () => {
     const workspacePath = await tempWorkspace();
     configureBridge({ workspacePath, actor: "main_agent" });
@@ -1545,6 +1707,37 @@ async function waitForBridgeTaskStatus(
   }
   if (last !== undefined) return last;
   throw new Error(`Timed out waiting for ${taskId} to reach ${expectedStatus}.`);
+}
+
+async function waitForBridgeWorkflowStepStatus(
+  workspacePath: string,
+  jobId: string,
+  expectedStatus: string,
+  timeoutMs = 3000
+): Promise<{ readonly status: number; readonly body: GenericBridgeEnvelope }> {
+  const started = Date.now();
+  let last: { readonly status: number; readonly body: GenericBridgeEnvelope } | undefined;
+  while (Date.now() - started < timeoutMs) {
+    last = await postBridge("/api/bridge/workflow/step/status", {
+      workspacePath,
+      actor: "main_agent",
+      jobId
+    });
+    if (
+      last.body.ok &&
+      isRecord(last.body.data["stepRun"]) &&
+      last.body.data["stepRun"]["status"] === expectedStatus
+    ) {
+      return last;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  if (last !== undefined) return last;
+  throw new Error(`Timed out waiting for workflow ${jobId} step run to reach ${expectedStatus}.`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseStreamFrame(body: string, eventName: string): GenericBridgeEnvelope {
