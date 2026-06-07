@@ -1,11 +1,165 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import type { Environment } from "../environment.js";
+import type { JsonObject, JsonValue } from "../output.js";
+import {
+  getRuntimePolicy,
+  resolveRuntimeConfigPaths,
+  type RuntimeFileStatus
+} from "../runtime/config.js";
 import type { AgentRuntimeAdapter, AgentRuntimeLaunchPlan } from "./types.js";
+
+export type PiSdkExportName =
+  | "createAgentSession"
+  | "AuthStorage"
+  | "ModelRegistry"
+  | "SettingsManager"
+  | "SessionManager"
+  | "DefaultResourceLoader"
+  | "defineTool";
+
+export type PiSdkAvailability = JsonObject & {
+  readonly packageName: "@earendil-works/pi-coding-agent";
+  readonly available: boolean;
+  readonly version: string | null;
+  readonly exports: Readonly<Record<PiSdkExportName, boolean>>;
+  readonly error?: string;
+};
+
+export type NovelFabricRuntimeRootResolution = JsonObject & {
+  readonly runtimeRoot: string;
+  readonly settingsPath: string;
+  readonly policyProfile: "web-safe";
+  readonly source: string;
+  readonly globalPiAgentRoot: string | null;
+  readonly usesGlobalPiAgentRoot: false;
+};
+
+export type WebSafePiToolName =
+  | "novelfabric_read_file"
+  | "novelfabric_write_file"
+  | "novelfabric_context_pack"
+  | "novelfabric_validate"
+  | "novelfabric_apply_proposal"
+  | "novelfabric_report";
+
+export type RawPiToolName =
+  | "bash"
+  | "write"
+  | "edit"
+  | "read"
+  | "network"
+  | "arbitrary_path_access"
+  | "raw_bash"
+  | "raw_write"
+  | "raw_edit"
+  | "arbitrary_network";
+
+export type WebSafePiPolicyProfile = JsonObject & {
+  readonly profile: "web-safe";
+  readonly defaultDecision: "deny";
+  readonly allowedNovelFabricTools: readonly WebSafePiToolName[];
+  readonly deniedRawTools: readonly RawPiToolName[];
+};
+
+export type WebSafePiSessionOptionsInput = {
+  readonly environment: Environment;
+  readonly actor: string;
+  readonly requestedTools?: readonly string[];
+  readonly policyProfile?: "web-safe";
+};
+
+export type WebSafePiSessionOptions = JsonObject & {
+  readonly actor: string;
+  readonly runtimeRoot: string;
+  readonly settingsPath: string;
+  readonly policyProfile: "web-safe";
+  readonly allowedTools: readonly WebSafePiToolName[];
+  readonly deniedRawTools: readonly RawPiToolName[];
+  readonly requestedTools: readonly string[];
+  readonly valid: boolean;
+  readonly violations: readonly string[];
+  readonly rawBuiltinToolsEnabled: false;
+};
+
+export type PiSdkNormalizedEvent =
+  | {
+      readonly type: "session.started";
+      readonly sessionId?: string;
+      readonly timestamp?: string;
+    }
+  | {
+      readonly type: "model.output";
+      readonly text: string;
+      readonly timestamp?: string;
+    }
+  | {
+      readonly type: "tool.requested";
+      readonly toolName: string;
+      readonly timestamp?: string;
+    }
+  | {
+      readonly type: "tool.denied";
+      readonly toolName: string;
+      readonly reason: string;
+      readonly timestamp?: string;
+    }
+  | {
+      readonly type: "validation.completed";
+      readonly valid: boolean;
+      readonly timestamp?: string;
+    }
+  | {
+      readonly type: "session.completed";
+      readonly timestamp?: string;
+    }
+  | {
+      readonly type: "session.failed";
+      readonly message: string;
+      readonly timestamp?: string;
+    };
+
+const PI_PACKAGE_NAME = "@earendil-works/pi-coding-agent" as const;
+const REQUIRED_SDK_EXPORTS: readonly PiSdkExportName[] = [
+  "createAgentSession",
+  "AuthStorage",
+  "ModelRegistry",
+  "SettingsManager",
+  "SessionManager",
+  "DefaultResourceLoader",
+  "defineTool"
+];
+
+const WEB_SAFE_ALLOWED_TOOLS: readonly WebSafePiToolName[] = [
+  "novelfabric_read_file",
+  "novelfabric_write_file",
+  "novelfabric_context_pack",
+  "novelfabric_validate",
+  "novelfabric_apply_proposal",
+  "novelfabric_report"
+];
+
+const WEB_SAFE_DENIED_RAW_TOOLS: readonly RawPiToolName[] = [
+  "bash",
+  "write",
+  "edit",
+  "read",
+  "network",
+  "arbitrary_path_access",
+  "raw_bash",
+  "raw_write",
+  "raw_edit",
+  "arbitrary_network"
+];
 
 export const piAgentRuntimeAdapter: AgentRuntimeAdapter = {
   name: "pi-coding-agent",
-  packageName: "@earendil-works/pi-coding-agent",
+  packageName: PI_PACKAGE_NAME,
   describeLaunchPlan(cwd: string): AgentRuntimeLaunchPlan {
     return {
-      bridge: "@earendil-works/pi-coding-agent",
+      bridge: PI_PACKAGE_NAME,
       status: "planned",
       cwd,
       sessionMode: "workspace-persistent",
@@ -19,11 +173,316 @@ export const piAgentRuntimeAdapter: AgentRuntimeAdapter = {
   }
 };
 
+export function resolveNovelFabricPiRuntimeRoot(
+  environment: Environment
+): NovelFabricRuntimeRootResolution {
+  const paths = resolveRuntimeConfigPaths(environment);
+  return {
+    runtimeRoot: paths.runtimeRoot,
+    settingsPath: paths.settingsPath,
+    policyProfile: "web-safe",
+    source: paths.resolution.source,
+    globalPiAgentRoot:
+      environment.home === undefined ? null : path.join(environment.home, ".pi", "agent"),
+    usesGlobalPiAgentRoot: false
+  };
+}
+
+export function webSafePiPolicyProfile(): WebSafePiPolicyProfile {
+  const policy = getRuntimePolicy("web-safe");
+  return {
+    profile: "web-safe",
+    defaultDecision: "deny",
+    allowedNovelFabricTools: WEB_SAFE_ALLOWED_TOOLS.filter((tool) =>
+      policy.allowedNovelFabricTools.includes(tool)
+    ),
+    deniedRawTools: WEB_SAFE_DENIED_RAW_TOOLS.filter((tool) => policy.deniedRawTools.includes(tool))
+  };
+}
+
+export function buildWebSafePiSessionOptions(
+  input: WebSafePiSessionOptionsInput
+): WebSafePiSessionOptions {
+  const runtime = resolveNovelFabricPiRuntimeRoot(input.environment);
+  const policy = webSafePiPolicyProfile();
+  const requestedTools = input.requestedTools ?? [];
+  const violations = requestedTools.flatMap((tool) => {
+    if (isDeniedRawTool(tool, policy.deniedRawTools)) {
+      return [`raw tool '${tool}' is denied by the NovelFabric web-safe runtime policy`];
+    }
+    if (!isAllowedNovelFabricTool(tool, policy.allowedNovelFabricTools)) {
+      return [`tool '${tool}' is not in the NovelFabric web-safe allowlist`];
+    }
+    return [];
+  });
+
+  return {
+    actor: input.actor,
+    runtimeRoot: runtime.runtimeRoot,
+    settingsPath: runtime.settingsPath,
+    policyProfile: input.policyProfile ?? "web-safe",
+    allowedTools: policy.allowedNovelFabricTools,
+    deniedRawTools: policy.deniedRawTools,
+    requestedTools,
+    valid: violations.length === 0,
+    violations,
+    rawBuiltinToolsEnabled: false
+  };
+}
+
+export async function inspectPiSdkAvailability(): Promise<PiSdkAvailability> {
+  try {
+    const piSdk = await import("@earendil-works/pi-coding-agent");
+    const exports = applyTestForcedMissingExports(exportStatus(piSdk));
+    return {
+      packageName: PI_PACKAGE_NAME,
+      available: REQUIRED_SDK_EXPORTS.every((name) => exports[name]),
+      version: await readPiPackageVersion(),
+      exports
+    };
+  } catch (error) {
+    return {
+      packageName: PI_PACKAGE_NAME,
+      available: false,
+      version: null,
+      exports: emptyExportStatus(),
+      error: sanitizeSdkDiagnosticMessage(
+        error instanceof Error ? error.message : "Unable to inspect pi SDK availability."
+      )
+    };
+  }
+}
+
+export function piSdkAvailabilityDiagnostic(availability: PiSdkAvailability): RuntimeFileStatus {
+  const missingExports = REQUIRED_SDK_EXPORTS.filter((name) => !availability.exports[name]);
+  if (availability.available && missingExports.length === 0) {
+    return {
+      path: availability.packageName,
+      exists: true,
+      valid: true,
+      kind: "pi-sdk",
+      packageName: availability.packageName,
+      version: availability.version,
+      missingExports
+    };
+  }
+
+  return {
+    path: availability.packageName,
+    exists: availability.error === undefined,
+    valid: false,
+    kind: "pi-sdk",
+    packageName: availability.packageName,
+    version: availability.version,
+    reason: availability.error === undefined ? "missing_required_exports" : "package_unavailable",
+    missingExports,
+    ...(availability.error === undefined
+      ? {}
+      : { error: sanitizeSdkDiagnosticMessage(availability.error) })
+  };
+}
+
+export function normalizePiSdkEvent(rawEvent: unknown): PiSdkNormalizedEvent {
+  if (!isJsonObject(rawEvent)) {
+    return { type: "session.failed", message: "Unrecognized pi SDK event." };
+  }
+
+  const rawType = stringValue(rawEvent["type"]);
+  const timestamp = optionalString(rawEvent["timestamp"]);
+  switch (rawType) {
+    case "session.started":
+    case "session_started":
+    case "started": {
+      const sessionId = optionalString(rawEvent["sessionId"]);
+      return withOptionalTimestamp(
+        sessionId === undefined
+          ? { type: "session.started" }
+          : { type: "session.started", sessionId },
+        timestamp
+      );
+    }
+    case "model.output":
+    case "model_output":
+    case "assistant.message":
+      return withOptionalTimestamp(
+        { type: "model.output", text: stringValue(rawEvent["text"]) ?? "" },
+        timestamp
+      );
+    case "tool.requested":
+    case "tool_call":
+    case "tool.request":
+      return withOptionalTimestamp(
+        { type: "tool.requested", toolName: toolNameFromRawEvent(rawEvent) },
+        timestamp
+      );
+    case "tool.denied":
+      return withOptionalTimestamp(
+        {
+          type: "tool.denied",
+          toolName: toolNameFromRawEvent(rawEvent),
+          reason: stringValue(rawEvent["reason"]) ?? "Tool denied by NovelFabric runtime policy."
+        },
+        timestamp
+      );
+    case "validation.completed":
+    case "validation_completed":
+      return withOptionalTimestamp(
+        { type: "validation.completed", valid: rawEvent["valid"] === true },
+        timestamp
+      );
+    case "session.completed":
+    case "completed":
+      return withOptionalTimestamp({ type: "session.completed" }, timestamp);
+    case "session.failed":
+    case "failed":
+    case "error":
+      return withOptionalTimestamp(
+        {
+          type: "session.failed",
+          message: stringValue(rawEvent["message"]) ?? "pi SDK session failed."
+        },
+        timestamp
+      );
+    default:
+      return withOptionalTimestamp(
+        { type: "session.failed", message: "Unrecognized pi SDK event." },
+        timestamp
+      );
+  }
+}
+
 export async function assertPiSdkImportAvailable(): Promise<AgentRuntimeLaunchPlan> {
-  const piSdk = await import("@earendil-works/pi-coding-agent");
-  if (typeof piSdk.createAgentSession !== "function") {
-    throw new Error("@earendil-works/pi-coding-agent createAgentSession export is unavailable.");
+  const availability = await inspectPiSdkAvailability();
+  if (!availability.available) {
+    throw new Error(`${PI_PACKAGE_NAME} required SDK exports are unavailable.`);
   }
 
   return piAgentRuntimeAdapter.describeLaunchPlan(process.cwd());
+}
+
+function exportStatus(moduleExports: object): Readonly<Record<PiSdkExportName, boolean>> {
+  return {
+    createAgentSession: typeof Reflect.get(moduleExports, "createAgentSession") === "function",
+    AuthStorage: typeof Reflect.get(moduleExports, "AuthStorage") === "function",
+    ModelRegistry: typeof Reflect.get(moduleExports, "ModelRegistry") === "function",
+    SettingsManager: typeof Reflect.get(moduleExports, "SettingsManager") === "function",
+    SessionManager: typeof Reflect.get(moduleExports, "SessionManager") === "function",
+    DefaultResourceLoader:
+      typeof Reflect.get(moduleExports, "DefaultResourceLoader") === "function",
+    defineTool: typeof Reflect.get(moduleExports, "defineTool") === "function"
+  };
+}
+
+function emptyExportStatus(): Readonly<Record<PiSdkExportName, boolean>> {
+  return {
+    createAgentSession: false,
+    AuthStorage: false,
+    ModelRegistry: false,
+    SettingsManager: false,
+    SessionManager: false,
+    DefaultResourceLoader: false,
+    defineTool: false
+  };
+}
+
+function applyTestForcedMissingExports(
+  exports: Readonly<Record<PiSdkExportName, boolean>>
+): Readonly<Record<PiSdkExportName, boolean>> {
+  const forcedMissingExports = forcedMissingPiSdkExportsForTests();
+  if (forcedMissingExports.length === 0) {
+    return exports;
+  }
+
+  return Object.fromEntries(
+    REQUIRED_SDK_EXPORTS.map((name) => [
+      name,
+      forcedMissingExports.includes(name) ? false : exports[name]
+    ])
+  ) as Readonly<Record<PiSdkExportName, boolean>>;
+}
+
+function forcedMissingPiSdkExportsForTests(): readonly PiSdkExportName[] {
+  // Test-only failure injection: this can only mark real exports as missing so production
+  // diagnostics cannot be made falsely healthy by setting an environment variable.
+  const rawValue = process.env["NOVELFABRIC_TEST_FORCE_PI_SDK_MISSING_EXPORTS"];
+  if (rawValue === undefined || rawValue.trim() === "") {
+    return [];
+  }
+
+  const requestedNames = rawValue
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+  if (requestedNames.includes("*")) {
+    return REQUIRED_SDK_EXPORTS;
+  }
+
+  return requestedNames.filter(isPiSdkExportName);
+}
+
+function isPiSdkExportName(value: string): value is PiSdkExportName {
+  return REQUIRED_SDK_EXPORTS.includes(value as PiSdkExportName);
+}
+
+function sanitizeSdkDiagnosticMessage(message: string): string {
+  return message.replace(
+    /(api[_-]?key|authorization|token|secret|bearer)\s*[:=]\s*\S+/gi,
+    "$1=<redacted>"
+  );
+}
+
+async function readPiPackageVersion(): Promise<string | null> {
+  try {
+    const packageJsonUrl = new URL("../package.json", import.meta.resolve(PI_PACKAGE_NAME));
+    const parsed: unknown = JSON.parse(await readFile(fileURLToPath(packageJsonUrl), "utf8"));
+    if (isJsonObject(parsed)) {
+      return stringValue(parsed["version"]) ?? null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function isAllowedNovelFabricTool(
+  tool: string,
+  allowedTools: readonly WebSafePiToolName[]
+): tool is WebSafePiToolName {
+  return allowedTools.some((allowed) => allowed === tool);
+}
+
+function isDeniedRawTool(
+  tool: string,
+  deniedTools: readonly RawPiToolName[]
+): tool is RawPiToolName {
+  return deniedTools.some((denied) => denied === tool);
+}
+
+function toolNameFromRawEvent(rawEvent: JsonObject): string {
+  return (
+    stringValue(rawEvent["toolName"]) ??
+    stringValue(rawEvent["tool"]) ??
+    stringValue(rawEvent["name"]) ??
+    "unknown"
+  );
+}
+
+function withOptionalTimestamp<TEvent extends PiSdkNormalizedEvent>(
+  event: TEvent,
+  timestamp: string | undefined
+): TEvent {
+  if (timestamp === undefined) return event;
+  return { ...event, timestamp };
+}
+
+function optionalString(value: JsonValue | undefined): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function stringValue(value: JsonValue | undefined): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

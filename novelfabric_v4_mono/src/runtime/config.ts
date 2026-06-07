@@ -111,6 +111,11 @@ export type RuntimeFileStatus = JsonObject & {
   readonly exists: boolean;
   readonly valid: boolean;
   readonly reason?: string;
+  readonly kind?: string;
+  readonly packageName?: string;
+  readonly version?: string | null;
+  readonly missingExports?: readonly string[];
+  readonly error?: string;
 };
 
 export type RuntimeInspectResult = {
@@ -119,6 +124,7 @@ export type RuntimeInspectResult = {
   readonly policy: RuntimeFileStatus;
   readonly extensions: readonly RuntimeFileStatus[];
   readonly directories: readonly RuntimeFileStatus[];
+  readonly diagnostics: readonly RuntimeFileStatus[];
 };
 
 export type RuntimeDoctorResult = RuntimeInspectResult & {
@@ -226,7 +232,15 @@ export function webSafeRuntimePolicy(): RuntimePolicy {
     schemaVersion: "novelfabric.pi.runtime.policy.v1",
     profile: WEB_SAFE_POLICY_PROFILE,
     defaultDecision: "deny",
-    deniedRawTools: ["bash", "write", "edit", "network", "arbitrary_path_access"],
+    deniedRawTools: [
+      "bash",
+      "write",
+      "edit",
+      "read",
+      "network",
+      "arbitrary_path_access",
+      "arbitrary_network"
+    ],
     allowedNovelFabricTools: [
       "novelfabric_read_file",
       "novelfabric_write_file",
@@ -320,7 +334,8 @@ export async function materializeRuntimeConfig(
 }
 
 export async function inspectRuntimeConfig(
-  environment: Environment
+  environment: Environment,
+  diagnostics: readonly RuntimeFileStatus[] = []
 ): Promise<RuntimeInspectResult> {
   const paths = resolveRuntimeConfigPaths(environment);
   return {
@@ -341,17 +356,22 @@ export async function inspectRuntimeConfig(
       inspectDirectory(paths.extensionsDirectory),
       inspectDirectory(paths.skillsDirectory),
       inspectDirectory(paths.promptsDirectory)
-    ])
+    ]),
+    diagnostics
   };
 }
 
-export async function doctorRuntimeConfig(environment: Environment): Promise<RuntimeDoctorResult> {
-  const inspection = await inspectRuntimeConfig(environment);
+export async function doctorRuntimeConfig(
+  environment: Environment,
+  diagnostics: readonly RuntimeFileStatus[] = []
+): Promise<RuntimeDoctorResult> {
+  const inspection = await inspectRuntimeConfig(environment, diagnostics);
   const statuses = [
     inspection.settings,
     inspection.policy,
     ...inspection.extensions,
-    ...inspection.directories
+    ...inspection.directories,
+    ...inspection.diagnostics
   ];
   const missingCount = statuses.filter((status) => !status.exists).length;
   const invalidCount = statuses.filter((status) => status.exists && !status.valid).length;

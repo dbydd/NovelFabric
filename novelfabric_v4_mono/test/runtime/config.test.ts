@@ -113,6 +113,37 @@ describe("NovelFabric pi runtime config services", () => {
     expect(after.invalidCount).toBe(0);
   });
 
+  it("marks runtime doctor invalid when SDK diagnostics are invalid", async () => {
+    const environment = makeEnvironment({ xdgConfigHome: tempRoot });
+    await materializeRuntimeConfig({ environment, actor: "main_agent" });
+
+    const after = await doctorRuntimeConfig(environment, [
+      {
+        path: "@earendil-works/pi-coding-agent",
+        exists: true,
+        valid: false,
+        kind: "pi-sdk",
+        packageName: "@earendil-works/pi-coding-agent",
+        version: "1.2.3",
+        reason: "missing_required_exports",
+        missingExports: ["createAgentSession"]
+      }
+    ]);
+
+    expect(after.valid).toBe(false);
+    expect(after.missingCount).toBe(0);
+    expect(after.invalidCount).toBe(1);
+    expect(after.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "pi-sdk",
+          reason: "missing_required_exports",
+          missingExports: ["createAgentSession"]
+        })
+      ])
+    );
+  });
+
   it("accepts NovelFabric-owned model defaults for pi acceptance", async () => {
     const environment = makeEnvironment({ xdgConfigHome: tempRoot });
     const materialized = await materializeRuntimeConfig({ environment, actor: "main_agent" });

@@ -1,5 +1,9 @@
 import type { Command } from "commander";
 
+import {
+  inspectPiSdkAvailability,
+  piSdkAvailabilityDiagnostic
+} from "../agent-runtime/pi-adapter.js";
 import { readProcessEnvironment } from "../environment.js";
 import { writeJson } from "../output.js";
 import {
@@ -23,12 +27,16 @@ export function addRuntimeCommands(program: Command): void {
     .description("Validate NovelFabric pi runtime config, policy, and extension metadata")
     .option("--json", "Print machine-readable JSON")
     .action(async (options: JsonOutputOptions) => {
-      const report = await doctorRuntimeConfig(readProcessEnvironment());
+      const sdk = await inspectPiSdkAvailability();
+      const report = await doctorRuntimeConfig(readProcessEnvironment(), [
+        piSdkAvailabilityDiagnostic(sdk)
+      ]);
       writeJson({
         ok: true,
         command: "runtime doctor",
         data: {
           ...report,
+          sdk,
           outputMode: resolveOutputMode(options)
         }
       });
