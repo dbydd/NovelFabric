@@ -132,7 +132,7 @@ novelfabric files read --workspace <workspace> --path <path> --json
 novelfabric files write --workspace <workspace> --path <path> --actor <actor> --stdin --json
 ```
 
-Planned extensions:
+Implemented extensions:
 
 ```bash
 novelfabric files glob --workspace <workspace> --base <dir> --pattern '**/*.md' --json
@@ -192,7 +192,7 @@ novelfabric agent status --workspace <workspace> --task <task-id> --json
 novelfabric agent abort --workspace <workspace> --task <task-id> --json
 ```
 
-`agent run --runtime pi` currently uses the NovelFabric-owned pi CLI bridge with `generic-writer`; `agent run --runtime pi-sdk` is an opt-in SDK AgentSession path covered by `npm run test:pi-sdk-acceptance`. Neither path may route through a NovelFabric-owned provider adapter. The command must validate the task output schema, reject empty or schema-invalid output, record runtime config root, enabled extensions/tool policy, actor, task id, model/provider evidence, and output artifact paths. Workflow pi-task outputs can now materialize domain artifacts through domain commands/services. Web-safe SDK extensions and Web bridge session streaming/orchestration remain pending.
+`agent run --runtime pi` currently uses the NovelFabric-owned pi CLI bridge with `generic-writer`; `agent run --runtime pi-sdk` is an opt-in SDK AgentSession path covered by `npm run test:pi-sdk-acceptance`. Neither path may route through a NovelFabric-owned provider adapter. The command must validate the task output schema, reject empty or schema-invalid output, record runtime config root, enabled extensions/tool policy, actor, task id, model/provider evidence, and output artifact paths. Workflow pi-task outputs can now materialize domain artifacts through domain commands/services. Web-safe SDK tools, mutation tools, async/SSE streaming, lifecycle routes, runtime task UI, and workflow bridge orchestration are implemented foundations and archived as completed slices.
 
 Recommended task package:
 
