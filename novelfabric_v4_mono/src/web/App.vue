@@ -1180,11 +1180,13 @@ onMounted(() => {
   initializeClusterSimulation();
   initializeWorkspaceRoot();
   void loadWorkspaceTreeFromBridge();
+  void prepareRuntimeSession();
   void ensureDraftLoaded("project.md", false);
 });
 
 onUnmounted(() => {
   clusterSimulation?.stop();
+  stopRuntimePolling();
 });
 
 const stages: readonly SwarmStage[] = [
@@ -1435,6 +1437,14 @@ const bridgeHealth = ref<BridgeHealth>("unknown");
 const bridgeEnabled = ref(false);
 const workspaceRoot = ref(".");
 const defaultEditorActor = ref("main_agent");
+const runtimePolicy = ref<RuntimeSessionPrepareResult | null>(null);
+const runtimeTaskId = ref<string | null>(null);
+const runtimeTaskStatus = ref<RuntimeTaskStatusResult | null>(null);
+const runtimeEvents = ref<readonly RuntimeTaskEvent[]>([]);
+const runtimeEventCursor = ref(0);
+const runtimeError = ref("");
+const runtimePollingTimer = ref<number | null>(null);
+const runtimeRunning = ref(false);
 
 const openTabs = ref<readonly Tab[]>([
   {
@@ -1519,6 +1529,10 @@ const activeFileLocked = computed(() => activeFileDraft.value.locked);
 const activeFileStatus = computed(() => statusTextForDraft(activeFileDraft.value));
 const markdownHtml = computed(() => renderMarkdownHtml(activeFileContent.value));
 const jsonPreview = computed(() => jsonPreviewRows(activeFileContent.value));
+const runtimeTerminal = computed(() =>
+  isRuntimeTerminalStatus(runtimeTaskStatus.value?.status ?? "")
+);
+const runtimeStatusLabel = computed(() => runtimeTaskStatus.value?.status ?? "idle");
 const activeRagContent = computed({
   get() {
     const node = selectedRagNode.value;
@@ -1741,6 +1755,86 @@ type BridgeTreeResult = {
   readonly tree: WorkspaceNode;
 };
 
+type RuntimeSessionPrepareResult = {
+  readonly actor: string;
+  readonly policyProfile: string;
+  readonly requestedTools: readonly string[];
+  readonly allowedTools: readonly string[];
+  readonly deniedRawTools: readonly string[];
+  readonly valid: boolean;
+  readonly violations: readonly string[];
+  readonly rawBuiltinToolsEnabled: boolean;
+  readonly sdk: {
+    readonly packageName: string;
+    readonly available: boolean;
+    readonly version?: string;
+    readonly missingExports: readonly string[];
+  };
+};
+
+type RuntimeTaskCreateResult = {
+  readonly taskId: string;
+  readonly packageCreated: true;
+  readonly fileCount: number;
+  readonly writeCount: number;
+};
+
+type RuntimeTaskRunResult = {
+  readonly taskId: string;
+  readonly status: "running";
+  readonly eventStreamAvailable: true;
+  readonly runStartedAt: string;
+};
+
+type RuntimeTaskStatusResult = {
+  readonly taskId: string;
+  readonly status: string;
+  readonly updatedAt: string;
+  readonly eventCount: number;
+  readonly resultAvailable: boolean;
+  readonly eventsAvailable: boolean;
+  readonly runtimeEvidence?: {
+    readonly provider: string;
+    readonly model: string;
+    readonly engine: "cli" | "sdk";
+    readonly toolPolicy: string;
+    readonly sessionPolicy: string;
+    readonly contextPolicy: "attached" | "none";
+    readonly stdoutBytes: number;
+    readonly stderrBytes: number;
+    readonly sessionId?: string;
+  };
+  readonly runState?: {
+    readonly status: string;
+    readonly startedAt: string;
+    readonly updatedAt: string;
+    readonly errorCode?: string;
+  };
+};
+
+type RuntimeTaskEvent = {
+  readonly taskId: string;
+  readonly type: string;
+  readonly actor: string;
+  readonly timestamp: string;
+  readonly runtimeEventType?: string;
+  readonly toolName?: string;
+  readonly denialCode?: string;
+  readonly valid?: boolean;
+  readonly textBytes?: number;
+  readonly terminal?: boolean;
+  readonly sequence?: number;
+};
+
+type RuntimeTaskEventsResult = {
+  readonly taskId: string;
+  readonly eventCount: number;
+  readonly cursor: number;
+  readonly nextCursor: number;
+  readonly eventsAvailable: boolean;
+  readonly events: readonly RuntimeTaskEvent[];
+};
+
 async function bridgeReadFile(pathValue: string): Promise<BridgeReadResult> {
   return bridgeRequest<BridgeReadResult>("/api/bridge/files/read", {
     workspacePath: workspaceRoot.value,
@@ -1778,7 +1872,188 @@ async function bridgeWriteFile(
   });
 }
 
-async function bridgeRequest<TResult>(url: string, body: Record<string, string>): Promise<TResult> {
+async function prepareRuntimeSession(): Promise<void> {
+  if (!bridgeEnabled.value) {
+    runtimePolicy.value = null;
+    runtimeError.value = "离线 buffer：未连接 bridge，不会启动真实 runtime。";
+    return;
+  }
+  try {
+    const result = await bridgeRequest<RuntimeSessionPrepareResult>(
+      "/api/bridge/runtime/session/prepare",
+      {
+        workspacePath: workspaceRoot.value,
+        actor: defaultEditorActor.value,
+        requestedTools: [
+          "novelfabric_read_file",
+          "novelfabric_context_pack",
+          "novelfabric_validate",
+          "novelfabric_report"
+        ]
+      }
+    );
+    runtimePolicy.value = result;
+    runtimeError.value = result.valid
+      ? ""
+      : `Runtime policy invalid: ${result.violations.join("; ")}`;
+    bridgeHealth.value = "live";
+  } catch (error) {
+    runtimePolicy.value = null;
+    runtimeError.value = bridgeErrorMessage(error);
+    bridgeHealth.value = "offline-buffer";
+  }
+}
+
+async function createRuntimeTask(prompt: string): Promise<RuntimeTaskCreateResult> {
+  const inputJson = JSON.stringify({ prompt, source: "web-chat", actor: defaultEditorActor.value });
+  const outputSchemaJson = JSON.stringify({
+    type: "object",
+    required: ["summary", "sourceAnchors"],
+    properties: {
+      summary: { type: "string", minLength: 16 },
+      sourceAnchors: { type: "array", minItems: 1, items: { type: "string", minLength: 2 } },
+      nextAction: { type: "string" }
+    }
+  });
+  return bridgeRequest<RuntimeTaskCreateResult>("/api/bridge/agent/tasks/create", {
+    workspacePath: workspaceRoot.value,
+    actor: defaultEditorActor.value,
+    title: "Web chat runtime task",
+    instruction: `Respond to the user's NovelFabric workspace request. Return only JSON matching the output schema. User request: ${prompt}`,
+    inputJson,
+    outputSchemaJson,
+    reason: "web chat runtime task create"
+  });
+}
+
+async function runRuntimeTask(taskId: string): Promise<RuntimeTaskRunResult> {
+  return bridgeRequest<RuntimeTaskRunResult>("/api/bridge/agent/tasks/run", {
+    workspacePath: workspaceRoot.value,
+    actor: defaultEditorActor.value,
+    task: taskId,
+    runtime: "pi-sdk",
+    reason: "web chat runtime task run"
+  });
+}
+
+async function refreshRuntimeTask(): Promise<void> {
+  const taskId = runtimeTaskId.value;
+  if (taskId === null || !bridgeEnabled.value) return;
+  try {
+    const status = await bridgeRequest<RuntimeTaskStatusResult>("/api/bridge/agent/tasks/status", {
+      workspacePath: workspaceRoot.value,
+      actor: defaultEditorActor.value,
+      task: taskId
+    });
+    runtimeTaskStatus.value = status;
+    const events = await bridgeRequest<RuntimeTaskEventsResult>("/api/bridge/agent/tasks/events", {
+      workspacePath: workspaceRoot.value,
+      actor: defaultEditorActor.value,
+      task: taskId
+    });
+    runtimeEvents.value = events.events;
+    runtimeEventCursor.value = events.nextCursor;
+    runtimeError.value = "";
+    if (isRuntimeTerminalStatus(status.status)) {
+      runtimeRunning.value = false;
+      stopRuntimePolling();
+      appendRuntimeTerminalMessage(status);
+    }
+  } catch (error) {
+    runtimeRunning.value = false;
+    runtimeError.value = bridgeErrorMessage(error);
+    stopRuntimePolling();
+  }
+}
+
+function startRuntimePolling(): void {
+  stopRuntimePolling();
+  runtimePollingTimer.value = window.setInterval(() => {
+    void refreshRuntimeTask();
+  }, 1500);
+}
+
+function stopRuntimePolling(): void {
+  if (runtimePollingTimer.value === null) return;
+  window.clearInterval(runtimePollingTimer.value);
+  runtimePollingTimer.value = null;
+}
+
+async function cancelRuntimeTask(): Promise<void> {
+  const taskId = runtimeTaskId.value;
+  if (taskId === null || !bridgeEnabled.value) return;
+  try {
+    const result = await bridgeRequest<RuntimeTaskStatusResult | { readonly status: string }>(
+      "/api/bridge/agent/tasks/cancel",
+      {
+        workspacePath: workspaceRoot.value,
+        actor: defaultEditorActor.value,
+        task: taskId,
+        reason: "web chat runtime cancel"
+      }
+    );
+    runtimeRunning.value = false;
+    stopRuntimePolling();
+    toastMessage.value = `Runtime task ${taskId} ${"status" in result ? result.status : "cancelled"}.`;
+    await refreshRuntimeTask();
+  } catch (error) {
+    runtimeError.value = bridgeErrorMessage(error);
+  }
+}
+
+async function retryRuntimeTask(): Promise<void> {
+  const taskId = runtimeTaskId.value;
+  if (taskId === null || !bridgeEnabled.value) return;
+  try {
+    const result = await bridgeRequest<{ readonly retryTaskId: string }>(
+      "/api/bridge/agent/tasks/retry",
+      {
+        workspacePath: workspaceRoot.value,
+        actor: defaultEditorActor.value,
+        task: taskId,
+        reason: "web chat runtime retry"
+      }
+    );
+    runtimeTaskId.value = result.retryTaskId;
+    runtimeTaskStatus.value = null;
+    runtimeEvents.value = [];
+    runtimeEventCursor.value = 0;
+    runtimeRunning.value = true;
+    await runRuntimeTask(result.retryTaskId);
+    await refreshRuntimeTask();
+    startRuntimePolling();
+  } catch (error) {
+    runtimeRunning.value = false;
+    runtimeError.value = bridgeErrorMessage(error);
+  }
+}
+
+function isRuntimeTerminalStatus(status: string): boolean {
+  return status === "completed" || status === "failed" || status === "aborted";
+}
+
+function appendRuntimeTerminalMessage(status: RuntimeTaskStatusResult): void {
+  const existingId = `runtime-${status.taskId}-${status.status}`;
+  if (chatMessages.value.some((message) => message.id === existingId)) return;
+  chatMessages.value = [
+    ...chatMessages.value,
+    {
+      id: existingId,
+      role: status.status === "completed" ? "assistant" : "system",
+      author: "NovelFabric Runtime",
+      content:
+        status.status === "completed"
+          ? `Runtime task ${status.taskId} completed. Events: ${status.eventCount.toString()}.`
+          : `Runtime task ${status.taskId} ended with status ${status.status}.`,
+      meta: `runtime:${status.status}`
+    }
+  ];
+}
+
+async function bridgeRequest<TResult>(
+  url: string,
+  body: Record<string, unknown>
+): Promise<TResult> {
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2465,34 +2740,119 @@ function jsonPrimitivePreview(value: string | number | boolean | null): string {
   return String(value);
 }
 
-function submitPreviewRun(): void {
+async function submitPreviewRun(): Promise<void> {
   const text = promptText.value.trim();
   if (text.length === 0) {
     toastMessage.value = "请输入任务文本；未连接 bridge 时只会进入离线 buffer。";
     return;
   }
+  const now = Date.now().toString();
   chatMessages.value = [
     ...chatMessages.value,
     {
-      id: `user-${Date.now().toString()}`,
+      id: `user-${now}`,
       role: "user",
       author: "你",
       content: text,
-      meta: "local prompt"
-    },
-    {
-      id: `assistant-${Date.now().toString()}`,
-      role: "assistant",
-      author: "NovelFabric Orchestrator",
-      content:
-        "已生成执行计划：context-pack → pi bridge task → append-turn。写入前会经过 capability 校验。",
-      meta: "plan response"
+      meta: bridgeEnabled.value ? "runtime prompt" : "offline prompt"
     }
   ];
   promptText.value = "";
-  toastMessage.value = bridgeEnabled.value
-    ? "已追加任务消息；后续写入请通过 CLI-backed bridge 执行。"
-    : "已追加离线 buffer 消息；当前未连接 workspace bridge。";
+
+  if (!bridgeEnabled.value) {
+    chatMessages.value = [
+      ...chatMessages.value,
+      {
+        id: `assistant-${now}`,
+        role: "assistant",
+        author: "NovelFabric Buffer",
+        content: "已加入离线 buffer。未连接 bridge 时不会启动 pi runtime，也不会写入磁盘。",
+        meta: "offline buffer"
+      }
+    ];
+    toastMessage.value = "已追加离线 buffer 消息；当前未连接 workspace bridge。";
+    return;
+  }
+
+  runtimeRunning.value = true;
+  runtimeError.value = "";
+  runtimeEvents.value = [];
+  runtimeEventCursor.value = 0;
+  runtimeTaskStatus.value = null;
+  try {
+    if (runtimePolicy.value === null) await prepareRuntimeSession();
+    const policy = runtimePolicy.value;
+    if (policy === null) {
+      const message =
+        runtimeError.value.length > 0
+          ? runtimeError.value
+          : "Runtime policy 未准备完成；无法启动任务。";
+      runtimeError.value = message;
+      runtimeRunning.value = false;
+      chatMessages.value = [
+        ...chatMessages.value,
+        {
+          id: `runtime-policy-missing-${Date.now().toString()}`,
+          role: "system",
+          author: "NovelFabric Runtime",
+          content: `Runtime task 未启动：${message}`,
+          meta: "runtime policy"
+        }
+      ];
+      toastMessage.value = `Runtime task 未启动：${message}`;
+      return;
+    }
+    if (policy.valid === false) {
+      const violations =
+        policy.violations.length > 0 ? policy.violations.join("; ") : "unknown policy violation";
+      const message = `Runtime policy invalid: ${violations}`;
+      runtimeError.value = message;
+      runtimeRunning.value = false;
+      chatMessages.value = [
+        ...chatMessages.value,
+        {
+          id: `runtime-policy-invalid-${Date.now().toString()}`,
+          role: "system",
+          author: "NovelFabric Runtime",
+          content: `Runtime task 未启动：${message}`,
+          meta: "runtime policy"
+        }
+      ];
+      toastMessage.value = `Runtime task 未启动：${message}`;
+      return;
+    }
+    const created = await createRuntimeTask(text);
+    runtimeTaskId.value = created.taskId;
+    await runRuntimeTask(created.taskId);
+    chatMessages.value = [
+      ...chatMessages.value,
+      {
+        id: `runtime-started-${created.taskId}`,
+        role: "agent",
+        author: "NovelFabric Runtime",
+        content: `Runtime task ${created.taskId} 已创建并开始执行。`,
+        meta: "pi-sdk task"
+      }
+    ];
+    await refreshRuntimeTask();
+    startRuntimePolling();
+    toastMessage.value = `Runtime task ${created.taskId} 已通过 bridge 启动。`;
+  } catch (error) {
+    runtimeRunning.value = false;
+    runtimeError.value = bridgeErrorMessage(error);
+    stopRuntimePolling();
+    chatMessages.value = [
+      ...chatMessages.value,
+      {
+        id: `runtime-error-${Date.now().toString()}`,
+        role: "system",
+        author: "NovelFabric Runtime",
+        content: `Runtime task 启动失败：${runtimeError.value}`,
+        meta: "runtime error"
+      }
+    ];
+    toastMessage.value = `Runtime task 启动失败：${runtimeError.value}`;
+  }
 }
 
 async function saveRagContent(): Promise<void> {
@@ -3304,10 +3664,12 @@ function openTab(tab: Tab): void {
         <article class="chat-card full-card chat-workspace-card">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">Agent Runs Preview</p>
-              <h2>本地 composer</h2>
+              <p class="eyebrow">Agent Runtime</p>
+              <h2>Bridge-backed composer</h2>
             </div>
-            <span class="tiny-chip">no backend</span>
+            <span class="tiny-chip">{{
+              bridgeEnabled ? runtimeStatusLabel : "offline buffer"
+            }}</span>
           </div>
           <div class="chat-room-scroll">
             <article
@@ -3325,9 +3687,72 @@ function openTab(tab: Tab): void {
               </div>
             </article>
           </div>
+          <div class="runtime-status-panel" aria-label="Runtime task status">
+            <div class="runtime-status-header">
+              <div>
+                <p class="eyebrow">Runtime Policy</p>
+                <h3>{{ runtimePolicy?.policyProfile ?? "not prepared" }}</h3>
+              </div>
+              <span :class="['tiny-chip', runtimeRunning ? 'running' : '']">{{
+                runtimeStatusLabel
+              }}</span>
+            </div>
+            <p v-if="runtimePolicy === null" class="runtime-note">
+              {{
+                bridgeEnabled
+                  ? "正在等待 runtime policy。"
+                  : "离线 buffer：未连接 bridge，不会启动真实 runtime。"
+              }}
+            </p>
+            <p v-else class="runtime-note">
+              allowed tools: {{ runtimePolicy.allowedTools.join(", ") || "none" }} · raw tools:
+              {{ runtimePolicy.rawBuiltinToolsEnabled ? "enabled" : "denied" }}
+            </p>
+            <p v-if="runtimeError.length > 0" class="runtime-error">{{ runtimeError }}</p>
+            <div class="runtime-actions">
+              <button
+                type="button"
+                :disabled="runtimeTaskId === null || runtimeTerminal"
+                @click="cancelRuntimeTask"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                :disabled="runtimeTaskId === null || runtimeRunning"
+                @click="retryRuntimeTask"
+              >
+                重试
+              </button>
+              <button type="button" :disabled="runtimeTaskId === null" @click="refreshRuntimeTask">
+                刷新
+              </button>
+            </div>
+            <div class="runtime-events" aria-label="Runtime event timeline">
+              <p v-if="runtimeEvents.length === 0" class="runtime-note">尚无 runtime event。</p>
+              <article
+                v-for="event in runtimeEvents"
+                :key="`${event.timestamp}-${event.type}-${event.sequence ?? 0}`"
+                class="runtime-event-row"
+              >
+                <span>{{ event.runtimeEventType ?? event.type }}</span>
+                <strong>{{ event.timestamp }}</strong>
+                <small v-if="event.toolName">tool: {{ event.toolName }}</small>
+                <small v-if="event.denialCode">denied: {{ event.denialCode }}</small>
+                <small v-if="event.textBytes !== undefined">{{ event.textBytes }} bytes</small>
+              </article>
+            </div>
+          </div>
           <div class="composer-row openwebui-composer">
             <textarea v-model="promptText" aria-label="Workspace task prompt" rows="4" />
-            <button class="primary-action" type="button" @click="submitPreviewRun">发送</button>
+            <button
+              class="primary-action"
+              type="button"
+              :disabled="runtimeRunning"
+              @click="submitPreviewRun"
+            >
+              发送
+            </button>
           </div>
         </article>
       </section>
@@ -3403,9 +3828,38 @@ function openTab(tab: Tab): void {
             </div>
           </article>
         </div>
+        <div class="runtime-status-panel compact" aria-label="Runtime task status">
+          <div class="runtime-status-header">
+            <span>{{ bridgeEnabled ? `runtime: ${runtimeStatusLabel}` : "offline buffer" }}</span>
+            <div class="runtime-actions">
+              <button
+                type="button"
+                :disabled="runtimeTaskId === null || runtimeTerminal"
+                @click="cancelRuntimeTask"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                :disabled="runtimeTaskId === null || runtimeRunning"
+                @click="retryRuntimeTask"
+              >
+                重试
+              </button>
+            </div>
+          </div>
+          <p v-if="runtimeError.length > 0" class="runtime-error">{{ runtimeError }}</p>
+        </div>
         <div class="composer-row openwebui-composer">
           <textarea v-model="promptText" aria-label="Workspace task prompt" rows="3" />
-          <button class="primary-action" type="button" @click="submitPreviewRun">发送</button>
+          <button
+            class="primary-action"
+            type="button"
+            :disabled="runtimeRunning"
+            @click="submitPreviewRun"
+          >
+            发送
+          </button>
         </div>
       </section>
 
