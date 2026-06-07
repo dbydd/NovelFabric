@@ -156,7 +156,6 @@ export type NovelFabricWritingDraft = {
   readonly citations: readonly ArtifactCitation[];
 };
 
-const PROJECT_MANAGE_CAPABILITY = "project.manage";
 const WRITING_DRAFT_CAPABILITY = "writing.draft";
 const WRITING_APPLY_CAPABILITY = "writing.apply";
 const WRITING_EXPORT_CAPABILITY = "writing.export";
@@ -164,10 +163,7 @@ const WRITING_EXPORT_CAPABILITY = "writing.export";
 export async function buildWritingContextPack(
   request: WritingContextPackRequest
 ): Promise<WritingContextPackResult> {
-  await requireAnyCapability(request.workspacePath, request.actor, [
-    WRITING_DRAFT_CAPABILITY,
-    PROJECT_MANAGE_CAPABILITY
-  ]);
+  await requireAnyCapability(request.workspacePath, request.actor, [WRITING_DRAFT_CAPABILITY]);
   const chapterPaths = await listMarkdownPaths(request.workspacePath, "writing/chapters");
   const reportPaths = await listMarkdownPaths(request.workspacePath, "reports");
   const simulationPaths = await listJsonLikePaths(request.workspacePath, "simulation");
@@ -216,7 +212,8 @@ export async function buildWritingContextPack(
     path: outputPath,
     content,
     actor: request.actor,
-    reason: request.reason ?? "writing context-pack"
+    reason: request.reason ?? "writing context-pack",
+    authorizedCapability: WRITING_DRAFT_CAPABILITY
   });
   return {
     outputPath: write.path,
@@ -229,10 +226,7 @@ export async function buildWritingContextPack(
 export async function createWritingDraftTask(
   request: WritingDraftRequest
 ): Promise<WritingDraftResult> {
-  await requireAnyCapability(request.workspacePath, request.actor, [
-    WRITING_DRAFT_CAPABILITY,
-    PROJECT_MANAGE_CAPABILITY
-  ]);
+  await requireAnyCapability(request.workspacePath, request.actor, [WRITING_DRAFT_CAPABILITY]);
   const contextPack = await readRequiredJsonArtifact(
     request.workspacePath,
     request.contextPackPath
@@ -268,7 +262,8 @@ export async function createWritingDraftTask(
     path: `writing/drafts/tasks/${taskId}.json`,
     content,
     actor: request.actor,
-    reason: request.reason ?? "writing draft task create"
+    reason: request.reason ?? "writing draft task create",
+    authorizedCapability: WRITING_DRAFT_CAPABILITY
   });
   return {
     taskPath: write.path,
@@ -281,10 +276,7 @@ export async function createWritingDraftTask(
 export async function applyWritingDraft(
   request: WritingApplyDraftRequest
 ): Promise<WritingApplyDraftResult> {
-  await requireAnyCapability(request.workspacePath, request.actor, [
-    WRITING_APPLY_CAPABILITY,
-    PROJECT_MANAGE_CAPABILITY
-  ]);
+  await requireAnyCapability(request.workspacePath, request.actor, [WRITING_APPLY_CAPABILITY]);
   const validation = await validateDraftArtifact(request.workspacePath, request.draftPath);
   if (!validation.valid) {
     throw new CommandFailure("invalid_writing_draft", "Writing draft failed validation.");
@@ -302,7 +294,8 @@ export async function applyWritingDraft(
     path: outputPath,
     content,
     actor: request.actor,
-    reason: request.reason ?? "writing apply-draft"
+    reason: request.reason ?? "writing apply-draft",
+    authorizedCapability: WRITING_APPLY_CAPABILITY
   });
   return {
     chapterPath: write.path,
@@ -315,10 +308,7 @@ export async function applyWritingDraft(
 export async function materializeWritingDraftFromAgentTask(
   request: WritingMaterializeFromAgentTaskRequest
 ): Promise<WritingMaterializeFromAgentTaskResult> {
-  await requireAnyCapability(request.workspacePath, request.actor, [
-    WRITING_DRAFT_CAPABILITY,
-    PROJECT_MANAGE_CAPABILITY
-  ]);
+  await requireAnyCapability(request.workspacePath, request.actor, [WRITING_DRAFT_CAPABILITY]);
   const output = await readCompletedAgentTaskDomainOutput({
     workspacePath: request.workspacePath,
     taskId: request.taskId
@@ -342,7 +332,8 @@ export async function materializeWritingDraftFromAgentTask(
     path: draftPath,
     content: stableJson(draft),
     actor: request.actor,
-    reason: request.reason ?? "writing materialize from agent task"
+    reason: request.reason ?? "writing materialize from agent task",
+    authorizedCapability: WRITING_DRAFT_CAPABILITY
   });
   return {
     draftPath: write.path,
@@ -405,10 +396,7 @@ export async function reviewChapter(request: WritingReviewRequest): Promise<Writ
 }
 
 export async function exportWriting(request: WritingExportRequest): Promise<WritingExportResult> {
-  await requireAnyCapability(request.workspacePath, request.actor, [
-    WRITING_EXPORT_CAPABILITY,
-    PROJECT_MANAGE_CAPABILITY
-  ]);
+  await requireAnyCapability(request.workspacePath, request.actor, [WRITING_EXPORT_CAPABILITY]);
   const chapterPaths = await listMarkdownPaths(request.workspacePath, "writing/chapters");
   const chapters = await Promise.all(
     chapterPaths.map(async (chapterPath) =>
@@ -428,7 +416,8 @@ export async function exportWriting(request: WritingExportRequest): Promise<Writ
     path: outputPath,
     content,
     actor: request.actor,
-    reason: request.reason ?? "writing export"
+    reason: request.reason ?? "writing export",
+    authorizedCapability: WRITING_EXPORT_CAPABILITY
   });
   return {
     exportPath: write.path,

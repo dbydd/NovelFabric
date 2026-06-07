@@ -46,10 +46,7 @@ export type WorkspaceFileWriteRequest = {
   readonly authorizedCapability?: string;
 };
 
-export type WorkspaceFileAppendRequest = Omit<
-  WorkspaceFileWriteRequest,
-  "auditAction" | "authorizedCapability"
->;
+export type WorkspaceFileAppendRequest = Omit<WorkspaceFileWriteRequest, "auditAction">;
 
 export type WorkspaceFilePatchReplacement = {
   readonly oldText: string;
@@ -280,7 +277,7 @@ export async function appendWorkspaceFile(
   const normalizedPath = normalizeWorkspacePath(resolved.relativePath);
   const protectedTarget = isProtectedWorkspacePath(normalizedPath);
   const manifest = await readCapabilityManifest(resolved.root);
-  requireWriteCapability(manifest, request.actor, protectedTarget);
+  requireWriteCapability(manifest, request.actor, protectedTarget, request.authorizedCapability);
 
   await assertNoSymlinkInWorkspacePath(
     resolved.root,

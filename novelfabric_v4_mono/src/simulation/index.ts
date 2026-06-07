@@ -1,10 +1,16 @@
 import { CommandFailure } from "../errors.js";
+import { actorHasCapability, readCapabilityManifest } from "../workspace/capabilities.js";
 import { contentHash, readWorkspaceFile, writeWorkspaceFile } from "../workspace/files.js";
 
 export const SIMULATION_SESSION_SCHEMA_VERSION = "novelfabric.simulation.session.v1";
 export const SIMULATION_CONTEXT_PACK_SCHEMA_VERSION = "novelfabric.simulation.context-pack.v1";
 export const SIMULATION_TURN_PROPOSAL_SCHEMA_VERSION = "novelfabric.swarm.turn-proposal.v1";
 export const SIMULATION_TURN_SCHEMA_VERSION = "novelfabric.simulation.turn.v1";
+
+const SIMULATION_CREATE_CAPABILITY = "simulation.create";
+const SIMULATION_CONTEXT_PACK_CAPABILITY = "simulation.append_turn";
+const SIMULATION_APPEND_TURN_CAPABILITY = "simulation.append_turn";
+const REPORT_RENDER_CAPABILITY = "report.render";
 
 export const DEFAULT_SWARM_ROUND_ORDER = [
   "characters",
@@ -177,6 +183,7 @@ export type SimulationReportResult = {
 export async function createSimulationSession(
   request: SimulationSessionCreateRequest
 ): Promise<SimulationSessionCreateResult> {
+  await requireAnyCapability(request.workspacePath, request.actor, [SIMULATION_CREATE_CAPABILITY]);
   const objective = request.objective.trim();
   if (objective.length === 0) {
     throw new CommandFailure("invalid_simulation_input", "Simulation objective must not be empty.");
@@ -201,7 +208,8 @@ export async function createSimulationSession(
     path: sessionPath,
     content: stableJson(session),
     actor: request.actor,
-    reason: request.reason ?? "simulation session create"
+    reason: request.reason ?? "simulation session create",
+    authorizedCapability: SIMULATION_CREATE_CAPABILITY
   });
   return { session, sessionPath, write: summarizeWrite(write) };
 }
@@ -222,6 +230,9 @@ export async function inspectSimulationSession(
 export async function buildSimulationContextPack(
   request: SimulationContextPackRequest
 ): Promise<SimulationContextPackResult> {
+  await requireAnyCapability(request.workspacePath, request.actor, [
+    SIMULATION_CONTEXT_PACK_CAPABILITY
+  ]);
   const { session } = await readSessionFile(request.workspacePath, request.session);
   const agent = normalizeNonEmptySegment(request.agent, "agent");
   const outputPath =
@@ -250,7 +261,8 @@ export async function buildSimulationContextPack(
     path: outputPath,
     content: stableJson(payload),
     actor: request.actor,
-    reason: request.reason ?? "simulation context-pack"
+    reason: request.reason ?? "simulation context-pack",
+    authorizedCapability: SIMULATION_CONTEXT_PACK_CAPABILITY
   });
   return {
     sessionId: session.id,
@@ -281,6 +293,20 @@ async function simulationAnchorSource(
   return { excerpt: objective, anchors: extractAnchors(objective) };
 }
 
+async function requireAnyCapability(
+  workspacePath: string,
+  actor: string,
+  capabilities: readonly string[]
+): Promise<void> {
+  const manifest = await readCapabilityManifest(workspacePath);
+  if (capabilities.some((capability) => actorHasCapability(manifest, actor, capability))) return;
+  throw new CommandFailure(
+    "capability_denied",
+    `Actor '${actor}' does not have any required capability: ${capabilities.join(", ")}.`,
+    3
+  );
+}
+
 function extractAnchors(content: string): readonly string[] {
   const chapterAnchors = content.match(/第[一二三四五六七八九十百千0-9]+章/gu) ?? [];
   const phraseAnchors = content
@@ -293,6 +319,9 @@ function extractAnchors(content: string): readonly string[] {
 export async function appendSimulationTurn(
   request: SimulationAppendTurnRequest
 ): Promise<SimulationAppendTurnResult> {
+  await requireAnyCapability(request.workspacePath, request.actor, [
+    SIMULATION_APPEND_TURN_CAPABILITY
+  ]);
   const sessionRead = await readSessionFile(request.workspacePath, request.session);
   const proposalRead = await readWorkspaceFile({
     workspacePath: request.workspacePath,
@@ -330,7 +359,8 @@ export async function appendSimulationTurn(
     path: turnPath,
     content: turnContent,
     actor: request.actor,
-    reason: request.reason ?? "simulation append-turn"
+    reason: request.reason ?? "simulation append-turn",
+    authorizedCapability: SIMULATION_APPEND_TURN_CAPABILITY
   });
   const turnRef: SimulationSessionTurnRef = {
     path: turnWrite.path,
@@ -351,7 +381,8 @@ export async function appendSimulationTurn(
     content: stableJson(updatedSession),
     actor: request.actor,
     expectedBaseHash: sessionRead.hash,
-    reason: request.reason ?? "simulation append-turn session manifest"
+    reason: request.reason ?? "simulation append-turn session manifest",
+    authorizedCapability: SIMULATION_APPEND_TURN_CAPABILITY
   });
   return {
     sessionId: sessionRead.session.id,
@@ -416,6 +447,7 @@ export async function validateSimulationSession(
 export async function renderSimulationReport(
   request: SimulationReportRequest
 ): Promise<SimulationReportResult> {
+  await requireAnyCapability(request.workspacePath, request.actor, [REPORT_RENDER_CAPABILITY]);
   const { session } = await readSessionFile(request.workspacePath, request.session);
   const outputPath = request.outputPath ?? `reports/simulation-${session.id}.md`;
   const content = [
@@ -439,7 +471,8 @@ export async function renderSimulationReport(
     path: outputPath,
     content: `${content}\n`,
     actor: request.actor,
-    reason: request.reason ?? "simulation report"
+    reason: request.reason ?? "simulation report",
+    authorizedCapability: REPORT_RENDER_CAPABILITY
   });
   return {
     sessionId: session.id,

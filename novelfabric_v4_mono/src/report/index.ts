@@ -147,15 +147,11 @@ export type ArtifactCitation = {
 
 const REPORT_RENDER_CAPABILITY = "report.render";
 const REPORT_APPLY_CAPABILITY = "report.apply";
-const PROJECT_MANAGE_CAPABILITY = "project.manage";
 
 export async function createReportTask(
   request: ReportTaskCreateRequest
 ): Promise<ReportTaskCreateResult> {
-  await requireAnyCapability(request.workspacePath, request.actor, [
-    REPORT_RENDER_CAPABILITY,
-    PROJECT_MANAGE_CAPABILITY
-  ]);
+  await requireAnyCapability(request.workspacePath, request.actor, [REPORT_RENDER_CAPABILITY]);
 
   const taskId = `report-${safePathSegment(request.kind)}-${shortHash(
     `${request.session}:${request.kind}:${request.contextPackPath ?? ""}`
@@ -186,7 +182,8 @@ export async function createReportTask(
     path: `reports/tasks/${taskId}.json`,
     content,
     actor: request.actor,
-    reason: request.reason ?? "report task create"
+    reason: request.reason ?? "report task create",
+    authorizedCapability: REPORT_RENDER_CAPABILITY
   });
   return {
     taskPath: write.path,
@@ -251,10 +248,7 @@ export async function validateReportArtifact(
 }
 
 export async function applyReportArtifact(request: ReportApplyRequest): Promise<ReportApplyResult> {
-  await requireAnyCapability(request.workspacePath, request.actor, [
-    REPORT_APPLY_CAPABILITY,
-    PROJECT_MANAGE_CAPABILITY
-  ]);
+  await requireAnyCapability(request.workspacePath, request.actor, [REPORT_APPLY_CAPABILITY]);
   const validation = await validateReportArtifact({
     workspacePath: request.workspacePath,
     artifactPath: request.artifactPath
@@ -276,7 +270,8 @@ export async function applyReportArtifact(request: ReportApplyRequest): Promise<
     path: outputPath,
     content,
     actor: request.actor,
-    reason: request.reason ?? "report apply"
+    reason: request.reason ?? "report apply",
+    authorizedCapability: REPORT_APPLY_CAPABILITY
   });
   return {
     reportPath: write.path,
@@ -289,10 +284,7 @@ export async function applyReportArtifact(request: ReportApplyRequest): Promise<
 export async function materializeReportArtifactFromAgentTask(
   request: ReportMaterializeFromAgentTaskRequest
 ): Promise<ReportMaterializeFromAgentTaskResult> {
-  await requireAnyCapability(request.workspacePath, request.actor, [
-    REPORT_RENDER_CAPABILITY,
-    PROJECT_MANAGE_CAPABILITY
-  ]);
+  await requireAnyCapability(request.workspacePath, request.actor, [REPORT_RENDER_CAPABILITY]);
   const output = await readCompletedAgentTaskDomainOutput({
     workspacePath: request.workspacePath,
     taskId: request.taskId
@@ -319,7 +311,8 @@ export async function materializeReportArtifactFromAgentTask(
     path: artifactPath,
     content: stableJson(artifact),
     actor: request.actor,
-    reason: request.reason ?? "report materialize from agent task"
+    reason: request.reason ?? "report materialize from agent task",
+    authorizedCapability: REPORT_RENDER_CAPABILITY
   });
   return {
     artifactPath: write.path,

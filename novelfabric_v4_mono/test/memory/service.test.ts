@@ -50,12 +50,12 @@ describe("memory services", () => {
     const append = await appendMemory({
       workspacePath,
       actor: "main_agent",
-      profile: "role_agent",
-      content: "角色代理观察到雨城钟楼节律。"
+      profile: "main_agent",
+      content: "主代理观察到雨城钟楼节律。"
     });
-    expect(append.path).toBe("memory/agents/role_agent.md");
+    expect(append.path).toBe("memory/agents/main_agent.md");
     const saved = await fs.readFile(path.join(workspacePath, append.path), "utf8");
-    expect(saved).toContain("角色代理观察");
+    expect(saved).toContain("主代理观察");
   });
 
   it("proposes, validates, and applies shared memory with citations", async () => {

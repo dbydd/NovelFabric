@@ -255,7 +255,7 @@ async function grantProtectedTaskWrite(workspacePath: string): Promise<void> {
     path.join(workspacePath, ".novelfabric", "capabilities.toml"),
     [
       "[main_agent]",
-      'allow = ["project.manage", "files.patch_protected"]',
+      'allow = ["project.manage", "files.patch_protected", "external_swarm.run", "report.render", "report.apply", "knowledge.query", "cards.propose", "cards.apply", "writing.draft", "writing.apply", "writing.export", "simulation.create", "simulation.append_turn", "swarm.run", "memory.recall", "memory.write_own", "memory.propose_shared", "memory.apply_shared"]',
       "",
       "[role_agent]",
       'allow = ["memory.recall", "simulation.append_turn"]',

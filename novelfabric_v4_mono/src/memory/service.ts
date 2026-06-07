@@ -106,14 +106,14 @@ export type SharedMemoryProposalArtifact = {
 
 type ProposalWriteSummary = Pick<WorkspaceFileWriteResult, "path" | "hash" | "bytes" | "auditPath">;
 
-const MEMORY_RECALL_CAPABILITIES = ["memory.recall", "project.manage"] as const;
-const MEMORY_APPEND_CAPABILITIES = ["memory.write_own", "project.manage"] as const;
-const MEMORY_PROPOSE_SHARED_CAPABILITIES = ["memory.propose_shared", "project.manage"] as const;
-const MEMORY_APPLY_SHARED_CAPABILITIES = ["memory.apply_shared", "project.manage"] as const;
+const MEMORY_RECALL_CAPABILITY = "memory.recall";
+const MEMORY_APPEND_CAPABILITY = "memory.write_own";
+const MEMORY_PROPOSE_SHARED_CAPABILITY = "memory.propose_shared";
+const MEMORY_APPLY_SHARED_CAPABILITY = "memory.apply_shared";
 const SHARED_MEMORY_PATH = "memory/global/shared.md";
 
 export async function recallMemory(request: MemoryRecallRequest): Promise<MemoryRecallResult> {
-  await requireAnyCapability(request.workspacePath, request.actor, MEMORY_RECALL_CAPABILITIES);
+  await requireAnyCapability(request.workspacePath, request.actor, [MEMORY_RECALL_CAPABILITY]);
   const queryTerms = tokenize(request.query);
   const candidates = await memorySearchPaths(request.workspacePath, request.profile);
   const hits: MemoryRecallHit[] = [];
@@ -161,7 +161,8 @@ export async function appendMemory(request: MemoryAppendRequest): Promise<Memory
     path: targetPath,
     content: entry,
     actor: request.actor,
-    reason: request.reason ?? "memory append"
+    reason: request.reason ?? "memory append",
+    authorizedCapability: MEMORY_APPEND_CAPABILITY
   });
   return { ...summarizeWrite(write), actor: request.actor, profile: request.profile };
 }
@@ -169,11 +170,9 @@ export async function appendMemory(request: MemoryAppendRequest): Promise<Memory
 export async function proposeSharedMemory(
   request: MemoryProposeSharedRequest
 ): Promise<MemoryProposeSharedResult> {
-  await requireAnyCapability(
-    request.workspacePath,
-    request.actor,
-    MEMORY_PROPOSE_SHARED_CAPABILITIES
-  );
+  await requireAnyCapability(request.workspacePath, request.actor, [
+    MEMORY_PROPOSE_SHARED_CAPABILITY
+  ]);
   const citations = await citationsFromPaths(request.workspacePath, request.citations);
   if (citations.length === 0) {
     throw new CommandFailure(
@@ -196,7 +195,8 @@ export async function proposeSharedMemory(
     path: outputPath,
     content: serialized,
     actor: request.actor,
-    reason: request.reason ?? "memory propose shared"
+    reason: request.reason ?? "memory propose shared",
+    authorizedCapability: MEMORY_PROPOSE_SHARED_CAPABILITY
   });
   return {
     proposalPath: write.path,
@@ -240,11 +240,9 @@ export async function validateSharedMemoryProposal(
 export async function applySharedMemoryProposal(
   request: MemoryApplyProposalRequest
 ): Promise<MemoryApplyProposalResult> {
-  await requireAnyCapability(
-    request.workspacePath,
-    request.actor,
-    MEMORY_APPLY_SHARED_CAPABILITIES
-  );
+  await requireAnyCapability(request.workspacePath, request.actor, [
+    MEMORY_APPLY_SHARED_CAPABILITY
+  ]);
   const validation = await validateSharedMemoryProposal({
     workspacePath: request.workspacePath,
     proposalPath: request.proposalPath
@@ -274,7 +272,8 @@ export async function applySharedMemoryProposal(
     path: targetPath,
     content: formatSharedMemoryEntry(proposal),
     actor: request.actor,
-    reason: request.reason ?? `memory apply proposal ${request.proposalPath}`
+    reason: request.reason ?? `memory apply proposal ${request.proposalPath}`,
+    authorizedCapability: MEMORY_APPLY_SHARED_CAPABILITY
   });
   return {
     proposalPath: request.proposalPath,
@@ -416,10 +415,13 @@ async function requireOwnMemoryCapability(
   profile: string
 ): Promise<void> {
   if (actor !== profile) {
-    await requireAnyCapability(workspacePath, actor, ["project.manage"]);
-    return;
+    throw new CommandFailure(
+      "capability_denied",
+      `Actor ${actor} may only append memory for its own profile ${profile}.`,
+      3
+    );
   }
-  await requireAnyCapability(workspacePath, actor, MEMORY_APPEND_CAPABILITIES);
+  await requireAnyCapability(workspacePath, actor, [MEMORY_APPEND_CAPABILITY]);
 }
 
 async function requireAnyCapability(

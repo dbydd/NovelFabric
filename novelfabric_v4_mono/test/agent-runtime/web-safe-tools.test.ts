@@ -39,7 +39,7 @@ describe("NovelFabric web-safe SDK custom tools", () => {
     await fs.cp(VALID_FIXTURE, workspacePath, { recursive: true });
     await fs.writeFile(
       path.join(workspacePath, ".novelfabric", "capabilities.toml"),
-      '[main_agent]\nallow = ["project.manage", "report.render", "knowledge.query", "cards.propose", "cards.apply"]\n',
+      '[main_agent]\nallow = ["project.manage", "report.render", "knowledge.query", "cards.propose", "cards.apply", "files.patch_protected", "external_swarm.run", "report.apply", "writing.draft", "writing.apply", "writing.export", "simulation.create", "simulation.append_turn", "swarm.run", "memory.recall", "memory.write_own", "memory.propose_shared", "memory.apply_shared"]\n',
       "utf8"
     );
   });

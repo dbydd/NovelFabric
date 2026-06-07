@@ -2100,8 +2100,8 @@ async function tempExternalSwarmWorkspace(actor: "main_agent" | "role_agent"): P
   await fs.cp(fixtureWorkspace(), workspacePath, { recursive: true });
   const mainAllow =
     actor === "main_agent"
-      ? 'allow = ["project.manage", "files.patch_protected", "external_swarm.run"]'
-      : 'allow = ["project.manage", "files.patch_protected"]';
+      ? 'allow = ["project.manage", "files.patch_protected", "external_swarm.run", "report.render", "report.apply", "knowledge.query", "cards.propose", "cards.apply", "writing.draft", "writing.apply", "writing.export", "simulation.create", "simulation.append_turn", "swarm.run", "memory.recall", "memory.write_own", "memory.propose_shared", "memory.apply_shared"]'
+      : 'allow = ["project.manage", "files.patch_protected", "external_swarm.run", "report.render", "report.apply", "knowledge.query", "cards.propose", "cards.apply", "writing.draft", "writing.apply", "writing.export", "simulation.create", "simulation.append_turn", "swarm.run", "memory.recall", "memory.write_own", "memory.propose_shared", "memory.apply_shared"]';
   await fs.writeFile(
     path.join(workspacePath, ".novelfabric", "capabilities.toml"),
     [
@@ -2125,7 +2125,7 @@ async function tempWorkspace(): Promise<string> {
     path.join(workspacePath, ".novelfabric", "capabilities.toml"),
     [
       "[main_agent]",
-      'allow = ["project.manage", "files.patch_protected"]',
+      'allow = ["project.manage", "files.patch_protected", "external_swarm.run", "report.render", "report.apply", "knowledge.query", "cards.propose", "cards.apply", "writing.draft", "writing.apply", "writing.export", "simulation.create", "simulation.append_turn", "swarm.run", "memory.recall", "memory.write_own", "memory.propose_shared", "memory.apply_shared"]',
       "",
       "[role_agent]",
       'allow = ["memory.recall", "simulation.append_turn"]',

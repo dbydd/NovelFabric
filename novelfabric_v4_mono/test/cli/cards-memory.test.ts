@@ -35,7 +35,7 @@ describe("cards and memory command registrations", () => {
     await fs.cp(VALID_FIXTURE, workspacePath, { recursive: true });
     await fs.writeFile(
       path.join(workspacePath, ".novelfabric", "capabilities.toml"),
-      '[main_agent]\nallow = ["project.manage", "cards.propose", "cards.apply"]\n',
+      '[main_agent]\nallow = ["project.manage", "cards.propose", "cards.apply", "files.patch_protected", "external_swarm.run", "report.render", "report.apply", "knowledge.query", "writing.draft", "writing.apply", "writing.export", "simulation.create", "simulation.append_turn", "swarm.run", "memory.recall", "memory.write_own", "memory.propose_shared", "memory.apply_shared"]\n',
       "utf8"
     );
     await fs.writeFile(
@@ -142,13 +142,13 @@ describe("cards and memory command registrations", () => {
       "--actor",
       "main_agent",
       "--profile",
-      "role_agent",
+      "main_agent",
       "--content",
       "CLI append memory entry.",
       "--json"
     ]);
     expect(append.command).toBe("memory append");
-    expect(append.data.path).toBe("memory/agents/role_agent.md");
+    expect(append.data.path).toBe("memory/agents/main_agent.md");
 
     const proposed = await runRegisteredCommand([
       "memory",

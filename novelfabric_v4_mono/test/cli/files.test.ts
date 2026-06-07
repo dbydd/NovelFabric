@@ -256,6 +256,12 @@ describe("novelfabric files CLI", () => {
   });
 
   it("reports protected write denial as structured JSON", async () => {
+    await fs.writeFile(
+      path.join(workspacePath, ".novelfabric", "capabilities.toml"),
+      '[main_agent]\nallow = ["project.manage"]\n',
+      "utf8"
+    );
+
     const result = await runCli([
       "files",
       "write",

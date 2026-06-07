@@ -22,7 +22,11 @@ import {
   requireActionTextOutput,
   requireWorkflowOutputKind
 } from "../agent-runtime/materialization.js";
+import { actorHasCapability, readCapabilityManifest } from "../workspace/capabilities.js";
 import { readWorkspaceFile, writeWorkspaceFile } from "../workspace/files.js";
+
+const SWARM_RUN_CAPABILITY = "swarm.run";
+const SIMULATION_APPEND_TURN_CAPABILITY = "simulation.append_turn";
 
 export const SWARM_TASK_SCHEMA_VERSION = "novelfabric.swarm.task.v1";
 export const SWARM_ROUND_FINALIZE_SCHEMA_VERSION = "novelfabric.swarm.round-finalize.v1";
@@ -157,6 +161,7 @@ export async function planSwarmRound(request: SwarmPlanRequest): Promise<SwarmPl
 export async function createSwarmTask(
   request: SwarmTaskCreateRequest
 ): Promise<SwarmTaskCreateResult> {
+  await requireAnyCapability(request.workspacePath, request.actor, [SWARM_RUN_CAPABILITY]);
   assertPositiveInteger(request.round, "round");
   const session = await inspectSimulationSession({
     workspacePath: request.workspacePath,
@@ -206,14 +211,16 @@ export async function createSwarmTask(
     path: taskPath,
     content: stableJson(task),
     actor: request.actor,
-    reason: request.reason ?? "swarm task create"
+    reason: request.reason ?? "swarm task create",
+    authorizedCapability: SWARM_RUN_CAPABILITY
   });
   const proposalWrite = await writeWorkspaceFile({
     workspacePath: request.workspacePath,
     path: proposalPath,
     content: stableJson(proposalTemplate),
     actor: request.actor,
-    reason: request.reason ?? "swarm proposal template create"
+    reason: request.reason ?? "swarm proposal template create",
+    authorizedCapability: SWARM_RUN_CAPABILITY
   });
   return {
     sessionId: session.session.id,
@@ -277,6 +284,9 @@ export async function validateSwarmOutput(
 export async function applySwarmOutput(
   request: SwarmOutputApplyRequest
 ): Promise<SwarmOutputApplyResult> {
+  await requireAnyCapability(request.workspacePath, request.actor, [
+    SIMULATION_APPEND_TURN_CAPABILITY
+  ]);
   const validation = await validateSwarmOutput({
     workspacePath: request.workspacePath,
     artifactPath: request.artifactPath
@@ -300,6 +310,7 @@ export async function applySwarmOutput(
 export async function materializeSwarmOutputFromAgentTask(
   request: SwarmMaterializeFromAgentTaskRequest
 ): Promise<SwarmMaterializeFromAgentTaskResult> {
+  await requireAnyCapability(request.workspacePath, request.actor, [SWARM_RUN_CAPABILITY]);
   assertPositiveInteger(request.round, "round");
   const session = await inspectSimulationSession({
     workspacePath: request.workspacePath,
@@ -341,7 +352,8 @@ export async function materializeSwarmOutputFromAgentTask(
     path: artifactPath,
     content: stableJson(proposal),
     actor: request.actor,
-    reason: request.reason ?? "swarm materialize from agent task"
+    reason: request.reason ?? "swarm materialize from agent task",
+    authorizedCapability: SWARM_RUN_CAPABILITY
   });
   return {
     sessionId: session.session.id,
@@ -357,6 +369,7 @@ export async function materializeSwarmOutputFromAgentTask(
 export async function finalizeSwarmRound(
   request: SwarmRoundFinalizeRequest
 ): Promise<SwarmRoundFinalizeResult> {
+  await requireAnyCapability(request.workspacePath, request.actor, [SWARM_RUN_CAPABILITY]);
   assertPositiveInteger(request.round, "round");
   const session = await inspectSimulationSession({
     workspacePath: request.workspacePath,
@@ -386,7 +399,8 @@ export async function finalizeSwarmRound(
     path: outputPath,
     content: stableJson(payload),
     actor: request.actor,
-    reason: request.reason ?? "swarm round finalize"
+    reason: request.reason ?? "swarm round finalize",
+    authorizedCapability: SWARM_RUN_CAPABILITY
   });
   return {
     sessionId: session.session.id,
@@ -396,6 +410,20 @@ export async function finalizeSwarmRound(
     missingStages,
     write: summarizeWrite(write)
   };
+}
+
+async function requireAnyCapability(
+  workspacePath: string,
+  actor: string,
+  capabilities: readonly string[]
+): Promise<void> {
+  const manifest = await readCapabilityManifest(workspacePath);
+  if (capabilities.some((capability) => actorHasCapability(manifest, actor, capability))) return;
+  throw new CommandFailure(
+    "capability_denied",
+    `Actor '${actor}' does not have any required capability: ${capabilities.join(", ")}.`,
+    3
+  );
 }
 
 function plannedTask(sessionId: string, round: number, stage: SwarmRoundStage): SwarmPlannedTask {
