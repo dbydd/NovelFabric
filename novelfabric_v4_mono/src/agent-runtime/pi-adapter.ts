@@ -47,10 +47,8 @@ export type NovelFabricRuntimeRootResolution = JsonObject & {
 
 export type WebSafePiToolName =
   | "novelfabric_read_file"
-  | "novelfabric_write_file"
-  | "novelfabric_context_pack"
   | "novelfabric_validate"
-  | "novelfabric_apply_proposal"
+  | "novelfabric_context_pack"
   | "novelfabric_report";
 
 export type RawPiToolName =
@@ -209,10 +207,8 @@ const REQUIRED_SDK_EXPORTS: readonly PiSdkExportName[] = [
 
 const WEB_SAFE_ALLOWED_TOOLS: readonly WebSafePiToolName[] = [
   "novelfabric_read_file",
-  "novelfabric_write_file",
-  "novelfabric_context_pack",
   "novelfabric_validate",
-  "novelfabric_apply_proposal",
+  "novelfabric_context_pack",
   "novelfabric_report"
 ];
 

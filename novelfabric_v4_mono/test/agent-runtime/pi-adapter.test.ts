@@ -79,16 +79,14 @@ describe("pi SDK adapter skeleton", () => {
     expect(policy.deniedRawTools).toEqual(
       expect.arrayContaining(["bash", "write", "edit", "read", "network", "arbitrary_path_access"])
     );
-    expect(policy.allowedNovelFabricTools).toEqual(
-      expect.arrayContaining([
-        "novelfabric_read_file",
-        "novelfabric_write_file",
-        "novelfabric_context_pack",
-        "novelfabric_validate",
-        "novelfabric_apply_proposal",
-        "novelfabric_report"
-      ])
-    );
+    expect(policy.allowedNovelFabricTools).toEqual([
+      "novelfabric_read_file",
+      "novelfabric_validate",
+      "novelfabric_context_pack",
+      "novelfabric_report"
+    ]);
+    expect(policy.allowedNovelFabricTools).not.toContain("novelfabric_write_file");
+    expect(policy.allowedNovelFabricTools).not.toContain("novelfabric_apply_proposal");
   });
 
   it("rejects raw builtin tools from web-safe session options", () => {
@@ -113,12 +111,14 @@ describe("pi SDK adapter skeleton", () => {
     const options = buildWebSafePiSessionOptions({
       environment: makeEnvironment({ xdgConfigHome: "/tmp/xdg" }),
       actor: "main_agent",
-      requestedTools: ["novelfabric_read_file", "novelfabric_write_file", "novelfabric_validate"]
+      requestedTools: ["novelfabric_read_file", "novelfabric_validate", "novelfabric_report"]
     });
 
     expect(options.valid).toBe(true);
     expect(options.violations).toEqual([]);
-    expect(options.allowedTools).toContain("novelfabric_write_file");
+    expect(options.allowedTools).toContain("novelfabric_validate");
+    expect(options.allowedTools).toContain("novelfabric_report");
+    expect(options.allowedTools).not.toContain("novelfabric_write_file");
     expect(options.deniedRawTools).toContain("bash");
   });
 
@@ -368,10 +368,21 @@ describe("pi SDK adapter skeleton", () => {
     expect(sessionOptions["cwd"]).toBe(workspacePath);
     expect(sessionOptions["agentDir"]).toBe(runtimeRoot);
     expect(sessionOptions["noTools"]).toBe("builtin");
-    expect(sessionOptions["tools"]).toEqual(["novelfabric_read_file"]);
+    expect(sessionOptions["tools"]).toEqual([
+      "novelfabric_read_file",
+      "novelfabric_validate",
+      "novelfabric_context_pack",
+      "novelfabric_report"
+    ]);
     const customTools = sessionOptions["customTools"];
     expect(Array.isArray(customTools)).toBe(true);
-    expect(customTools).toEqual([expect.objectContaining({ name: "novelfabric_read_file" })]);
+    expect(customTools).toEqual([
+      expect.objectContaining({ name: "novelfabric_read_file" }),
+      expect.objectContaining({ name: "novelfabric_validate" }),
+      expect.objectContaining({ name: "novelfabric_context_pack" }),
+      expect.objectContaining({ name: "novelfabric_report" })
+    ]);
+    expect(JSON.stringify(sessionOptions)).not.toMatch(/novelfabric_write_file|bash|raw_write/);
     expect(sessionOptions["thinkingLevel"]).toBe("medium");
     expect(recordValue(sessionOptions["authStorage"])["authPath"]).toBe(
       path.join(runtimeRoot, "auth.json")
@@ -644,9 +655,17 @@ describe("pi SDK adapter skeleton", () => {
     const sessionOptions = capturedSessionOptions;
     if (sessionOptions === undefined) throw new Error("Expected SDK session options.");
     expect(sessionOptions["noTools"]).toBe("builtin");
-    expect(sessionOptions["tools"]).toEqual(["novelfabric_read_file"]);
+    expect(sessionOptions["tools"]).toEqual([
+      "novelfabric_read_file",
+      "novelfabric_validate",
+      "novelfabric_context_pack",
+      "novelfabric_report"
+    ]);
     expect(sessionOptions["customTools"]).toEqual([
-      expect.objectContaining({ name: "novelfabric_read_file" })
+      expect.objectContaining({ name: "novelfabric_read_file" }),
+      expect.objectContaining({ name: "novelfabric_validate" }),
+      expect.objectContaining({ name: "novelfabric_context_pack" }),
+      expect.objectContaining({ name: "novelfabric_report" })
     ]);
     expect(recordValue(sessionOptions["sessionManager"])["sessionDir"]).toBe(
       result.sessionDirectory

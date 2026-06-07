@@ -4,10 +4,21 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { createReadFileTool } from "../../src/agent-runtime/web-safe-tools.js";
-import { writeWorkspaceFile } from "../../src/workspace/files.js";
+import {
+  buildNovelFabricWebSafeCustomTools,
+  createContextPackTool,
+  createReadFileTool,
+  createReportTool,
+  createValidateTool,
+  WEB_SAFE_CUSTOM_TOOL_NAMES
+} from "../../src/agent-runtime/web-safe-tools.js";
+import { readWorkspaceFile, writeWorkspaceFile } from "../../src/workspace/files.js";
 
 const VALID_FIXTURE = path.resolve(import.meta.dirname, "../../fixtures/workspaces/valid-basic");
+
+function stableJson(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
 
 describe("NovelFabric web-safe SDK custom tools", () => {
   let workspacePath: string;
@@ -19,6 +30,32 @@ describe("NovelFabric web-safe SDK custom tools", () => {
 
   afterEach(async () => {
     await fs.rm(workspacePath, { recursive: true, force: true });
+  });
+
+  it("exposes only implemented read-only web-safe custom tools", () => {
+    expect(WEB_SAFE_CUSTOM_TOOL_NAMES).toEqual([
+      "novelfabric_read_file",
+      "novelfabric_validate",
+      "novelfabric_context_pack",
+      "novelfabric_report"
+    ]);
+
+    const wrapped = buildNovelFabricWebSafeCustomTools({
+      context: { workspacePath, actor: "main_agent" },
+      defineTool: (tool) => ({
+        name: tool.name,
+        execute: (toolCallId: string, params: unknown, signal?: AbortSignal) =>
+          tool.execute(toolCallId, params, signal)
+      })
+    });
+
+    expect(wrapped).toEqual([
+      expect.objectContaining({ name: "novelfabric_read_file" }),
+      expect.objectContaining({ name: "novelfabric_validate" }),
+      expect.objectContaining({ name: "novelfabric_context_pack" }),
+      expect.objectContaining({ name: "novelfabric_report" })
+    ]);
+    expect(JSON.stringify(wrapped)).not.toMatch(/bash|raw_write|novelfabric_write_file/);
   });
 
   it("reads an allowed workspace file through novelfabric_read_file", async () => {
@@ -82,5 +119,535 @@ describe("NovelFabric web-safe SDK custom tools", () => {
     await expect(tool.execute("tool-call-4", { path: "" })).rejects.toMatchObject({
       code: "web_safe_tool_invalid_params"
     });
+  });
+
+  it("builds and validates bounded context packs without model-supplied workspace or actor", async () => {
+    const tool = createContextPackTool({ workspacePath, actor: "main_agent" });
+
+    const built = await tool.execute("tool-call-context-build", {
+      mode: "build",
+      kind: "agent",
+      query: "project",
+      limit: 3
+    });
+    const builtPayload = JSON.parse(built.content[0].text) as {
+      readonly outputPath: string;
+      readonly citationCount: number;
+      readonly write: { readonly path: string };
+    };
+
+    expect(builtPayload.outputPath).toBe(builtPayload.write.path);
+    expect(builtPayload.citationCount).toBeGreaterThanOrEqual(0);
+
+    const validated = await tool.execute("tool-call-context-validate", {
+      mode: "validate",
+      path: builtPayload.outputPath
+    });
+    const validationPayload = JSON.parse(validated.content[0].text) as {
+      readonly valid: boolean;
+      readonly issueCount: number;
+      readonly issues: readonly unknown[];
+    };
+
+    expect(validationPayload.valid).toBe(true);
+    expect(validationPayload.issueCount).toBe(0);
+    expect(validationPayload.issues).toEqual([]);
+  });
+
+  it("allows context-pack build output paths only under the context-pack namespace", async () => {
+    const tool = createContextPackTool({ workspacePath, actor: "main_agent" });
+
+    const built = await tool.execute("tool-call-context-build-explicit-output", {
+      mode: "build",
+      kind: "agent",
+      query: "project",
+      outputPath: "knowledge/context-packs/web-safe-explicit.json",
+      limit: 2
+    });
+    expect(JSON.parse(built.content[0].text)).toMatchObject({
+      outputPath: "knowledge/context-packs/web-safe-explicit.json",
+      write: { path: "knowledge/context-packs/web-safe-explicit.json" }
+    });
+
+    for (const outputPath of ["project.md", "writing/chapters/foo.md", "cards/characters/foo.md"]) {
+      await expect(
+        tool.execute("tool-call-context-build-bad-output", {
+          mode: "build",
+          kind: "agent",
+          query: "project",
+          outputPath,
+          limit: 2
+        })
+      ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    }
+  });
+
+  it("allows context-pack validate paths only under the context-pack namespace", async () => {
+    const tool = createContextPackTool({ workspacePath, actor: "main_agent" });
+
+    const built = await tool.execute("tool-call-context-build-validate-namespace", {
+      mode: "build",
+      kind: "agent",
+      query: "project",
+      outputPath: "knowledge/context-packs/web-safe-validate.json",
+      limit: 2
+    });
+    const builtPayload = JSON.parse(built.content[0].text) as { readonly outputPath: string };
+
+    for (const pathValue of ["project.md", "reports/foo.md"]) {
+      await expect(
+        tool.execute("tool-call-context-validate-bad-path", { mode: "validate", path: pathValue })
+      ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    }
+
+    const validated = await tool.execute("tool-call-context-validate-good-path", {
+      mode: "validate",
+      path: builtPayload.outputPath
+    });
+    expect(JSON.parse(validated.content[0].text)).toMatchObject({
+      target: "context-pack",
+      mode: "validate",
+      path: "knowledge/context-packs/web-safe-validate.json",
+      valid: true,
+      issueCount: 0
+    });
+  });
+
+  it("rejects context-pack build limits above the web-safe bound", async () => {
+    const tool = createContextPackTool({ workspacePath, actor: "main_agent" });
+
+    await expect(
+      tool.execute("tool-call-context-build-limit", { mode: "build", kind: "agent", limit: 21 })
+    ).rejects.toMatchObject({ code: "web_safe_tool_invalid_params" });
+  });
+
+  it("validates supported artifact targets with compact issue output", async () => {
+    const contextTool = createContextPackTool({ workspacePath, actor: "main_agent" });
+    const built = await contextTool.execute("tool-call-context-build-for-validate", {
+      mode: "build",
+      kind: "agent",
+      query: "project",
+      limit: 2
+    });
+    const builtPayload = JSON.parse(built.content[0].text) as { readonly outputPath: string };
+    const tool = createValidateTool({ workspacePath, actor: "main_agent" });
+
+    const result = await tool.execute("tool-call-validate", {
+      target: "context-pack",
+      path: builtPayload.outputPath
+    });
+    const payload = JSON.parse(result.content[0].text) as {
+      readonly target: string;
+      readonly valid: boolean;
+      readonly issueCount: number;
+      readonly issues: readonly unknown[];
+    };
+
+    expect(payload).toMatchObject({ target: "context-pack", valid: true, issueCount: 0 });
+    expect(payload.issues).toEqual([]);
+    expect(result.content[0].text).not.toContain("controlled workspace content");
+  });
+
+  it("restricts generic context-pack validation to context-pack paths", async () => {
+    const contextTool = createContextPackTool({ workspacePath, actor: "main_agent" });
+    const built = await contextTool.execute("tool-call-context-build-for-generic-validate", {
+      mode: "build",
+      kind: "agent",
+      query: "project",
+      outputPath: "knowledge/context-packs/generic-validate.json",
+      limit: 2
+    });
+    const builtPayload = JSON.parse(built.content[0].text) as { readonly outputPath: string };
+    const tool = createValidateTool({ workspacePath, actor: "main_agent" });
+
+    for (const pathValue of ["project.md", "reports/foo.md"]) {
+      await expect(
+        tool.execute("tool-call-validate-context-bad-path", {
+          target: "context-pack",
+          path: pathValue
+        })
+      ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    }
+
+    const validated = await tool.execute("tool-call-validate-context-valid-path", {
+      target: "context-pack",
+      path: builtPayload.outputPath
+    });
+    expect(JSON.parse(validated.content[0].text)).toMatchObject({
+      target: "context-pack",
+      path: "knowledge/context-packs/generic-validate.json",
+      valid: true,
+      issueCount: 0
+    });
+  });
+
+  it("requires jobId for workflow validation and path for artifact validation", async () => {
+    const tool = createValidateTool({ workspacePath, actor: "main_agent" });
+
+    await expect(tool.execute("tool-call-no-job", { target: "workflow" })).rejects.toMatchObject({
+      code: "web_safe_tool_invalid_params"
+    });
+    await expect(tool.execute("tool-call-no-path", { target: "report" })).rejects.toMatchObject({
+      code: "web_safe_tool_invalid_params"
+    });
+  });
+
+  it("restricts generic writing-draft validation to writing draft paths", async () => {
+    const source = await readWorkspaceFile({ workspacePath, path: "project.md" });
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "writing/drafts/web-safe-draft.json",
+      content: stableJson({
+        kind: "novelfabric.writing.draft",
+        version: 1,
+        title: "Web Safe Draft",
+        markdown: "# Web Safe Draft\n\nValidated draft body.",
+        citations: [{ path: source.path, hash: source.hash }]
+      })
+    });
+    const tool = createValidateTool({ workspacePath, actor: "main_agent" });
+
+    await expect(
+      tool.execute("tool-call-validate-writing-outside", {
+        target: "writing-draft",
+        path: "project.md"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    await expect(
+      tool.execute("tool-call-validate-writing-wrong-namespace", {
+        target: "writing-draft",
+        path: "reports/artifacts/web-safe-draft.json"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+
+    const validated = await tool.execute("tool-call-validate-writing-valid", {
+      target: "writing-draft",
+      path: "writing/drafts/web-safe-draft.json"
+    });
+    expect(JSON.parse(validated.content[0].text)).toMatchObject({
+      target: "writing-draft",
+      path: "writing/drafts/web-safe-draft.json",
+      valid: true,
+      issueCount: 0
+    });
+  });
+
+  it("restricts generic swarm-output validation to simulation round paths", async () => {
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "simulation/rounds/session-a/round-001/web-safe-swarm.json",
+      content: stableJson({
+        schemaVersion: "novelfabric.swarm.turn-proposal.v1",
+        sessionId: "session-a",
+        round: 1,
+        agent: "characters",
+        stage: "characters",
+        summary: "Characters propose a grounded next action.",
+        action: { kind: "pi-agent-proposal", text: "Move toward the clock tower." },
+        citations: [],
+        evidence: []
+      })
+    });
+    const tool = createValidateTool({ workspacePath, actor: "main_agent" });
+
+    await expect(
+      tool.execute("tool-call-validate-swarm-outside", {
+        target: "swarm-output",
+        path: "project.md"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    await expect(
+      tool.execute("tool-call-validate-swarm-wrong-namespace", {
+        target: "swarm-output",
+        path: "reports/artifacts/web-safe-swarm.json"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+
+    const validated = await tool.execute("tool-call-validate-swarm-valid", {
+      target: "swarm-output",
+      path: "simulation/rounds/session-a/round-001/web-safe-swarm.json"
+    });
+    expect(JSON.parse(validated.content[0].text)).toMatchObject({
+      target: "swarm-output",
+      path: "simulation/rounds/session-a/round-001/web-safe-swarm.json",
+      valid: true,
+      issueCount: 0
+    });
+  });
+
+  it("restricts generic cards-proposal validation to card proposal paths", async () => {
+    const source = await readWorkspaceFile({ workspacePath, path: "project.md" });
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "proposals/cards/web-safe-card.json",
+      content: stableJson({
+        kind: "novelfabric.cards.proposal",
+        version: 1,
+        actor: "main_agent",
+        createdAt: "2026-06-07T00:00:00.000Z",
+        sourceContextPack: null,
+        cards: [
+          {
+            kind: "world",
+            title: "Web Safe World",
+            targetPath: "cards/world/web-safe-world.md",
+            content: "# Web Safe World\n\nValidated card content.",
+            citations: [
+              {
+                sourcePath: source.path,
+                hash: source.hash,
+                lineRange: { start: 1, end: 1 },
+                excerpt: source.content.slice(0, 80)
+              }
+            ]
+          }
+        ]
+      })
+    });
+    const tool = createValidateTool({ workspacePath, actor: "main_agent" });
+
+    await expect(
+      tool.execute("tool-call-validate-cards-outside", {
+        target: "cards-proposal",
+        path: "project.md"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    await expect(
+      tool.execute("tool-call-validate-cards-wrong-namespace", {
+        target: "cards-proposal",
+        path: "reports/artifacts/web-safe-card.json"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+
+    const validated = await tool.execute("tool-call-validate-cards-valid", {
+      target: "cards-proposal",
+      path: "proposals/cards/web-safe-card.json"
+    });
+    expect(JSON.parse(validated.content[0].text)).toMatchObject({
+      target: "cards-proposal",
+      path: "proposals/cards/web-safe-card.json",
+      valid: true,
+      issueCount: 0
+    });
+  });
+
+  it("restricts generic memory-proposal validation to memory proposal paths", async () => {
+    const source = await readWorkspaceFile({ workspacePath, path: "project.md" });
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "proposals/memory/web-safe-memory.json",
+      content: stableJson({
+        kind: "novelfabric.memory.shared-proposal",
+        version: 1,
+        actor: "main_agent",
+        createdAt: "2026-06-07T00:00:00.000Z",
+        content: "Remember the validated Web-safe memory proposal.",
+        citations: [
+          {
+            sourcePath: source.path,
+            hash: source.hash,
+            lineRange: { start: 1, end: 1 },
+            excerpt: source.content.slice(0, 80)
+          }
+        ]
+      })
+    });
+    const tool = createValidateTool({ workspacePath, actor: "main_agent" });
+
+    await expect(
+      tool.execute("tool-call-validate-memory-outside", {
+        target: "memory-proposal",
+        path: "project.md"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    await expect(
+      tool.execute("tool-call-validate-memory-wrong-namespace", {
+        target: "memory-proposal",
+        path: "reports/artifacts/web-safe-memory.json"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+
+    const validated = await tool.execute("tool-call-validate-memory-valid", {
+      target: "memory-proposal",
+      path: "proposals/memory/web-safe-memory.json"
+    });
+    expect(JSON.parse(validated.content[0].text)).toMatchObject({
+      target: "memory-proposal",
+      path: "proposals/memory/web-safe-memory.json",
+      valid: true,
+      issueCount: 0
+    });
+  });
+
+  it("restricts generic report validation to report artifact paths", async () => {
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "reports/visible-report.md",
+      content: "# Visible Report\n\nReport preview body."
+    });
+    const source = await readWorkspaceFile({ workspacePath, path: "project.md" });
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "reports/artifacts/visible-report.json",
+      content: `${JSON.stringify(
+        {
+          kind: "novelfabric.report.artifact",
+          version: 1,
+          reportKind: "test-report",
+          session: null,
+          title: "Visible Report",
+          markdown: "# Visible Report\n\nValidated report artifact.",
+          citations: [{ path: source.path, hash: source.hash }]
+        },
+        null,
+        2
+      )}\n`
+    });
+    const tool = createValidateTool({ workspacePath, actor: "main_agent" });
+
+    await expect(
+      tool.execute("tool-call-validate-report-outside", { target: "report", path: "project.md" })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    await expect(
+      tool.execute("tool-call-validate-report-wrong-namespace", {
+        target: "report",
+        path: "reports/visible-report.md"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    const validated = await tool.execute("tool-call-validate-report-valid", {
+      target: "report",
+      path: "reports/artifacts/visible-report.json"
+    });
+
+    expect(JSON.parse(validated.content[0].text)).toMatchObject({
+      target: "report",
+      valid: true,
+      issueCount: 0
+    });
+  });
+
+  it("lists, shows bounded previews for, and validates reports", async () => {
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "reports/long-report.md",
+      content: `# Long Report\n\n${"human-readable report body ".repeat(400)}`
+    });
+    const source = await readWorkspaceFile({ workspacePath, path: "project.md" });
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "reports/artifacts/tool-report.json",
+      content: `${JSON.stringify(
+        {
+          kind: "novelfabric.report.artifact",
+          version: 1,
+          reportKind: "test-report",
+          session: null,
+          title: "Tool Report",
+          markdown: "# Tool Report\n\nValidated report artifact.",
+          citations: [{ path: source.path, hash: source.hash }]
+        },
+        null,
+        2
+      )}\n`
+    });
+    const tool = createReportTool({ workspacePath, actor: "main_agent" });
+
+    const listed = await tool.execute("tool-call-report-list", { mode: "list" });
+    expect(listed.content[0].text).toContain("reports/long-report.md");
+    expect(listed.content[0].text).not.toContain("human-readable report body");
+
+    const shown = await tool.execute("tool-call-report-show", {
+      mode: "show",
+      path: "reports/long-report.md"
+    });
+    const showPayload = JSON.parse(shown.content[0].text) as {
+      readonly contentPreview: string;
+      readonly truncated: boolean;
+      readonly maxChars: number;
+    };
+    expect(showPayload.truncated).toBe(true);
+    expect(showPayload.contentPreview.length).toBeLessThanOrEqual(showPayload.maxChars + 1);
+    expect(showPayload.contentPreview).toContain("# Long Report");
+
+    const validated = await tool.execute("tool-call-report-validate", {
+      mode: "validate",
+      path: "reports/artifacts/tool-report.json"
+    });
+    expect(JSON.parse(validated.content[0].text)).toMatchObject({
+      target: "report",
+      valid: true,
+      issueCount: 0
+    });
+  });
+
+  it("restricts report show and validate paths to report namespaces", async () => {
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "reports/visible-report.md",
+      content: "# Visible Report\n\nReport preview body."
+    });
+    const source = await readWorkspaceFile({ workspacePath, path: "project.md" });
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "reports/artifacts/visible-report.json",
+      content: `${JSON.stringify(
+        {
+          kind: "novelfabric.report.artifact",
+          version: 1,
+          reportKind: "test-report",
+          session: null,
+          title: "Visible Report",
+          markdown: "# Visible Report\n\nValidated report artifact.",
+          citations: [{ path: source.path, hash: source.hash }]
+        },
+        null,
+        2
+      )}\n`
+    });
+    const tool = createReportTool({ workspacePath, actor: "main_agent" });
+
+    await expect(
+      tool.execute("tool-call-report-show-outside", { mode: "show", path: "project.md" })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    await expect(
+      tool.execute("tool-call-report-validate-outside", { mode: "validate", path: "project.md" })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    await expect(
+      tool.execute("tool-call-report-validate-wrong-report-namespace", {
+        mode: "validate",
+        path: "reports/visible-report.md"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    const shown = await tool.execute("tool-call-report-show-valid", {
+      mode: "show",
+      path: "reports/visible-report.md"
+    });
+    expect(shown.details["mode"]).toBe("show");
+    const validated = await tool.execute("tool-call-report-validate-valid", {
+      mode: "validate",
+      path: "reports/artifacts/visible-report.json"
+    });
+    expect(validated.details["mode"]).toBe("validate");
+  });
+
+  it("does not return raw protected report content", async () => {
+    const tool = createReportTool({ workspacePath, actor: "main_agent" });
+
+    await expect(
+      tool.execute("tool-call-report-protected", { mode: "show", path: "AGENTS.md" })
+    ).rejects.toMatchObject({ code: "web_safe_tool_protected_read_denied" });
+    await expect(
+      tool.execute("tool-call-report-traversal", { mode: "show", path: "../secret.md" })
+    ).rejects.toMatchObject({ code: "path_outside_workspace" });
   });
 });
