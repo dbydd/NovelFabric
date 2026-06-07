@@ -17,10 +17,12 @@ export const test = base.extend<{
   readonly bridgePort: number;
   readonly baseURL: string;
 }>({
+  // eslint-disable-next-line no-empty-pattern
   bridgePort: async ({}, use) => {
     const port = await allocateNovelFabricPort();
     await use(port);
   },
+  // eslint-disable-next-line no-empty-pattern
   workspacePath: async ({}, use) => {
     const workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-e2e-workspace-"));
     await fs.cp(fixtureWorkspacePath(), workspacePath, { recursive: true });
