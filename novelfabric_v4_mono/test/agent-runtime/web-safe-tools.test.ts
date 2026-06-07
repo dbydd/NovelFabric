@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   buildNovelFabricWebSafeCustomTools,
+  createApplyProposalTool,
   createContextPackTool,
   createReadFileTool,
   createReportTool,
@@ -48,7 +49,8 @@ describe("NovelFabric web-safe SDK custom tools", () => {
       "novelfabric_validate",
       "novelfabric_context_pack",
       "novelfabric_report",
-      "novelfabric_write_file"
+      "novelfabric_write_file",
+      "novelfabric_apply_proposal"
     ]);
 
     const wrapped = buildNovelFabricWebSafeCustomTools({
@@ -65,7 +67,8 @@ describe("NovelFabric web-safe SDK custom tools", () => {
       expect.objectContaining({ name: "novelfabric_validate" }),
       expect.objectContaining({ name: "novelfabric_context_pack" }),
       expect.objectContaining({ name: "novelfabric_report" }),
-      expect.objectContaining({ name: "novelfabric_write_file" })
+      expect.objectContaining({ name: "novelfabric_write_file" }),
+      expect.objectContaining({ name: "novelfabric_apply_proposal" })
     ]);
     expect(JSON.stringify(wrapped)).not.toMatch(/bash|raw_write/);
   });
@@ -869,5 +872,256 @@ describe("NovelFabric web-safe SDK custom tools", () => {
         reason: "replace existing turn"
       })
     ).rejects.toMatchObject({ code: "file_conflict" });
+  });
+
+  it("applies card, memory, swarm, report, and writing artifacts through novelfabric_apply_proposal", async () => {
+    const source = await readWorkspaceFile({ workspacePath, path: "project.md" });
+    const tool = createApplyProposalTool({ workspacePath, actor: "main_agent" });
+
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "proposals/cards/apply-card.json",
+      content: stableJson({
+        kind: "novelfabric.cards.proposal",
+        version: 1,
+        actor: "main_agent",
+        createdAt: "2026-06-07T00:00:00.000Z",
+        sourceContextPack: null,
+        cards: [
+          {
+            kind: "world",
+            title: "Applied Web Safe World",
+            targetPath: "cards/world/applied-web-safe-world.md",
+            content: "# Applied Web Safe World\n\nCard materialized by apply tool.",
+            citations: [
+              {
+                sourcePath: source.path,
+                hash: source.hash,
+                lineRange: { start: 1, end: 1 },
+                excerpt: source.content.slice(0, 80)
+              }
+            ]
+          }
+        ]
+      })
+    });
+    const cardResult = await tool.execute("tool-call-apply-card", {
+      kind: "card-proposal",
+      path: "proposals/cards/apply-card.json",
+      reason: "apply card proposal through web-safe tool"
+    });
+    expect(JSON.parse(cardResult.content[0].text)).toMatchObject({
+      kind: "card-proposal",
+      applied: true,
+      sourcePath: "proposals/cards/apply-card.json",
+      appliedCount: 1,
+      outputs: [expect.objectContaining({ path: "cards/world/applied-web-safe-world.md" })]
+    });
+
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "proposals/memory/apply-memory.json",
+      content: stableJson({
+        kind: "novelfabric.memory.shared-proposal",
+        version: 1,
+        actor: "main_agent",
+        createdAt: "2026-06-07T00:00:00.000Z",
+        content: "Remember this applied Web-safe memory.",
+        citations: [
+          {
+            sourcePath: source.path,
+            hash: source.hash,
+            lineRange: { start: 1, end: 1 },
+            excerpt: source.content.slice(0, 80)
+          }
+        ]
+      })
+    });
+    const memoryResult = await tool.execute("tool-call-apply-memory", {
+      kind: "memory-proposal",
+      path: "proposals/memory/apply-memory.json",
+      targetPath: "memory/global/web-safe-shared.md",
+      reason: "apply memory proposal through web-safe tool"
+    });
+    expect(JSON.parse(memoryResult.content[0].text)).toMatchObject({
+      kind: "memory-proposal",
+      applied: true,
+      sourcePath: "proposals/memory/apply-memory.json",
+      targetPath: "memory/global/web-safe-shared.md",
+      outputs: [expect.objectContaining({ path: "memory/global/web-safe-shared.md" })]
+    });
+
+    const { createSimulationSession } = await import("../../src/simulation/index.js");
+    await createSimulationSession({
+      workspacePath,
+      actor: "main_agent",
+      sessionId: "web-safe-apply-session",
+      objective: "Apply a web-safe swarm output.",
+      timeline: "main"
+    });
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "simulation/rounds/web-safe-apply-session/round-001/proposals/characters.json",
+      content: stableJson({
+        schemaVersion: "novelfabric.swarm.turn-proposal.v1",
+        sessionId: "web-safe-apply-session",
+        round: 1,
+        agent: "characters",
+        stage: "characters",
+        summary: "Characters propose a grounded next action.",
+        action: { kind: "pi-agent-proposal", text: "Move toward the clock tower." },
+        citations: [],
+        evidence: []
+      })
+    });
+    const swarmResult = await tool.execute("tool-call-apply-swarm", {
+      kind: "swarm-output",
+      path: "simulation/rounds/web-safe-apply-session/round-001/proposals/characters.json",
+      reason: "apply swarm output through web-safe tool"
+    });
+    const swarmPayload = JSON.parse(swarmResult.content[0].text) as {
+      readonly kind: string;
+      readonly applied: boolean;
+      readonly sourcePath: string;
+      readonly sessionId: string;
+      readonly outputs: readonly { readonly path: string; readonly hash: string }[];
+    };
+    expect(swarmPayload).toMatchObject({
+      kind: "swarm-output",
+      applied: true,
+      sourcePath: "simulation/rounds/web-safe-apply-session/round-001/proposals/characters.json",
+      sessionId: "web-safe-apply-session"
+    });
+    expect(swarmPayload.outputs.map((output) => output.path)).toEqual([
+      expect.stringMatching(/^simulation\/turns\/web-safe-apply-session\//u),
+      "simulation/sessions/web-safe-apply-session/session.json"
+    ]);
+
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "reports/artifacts/apply-report.json",
+      content: stableJson({
+        kind: "novelfabric.report.artifact",
+        version: 1,
+        reportKind: "web-safe",
+        session: null,
+        title: "Applied Web Safe Report",
+        markdown: "# Applied Web Safe Report\n\nReport body from apply tool.",
+        citations: [{ path: source.path, hash: source.hash }]
+      })
+    });
+    const reportResult = await tool.execute("tool-call-apply-report", {
+      kind: "report-artifact",
+      path: "reports/artifacts/apply-report.json",
+      outputPath: "reports/applied-web-safe-report.md",
+      reason: "apply report artifact through web-safe tool"
+    });
+    expect(JSON.parse(reportResult.content[0].text)).toMatchObject({
+      kind: "report-artifact",
+      applied: true,
+      sourcePath: "reports/artifacts/apply-report.json",
+      reportPath: "reports/applied-web-safe-report.md",
+      outputs: [expect.objectContaining({ path: "reports/applied-web-safe-report.md" })]
+    });
+
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: "writing/drafts/apply-draft.json",
+      content: stableJson({
+        kind: "novelfabric.writing.draft",
+        version: 1,
+        title: "Applied Web Safe Chapter",
+        markdown: "# Applied Web Safe Chapter\n\nChapter body from apply tool.",
+        citations: [{ path: source.path, hash: source.hash }]
+      })
+    });
+    const writingResult = await tool.execute("tool-call-apply-writing", {
+      kind: "writing-draft",
+      path: "writing/drafts/apply-draft.json",
+      outputPath: "writing/chapters/applied-web-safe-chapter.md",
+      reason: "apply writing draft through web-safe tool"
+    });
+    expect(JSON.parse(writingResult.content[0].text)).toMatchObject({
+      kind: "writing-draft",
+      applied: true,
+      sourcePath: "writing/drafts/apply-draft.json",
+      chapterPath: "writing/chapters/applied-web-safe-chapter.md",
+      outputs: [expect.objectContaining({ path: "writing/chapters/applied-web-safe-chapter.md" })]
+    });
+  }, 120000);
+
+  it("rejects invalid novelfabric_apply_proposal parameters and namespaces", async () => {
+    const tool = createApplyProposalTool({ workspacePath, actor: "main_agent" });
+
+    await expect(
+      tool.execute("tool-call-apply-invalid-kind", {
+        kind: "unknown-kind",
+        path: "proposals/cards/apply-card.json",
+        reason: "invalid kind"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_invalid_params" });
+    await expect(
+      tool.execute("tool-call-apply-missing-kind", {
+        path: "proposals/cards/apply-card.json",
+        reason: "missing kind"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_invalid_params" });
+    await expect(
+      tool.execute("tool-call-apply-missing-path", {
+        kind: "card-proposal",
+        reason: "missing path"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_invalid_params" });
+    await expect(
+      tool.execute("tool-call-apply-missing-reason", {
+        kind: "card-proposal",
+        path: "proposals/cards/apply-card.json"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_invalid_params" });
+
+    await expect(
+      tool.execute("tool-call-apply-card-wrong-input", {
+        kind: "card-proposal",
+        path: "reports/artifacts/apply-card.json",
+        reason: "wrong namespace"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    await expect(
+      tool.execute("tool-call-apply-memory-wrong-target", {
+        kind: "memory-proposal",
+        path: "proposals/memory/apply-memory.json",
+        targetPath: "memory/agents/main_agent.md",
+        reason: "wrong target namespace"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    await expect(
+      tool.execute("tool-call-apply-report-wrong-output", {
+        kind: "report-artifact",
+        path: "reports/artifacts/apply-report.json",
+        outputPath: "writing/chapters/not-a-report.md",
+        reason: "wrong output namespace"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    await expect(
+      tool.execute("tool-call-apply-writing-wrong-output", {
+        kind: "writing-draft",
+        path: "writing/drafts/apply-draft.json",
+        outputPath: "reports/not-a-chapter.md",
+        reason: "wrong output namespace"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_path_namespace_denied" });
+    await expect(
+      tool.execute("tool-call-apply-swarm-output-unused", {
+        kind: "swarm-output",
+        path: "simulation/rounds/session/round-001/proposals/characters.json",
+        outputPath: "simulation/turns/not-used.json",
+        reason: "unused output path"
+      })
+    ).rejects.toMatchObject({ code: "web_safe_tool_invalid_params" });
   });
 });

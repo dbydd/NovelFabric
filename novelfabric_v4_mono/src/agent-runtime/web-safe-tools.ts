@@ -38,7 +38,8 @@ export const WEB_SAFE_CUSTOM_TOOL_NAMES = [
   "novelfabric_validate",
   "novelfabric_context_pack",
   "novelfabric_report",
-  "novelfabric_write_file"
+  "novelfabric_write_file",
+  "novelfabric_apply_proposal"
 ] as const;
 
 export type WebSafeCustomToolName = (typeof WEB_SAFE_CUSTOM_TOOL_NAMES)[number];
@@ -78,6 +79,13 @@ export const WEB_SAFE_CUSTOM_TOOL_MANIFEST: readonly WebSafeToolManifestEntry[] 
     mode: "custom-tool",
     description:
       "Write only to bounded proposal, draft, report, and simulation artifact namespaces through NovelFabric capability, conflict, safe-path, symlink, and audit guards. Workspace and actor are bound by the host runtime."
+  },
+  {
+    name: "novelfabric_apply_proposal",
+    implemented: true,
+    mode: "custom-tool",
+    description:
+      "Apply validated card, memory, swarm, report, and writing proposal artifacts through existing NovelFabric domain apply services with namespace prechecks and sanitized write summaries."
   }
 ];
 
@@ -91,6 +99,9 @@ const WRITING_DRAFT_NAMESPACE = "writing/drafts/";
 const SWARM_OUTPUT_NAMESPACE = "simulation/rounds/";
 const CARDS_PROPOSAL_NAMESPACE = "proposals/cards/";
 const MEMORY_PROPOSAL_NAMESPACE = "proposals/memory/";
+const MEMORY_GLOBAL_NAMESPACE = "memory/global/";
+const REPORT_OUTPUT_NAMESPACE = "reports/";
+const WRITING_CHAPTER_NAMESPACE = "writing/chapters/";
 
 export const WEB_SAFE_WRITE_NAMESPACES = [
   CARDS_PROPOSAL_NAMESPACE,
@@ -112,6 +123,12 @@ type ValidationTarget =
 
 type ReportMode = "list" | "show" | "validate";
 type ContextPackMode = "validate" | "build";
+type ApplyProposalKind =
+  | "card-proposal"
+  | "memory-proposal"
+  | "swarm-output"
+  | "report-artifact"
+  | "writing-draft";
 
 export function buildNovelFabricWebSafeCustomTools(input: {
   readonly context: WebSafeToolContext;
@@ -122,7 +139,8 @@ export function buildNovelFabricWebSafeCustomTools(input: {
     createValidateTool(input.context),
     createContextPackTool(input.context),
     createReportTool(input.context),
-    createWriteFileTool(input.context)
+    createWriteFileTool(input.context),
+    createApplyProposalTool(input.context)
   ];
   if (input.defineTool === undefined) return tools;
   return tools.map((tool) => input.defineTool?.(tool) ?? tool);
@@ -320,6 +338,56 @@ export function createReportTool(context: WebSafeToolContext): WebSafeToolDefini
   };
 }
 
+export function createApplyProposalTool(context: WebSafeToolContext): WebSafeToolDefinition {
+  return {
+    name: "novelfabric_apply_proposal",
+    label: "NovelFabric Apply Proposal",
+    description:
+      "Apply validated NovelFabric proposal artifacts through bounded domain apply services. Workspace and actor are fixed by the host runtime.",
+    promptSnippet:
+      "novelfabric_apply_proposal: apply card, memory, swarm, report, or writing artifacts after validation.",
+    promptGuidelines: [
+      "Use novelfabric_apply_proposal only after validating the artifact you intend to apply.",
+      "Do not pass workspace or actor; the host runtime binds those values.",
+      "Use only the required outputPath or targetPath for the selected kind and keep it in the documented namespace."
+    ],
+    parameters: {
+      type: "object",
+      required: ["kind", "path", "reason"],
+      additionalProperties: false,
+      properties: {
+        kind: {
+          type: "string",
+          enum: [
+            "card-proposal",
+            "memory-proposal",
+            "swarm-output",
+            "report-artifact",
+            "writing-draft"
+          ]
+        },
+        path: { type: "string", minLength: 1 },
+        outputPath: { type: "string", minLength: 1 },
+        targetPath: { type: "string", minLength: 1 },
+        reason: { type: "string", minLength: 1 }
+      }
+    },
+    async execute(_toolCallId, params, signal) {
+      assertNotAborted(signal);
+      const parsed = parseApplyProposalParams(params);
+      const summary = await runApplyProposalKind(context, parsed);
+      const payload = {
+        kind: "novelfabric.web_safe_tool.apply_proposal.result",
+        version: 1,
+        tool: "novelfabric_apply_proposal",
+        actor: context.actor,
+        ...summary
+      };
+      return resultFromPayload(payload, summary);
+    }
+  };
+}
+
 export function createWriteFileTool(context: WebSafeToolContext): WebSafeToolDefinition {
   return {
     name: "novelfabric_write_file",
@@ -397,6 +465,201 @@ export function createWriteFileTool(context: WebSafeToolContext): WebSafeToolDef
 function assertNotAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted === true) {
     throw new CommandFailure("web_safe_tool_aborted", "Tool execution was aborted.", 2);
+  }
+}
+
+async function runApplyProposalKind(
+  context: WebSafeToolContext,
+  request: {
+    readonly kind: ApplyProposalKind;
+    readonly path: string;
+    readonly outputPath?: string;
+    readonly targetPath?: string;
+    readonly reason: string;
+  }
+): Promise<JsonObject> {
+  switch (request.kind) {
+    case "card-proposal": {
+      rejectUnusedApplyPath(request.outputPath, "outputPath", request.kind);
+      rejectUnusedApplyPath(request.targetPath, "targetPath", request.kind);
+      const { applyCardProposal } = await import("../cards/proposals.js");
+      const sourcePath = precheckNonProtectedPathInNamespace({
+        workspacePath: context.workspacePath,
+        requestedPath: request.path,
+        toolName: "novelfabric_apply_proposal",
+        action: "apply",
+        namespace: CARDS_PROPOSAL_NAMESPACE,
+        namespaceLabel: "card proposal"
+      });
+      const result = await applyCardProposal({
+        workspacePath: context.workspacePath,
+        proposalPath: sourcePath,
+        actor: context.actor,
+        reason: request.reason
+      });
+      return {
+        kind: request.kind,
+        applied: true,
+        sourcePath: result.proposalPath,
+        outputs: await summarizeAppliedOutputs(
+          context.workspacePath,
+          result.applied.map((write) => ({
+            path: write.path,
+            hash: write.hash,
+            bytes: write.bytes
+          }))
+        ),
+        appliedCount: result.appliedCount
+      };
+    }
+    case "memory-proposal": {
+      rejectUnusedApplyPath(request.outputPath, "outputPath", request.kind);
+      const { applySharedMemoryProposal } = await import("../memory/service.js");
+      const sourcePath = precheckNonProtectedPathInNamespace({
+        workspacePath: context.workspacePath,
+        requestedPath: request.path,
+        toolName: "novelfabric_apply_proposal",
+        action: "apply",
+        namespace: MEMORY_PROPOSAL_NAMESPACE,
+        namespaceLabel: "memory proposal"
+      });
+      const targetPath =
+        request.targetPath === undefined
+          ? undefined
+          : precheckMarkdownPathInNamespace({
+              workspacePath: context.workspacePath,
+              requestedPath: request.targetPath,
+              toolName: "novelfabric_apply_proposal",
+              action: "apply",
+              namespace: MEMORY_GLOBAL_NAMESPACE,
+              namespaceLabel: "shared memory target"
+            });
+      const result = await applySharedMemoryProposal({
+        workspacePath: context.workspacePath,
+        proposalPath: sourcePath,
+        actor: context.actor,
+        ...(targetPath === undefined ? {} : { targetPath }),
+        reason: request.reason
+      });
+      return {
+        kind: request.kind,
+        applied: true,
+        sourcePath: result.proposalPath,
+        outputs: await summarizeAppliedOutputs(context.workspacePath, [result.write]),
+        targetPath: result.targetPath
+      };
+    }
+    case "swarm-output": {
+      rejectUnusedApplyPath(request.outputPath, "outputPath", request.kind);
+      rejectUnusedApplyPath(request.targetPath, "targetPath", request.kind);
+      const { applySwarmOutput } = await import("../swarm/index.js");
+      const sourcePath = precheckNonProtectedPathInNamespace({
+        workspacePath: context.workspacePath,
+        requestedPath: request.path,
+        toolName: "novelfabric_apply_proposal",
+        action: "apply",
+        namespace: SWARM_OUTPUT_NAMESPACE,
+        namespaceLabel: "swarm output"
+      });
+      const result = await applySwarmOutput({
+        workspacePath: context.workspacePath,
+        artifactPath: sourcePath,
+        actor: context.actor,
+        reason: request.reason
+      });
+      return {
+        kind: request.kind,
+        applied: true,
+        sourcePath: result.artifactPath,
+        outputs: await summarizeAppliedOutputs(context.workspacePath, [
+          result.turnWrite,
+          result.sessionWrite
+        ]),
+        sessionId: result.sessionId,
+        turnPath: result.turnPath
+      };
+    }
+    case "report-artifact": {
+      rejectUnusedApplyPath(request.targetPath, "targetPath", request.kind);
+      const { applyReportArtifact } = await import("../report/index.js");
+      const sourcePath = precheckNonProtectedPathInNamespace({
+        workspacePath: context.workspacePath,
+        requestedPath: request.path,
+        toolName: "novelfabric_apply_proposal",
+        action: "apply",
+        namespace: REPORT_ARTIFACT_NAMESPACE,
+        namespaceLabel: "report artifact"
+      });
+      const outputPath =
+        request.outputPath === undefined
+          ? undefined
+          : precheckMarkdownPathInNamespace({
+              workspacePath: context.workspacePath,
+              requestedPath: request.outputPath,
+              toolName: "novelfabric_apply_proposal",
+              action: "apply",
+              namespace: REPORT_OUTPUT_NAMESPACE,
+              namespaceLabel: "report output"
+            });
+      if (outputPath?.startsWith(REPORT_ARTIFACT_NAMESPACE) === true) {
+        throw new CommandFailure(
+          "web_safe_tool_path_namespace_denied",
+          `Web-safe tool 'novelfabric_apply_proposal' cannot apply report output path '${outputPath}'; expected Markdown output under '${REPORT_OUTPUT_NAMESPACE}', not '${REPORT_ARTIFACT_NAMESPACE}'.`,
+          3
+        );
+      }
+      const result = await applyReportArtifact({
+        workspacePath: context.workspacePath,
+        artifactPath: sourcePath,
+        actor: context.actor,
+        ...(outputPath === undefined ? {} : { outputPath }),
+        reason: request.reason
+      });
+      return {
+        kind: request.kind,
+        applied: true,
+        sourcePath: result.sourceArtifactPath,
+        outputs: await summarizeAppliedOutputs(context.workspacePath, [result.write]),
+        reportPath: result.reportPath
+      };
+    }
+    case "writing-draft": {
+      rejectUnusedApplyPath(request.targetPath, "targetPath", request.kind);
+      const { applyWritingDraft } = await import("../writing/index.js");
+      const sourcePath = precheckNonProtectedPathInNamespace({
+        workspacePath: context.workspacePath,
+        requestedPath: request.path,
+        toolName: "novelfabric_apply_proposal",
+        action: "apply",
+        namespace: WRITING_DRAFT_NAMESPACE,
+        namespaceLabel: "writing draft"
+      });
+      const outputPath =
+        request.outputPath === undefined
+          ? undefined
+          : precheckMarkdownPathInNamespace({
+              workspacePath: context.workspacePath,
+              requestedPath: request.outputPath,
+              toolName: "novelfabric_apply_proposal",
+              action: "apply",
+              namespace: WRITING_CHAPTER_NAMESPACE,
+              namespaceLabel: "writing chapter output"
+            });
+      const result = await applyWritingDraft({
+        workspacePath: context.workspacePath,
+        draftPath: sourcePath,
+        actor: context.actor,
+        ...(outputPath === undefined ? {} : { outputPath }),
+        reason: request.reason
+      });
+      return {
+        kind: request.kind,
+        applied: true,
+        sourcePath: result.sourceDraftPath,
+        outputs: await summarizeAppliedOutputs(context.workspacePath, [result.write]),
+        chapterPath: result.chapterPath
+      };
+    }
   }
 }
 
@@ -812,6 +1075,42 @@ function parseRequiredPathParams(params: unknown, toolName: string): string {
   return requireToolString(record["path"], "path", toolName);
 }
 
+function parseApplyProposalParams(params: unknown): {
+  readonly kind: ApplyProposalKind;
+  readonly path: string;
+  readonly outputPath?: string;
+  readonly targetPath?: string;
+  readonly reason: string;
+} {
+  const record = requireToolObject(params, "novelfabric_apply_proposal");
+  const kind = requireOneOf(record["kind"], "kind", [
+    "card-proposal",
+    "memory-proposal",
+    "swarm-output",
+    "report-artifact",
+    "writing-draft"
+  ] as const);
+  const pathValue = requireToolString(record["path"], "path", "novelfabric_apply_proposal");
+  const reason = requireToolString(record["reason"], "reason", "novelfabric_apply_proposal");
+  const outputPath = optionalToolString(
+    record["outputPath"],
+    "outputPath",
+    "novelfabric_apply_proposal"
+  );
+  const targetPath = optionalToolString(
+    record["targetPath"],
+    "targetPath",
+    "novelfabric_apply_proposal"
+  );
+  return {
+    kind,
+    path: pathValue,
+    reason,
+    ...(outputPath === undefined ? {} : { outputPath }),
+    ...(targetPath === undefined ? {} : { targetPath })
+  };
+}
+
 function parseWriteFileParams(params: unknown): {
   readonly path: string;
   readonly content: string;
@@ -971,6 +1270,38 @@ function precheckNonProtectedPathInNamespace(input: {
   return normalizedPath;
 }
 
+function precheckMarkdownPathInNamespace(input: {
+  readonly workspacePath: string;
+  readonly requestedPath: string;
+  readonly toolName: string;
+  readonly action: string;
+  readonly namespace: string;
+  readonly namespaceLabel: string;
+}): string {
+  const checkedPath = precheckNonProtectedPathInNamespace(input);
+  if (!checkedPath.endsWith(".md")) {
+    throw new CommandFailure(
+      "web_safe_tool_path_namespace_denied",
+      `Web-safe tool '${input.toolName}' cannot ${input.action} ${input.namespaceLabel} path '${checkedPath}'; expected Markdown path ending in '.md'.`,
+      3
+    );
+  }
+  return checkedPath;
+}
+
+function rejectUnusedApplyPath(
+  value: string | undefined,
+  field: "outputPath" | "targetPath",
+  kind: ApplyProposalKind
+): void {
+  if (value === undefined) return;
+  throw new CommandFailure(
+    "web_safe_tool_invalid_params",
+    `novelfabric_apply_proposal ${kind} does not accept ${field}.`,
+    2
+  );
+}
+
 function precheckWebSafeWritePath(input: {
   readonly workspacePath: string;
   readonly requestedPath: string;
@@ -1016,6 +1347,29 @@ async function statExistingWorkspaceFile(input: {
     }
     throw error;
   }
+}
+
+async function summarizeAppliedOutputs(
+  workspacePath: string,
+  writes: readonly {
+    readonly path: string;
+    readonly hash: string;
+    readonly bytes?: number;
+    readonly auditPath?: string;
+  }[]
+): Promise<readonly JsonObject[]> {
+  return Promise.all(
+    writes.map(async (write) => {
+      const bytes =
+        write.bytes ?? (await statWorkspaceFile({ workspacePath, path: write.path })).bytes;
+      return {
+        path: write.path,
+        hash: write.hash,
+        bytes,
+        ...(write.auditPath === undefined ? {} : { auditPath: write.auditPath })
+      };
+    })
+  );
 }
 
 function summarizeWriteForTool(write: {
