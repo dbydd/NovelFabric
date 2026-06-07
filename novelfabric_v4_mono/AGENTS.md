@@ -17,19 +17,20 @@ This directory is the V4 mono app direction after being renamed from the old `ba
 
 ### Current V4 Handoff Snapshot
 
-Completed pi-evidence hardening, domain artifact materialization, opt-in SDK AgentSession execution, Web-safe read-only SDK tools foundation, and Web-safe mutation tools foundation are archived in:
+Completed pi-evidence hardening, domain artifact materialization, opt-in SDK AgentSession execution, Web-safe read-only SDK tools foundation, Web-safe mutation tools foundation, and structured event stream foundation are archived in:
 
 - `docs/architecture/archive/v4-pi-evidence-loop-archive.md`
 - `docs/architecture/archive/v4-domain-artifact-materialization-archive.md`
 - `docs/architecture/archive/v4-sdk-agent-session-opt-in-archive.md`
 - `docs/architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`
 - `docs/architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`
+- `docs/architecture/archive/v4-structured-event-stream-foundation-archive.md`
 
 Active handoff should stay focused on unfinished gaps, not repeat completed history.
 
 Next iteration gap order:
 
-1. **Web runtime event stream and lifecycle orchestration**: add browser-visible start/status/stream/cancel/retry lifecycle, bounded/redacted runtime events, denial trace, and stable evidence envelopes.
+1. **Real-time streaming + browser runtime UI + Web workflow orchestration**: browser controls must consume the archived structured event stream foundation, show live bounded/redacted runtime evidence, expose start/status/stream/cancel/retry, and orchestrate workflow jobs without console/API shortcuts.
 2. **Web full workflow path**: browser controls must execute upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → role reasoning/StorySwarm → ReportAgent → chapter generation → editor review/save through CLI-backed services.
 3. **Semantic import/materialization**: source text must be pi-backed into chapters, cards, world/rule assets, timeline, memory, and context packs, with content-quality validation.
 4. **External swarm compatibility**: land frozen REST/MCP adapters and golden tests for existing external swarm inference contracts.

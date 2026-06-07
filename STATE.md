@@ -2,11 +2,11 @@
 
 ## Current phase
 
-V4 TypeScript mono app — next iteration planning for Web runtime event streaming, lifecycle orchestration, and Web workflow binding after archiving the Web-safe mutation tools foundation.
+V4 TypeScript mono app — next iteration planning for real-time streaming + browser runtime UI + Web workflow orchestration after archiving the structured event stream foundation.
 
 ## Current cycle
 
-Archive completed pi-evidence, domain artifact, opt-in SDK AgentSession, Web-safe read-only SDK tools, and Web-safe mutation tools work → keep active docs focused on unfinished gaps → next implementation starts with Web runtime event stream/lifecycle orchestration.
+Archive completed pi-evidence, domain artifact, opt-in SDK AgentSession, Web-safe SDK tools, Web-safe mutation tools, and structured event stream foundation work → keep active docs focused on unfinished gaps → next implementation starts with real-time streaming + browser runtime UI + Web workflow orchestration.
 
 ## Current V4 status
 
@@ -17,8 +17,9 @@ Archive completed pi-evidence, domain artifact, opt-in SDK AgentSession, Web-saf
 - Completed opt-in SDK AgentSession execution is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-sdk-agent-session-opt-in-archive.md`.
 - Completed Web-safe read-only SDK tools foundation is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`.
 - Completed Web-safe mutation tools foundation is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`.
+- Completed structured event stream foundation is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-structured-event-stream-foundation-archive.md`.
 - Workflow pi-task stages now require pi evidence and domain artifact evidence for StorySwarm, ReportAgent, and writing outputs.
-- Active planning now starts at **Web runtime event stream/lifecycle orchestration**. The full product/business loop is still incomplete until Web workflow binding, semantic import, external swarm REST/MCP, and domain-specific capabilities are finished.
+- Active planning now starts at **real-time streaming + browser runtime UI + Web workflow orchestration**. The full product/business loop is still incomplete until Web workflow binding, semantic import, external swarm REST/MCP, and domain-specific capabilities are finished.
 - Detailed active gap ledger and test standards live in:
   - `novelfabric_v4_mono/docs/architecture/v4-cli-workspace-harness-plan.md`
   - `novelfabric_v4_mono/docs/architecture/v4-cli-command-contract.md`
@@ -27,7 +28,7 @@ Archive completed pi-evidence, domain artifact, opt-in SDK AgentSession, Web-saf
 
 ## Active next-iteration gaps
 
-1. **Web runtime event stream and lifecycle orchestration** — add browser-visible start/status/stream/cancel/retry lifecycle, bounded/redacted runtime events, denial trace, and stable evidence envelopes.
+1. **Real-time streaming + browser runtime UI + Web workflow orchestration** — browser controls consume the archived structured event stream foundation, show live bounded/redacted runtime evidence, expose start/status/stream/cancel/retry, and orchestrate workflow jobs without console/API shortcuts.
 2. **Web full workflow binding** — source upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through CLI-backed services.
 3. **Semantic import/materialization** — pi-backed generation of chapters, cards, world/rule assets, timeline, memory, and context packs with content-quality validation and reversible/conflict-safe apply.
 4. **External swarm REST/MCP adapters** — preserve the frozen external swarm inference REST/MCP contract with golden fixture tests.

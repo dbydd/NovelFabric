@@ -40,7 +40,7 @@ Current strengths:
 
 Current non-negotiable gaps, in next-iteration order:
 
-1. **Web runtime event stream and lifecycle orchestration** — bridge runtime routes still need browser-visible start/status/stream/cancel/retry lifecycle behavior, bounded/redacted event traces, denial events, and stable evidence envelopes.
+1. **Real-time streaming + browser runtime UI + Web workflow orchestration** — the structured event stream foundation is archived, but the browser runtime UI still needs live event consumption, start/status/stream/cancel/retry controls, denial/evidence rendering, and workflow orchestration through Web controls.
 2. **Web full workflow binding** — Web workflow controls are not yet bound to upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through the full workflow/agent runtime path.
 3. **Semantic import/materialization** — deterministic import exists, but source text still needs pi-backed chapter/card/world/rule/timeline/memory/context-pack generation with content-quality validation.
 4. **External swarm REST/MCP adapters** — adapters still need to call the shared external-swarm service and pass golden fixture tests for the frozen compatibility contract.
@@ -52,15 +52,16 @@ Current non-negotiable gaps, in next-iteration order:
 
 The next iteration is not accepted until these tests exist and pass for each implemented gap:
 
-Completed domain artifact materialization tests are archived in `../architecture/archive/v4-domain-artifact-materialization-archive.md`; completed opt-in SDK AgentSession execution is archived in `../architecture/archive/v4-sdk-agent-session-opt-in-archive.md`; completed Web-safe read-only SDK tools foundation is archived in `../architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`; completed Web-safe mutation tools foundation is archived in `../architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`. The active gap-specific gates now begin at Web runtime event stream and lifecycle orchestration.
+Completed domain artifact materialization tests are archived in `../architecture/archive/v4-domain-artifact-materialization-archive.md`; completed opt-in SDK AgentSession execution is archived in `../architecture/archive/v4-sdk-agent-session-opt-in-archive.md`; completed Web-safe read-only SDK tools foundation is archived in `../architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`; completed Web-safe mutation tools foundation is archived in `../architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`; completed structured event stream foundation is archived in `../architecture/archive/v4-structured-event-stream-foundation-archive.md`. The active gap-specific gates now begin at real-time streaming + browser runtime UI + Web workflow orchestration.
 
-#### Gap 1 — Web Runtime Event Stream And Lifecycle Orchestration
+#### Gap 1 — Real-Time Streaming + Browser Runtime UI + Web Workflow Orchestration
 
 Required tests:
 
-- bridge lifecycle tests prove start/status/stream/cancel/retry semantics and cleanup for completed, failed, cancelled, and retried sessions;
-- event-stream tests assert stable browser-visible event types for session started, model output, tool request/denial, validation, completion, cancellation, retry, and failure;
-- sanitization tests prove event payloads expose bounded/redacted summaries only, with no internal paths, prompt files, session files, raw secrets, or unbounded model output;
+- bridge/Web tests prove browser-visible start/status/stream/cancel/retry semantics using the archived structured event stream envelope;
+- runtime UI tests assert stable visible event categories for session started, model output, tool request/denial, validation, completion, cancellation, retry, and failure;
+- sanitization tests prove rendered event payloads expose bounded/redacted summaries only, with no internal paths, prompt files, session files, raw secrets, or unbounded model output;
+- orchestration tests prove Web controls can start workflow jobs, attach runtime sessions, surface evidence, cancel/retry safely, and refresh artifact state without console/API shortcuts;
 - policy tests prove Web sessions deny raw `bash`, raw `write`, raw `edit`, arbitrary network, and arbitrary paths.
 
 #### Gap 2 — Web Full Workflow Binding
@@ -176,7 +177,7 @@ test/acceptance/v4-full-usability.contract.test.ts
 
 They cover:
 
-- opt-in pi AgentSession execution is archived; active contracts now target Web-safe extensions and Web bridge orchestration;
+- opt-in pi AgentSession execution, Web-safe SDK tools, mutation tools, and structured event stream foundations are archived; active contracts now target real-time browser runtime UI and Web workflow orchestration;
 - nontechnical Web workflow with no dangerous tool exposure;
 - pi-backed semantic拆书;
 - pi-backed role reasoning and StorySwarm;
