@@ -40,11 +40,10 @@ Current strengths:
 
 Current non-negotiable gaps, in next-iteration order:
 
-1. **Real-time streaming + browser runtime UI + Web workflow orchestration** — the structured event stream foundation is archived, but the browser runtime UI still needs live event consumption, start/status/stream/cancel/retry controls, denial/evidence rendering, and workflow orchestration through Web controls.
-2. **Web full workflow binding** — Web workflow controls are not yet bound to upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through the full workflow/agent runtime path.
-3. **Semantic import/materialization** — deterministic import exists, but source text still needs pi-backed chapter/card/world/rule/timeline/memory/context-pack generation with content-quality validation.
-4. **External swarm REST/MCP adapters** — adapters still need to call the shared external-swarm service and pass golden fixture tests for the frozen compatibility contract.
-5. **Domain-specific capabilities** — cards/memory/swarm/report/writing commands still need tighter domain capabilities beyond broad project/file write capabilities.
+1. **Web workflow orchestration + Playwright UI-only acceptance** — browser runtime task UI foundation is archived, but Web controls still need to orchestrate upload/import → workflow jobs → runtime sessions → final domain artifact visibility through the full workflow/agent runtime path.
+2. **Semantic import/materialization** — deterministic import exists, but source text still needs pi-backed chapter/card/world/rule/timeline/memory/context-pack generation with content-quality validation.
+3. **External swarm REST/MCP adapters** — adapters still need to call the shared external-swarm service and pass golden fixture tests for the frozen compatibility contract.
+4. **Domain-specific capabilities** — cards/memory/swarm/report/writing commands still need tighter domain capabilities beyond broad project/file write capabilities.
 
 ## 3. Test Layers
 
@@ -52,27 +51,20 @@ Current non-negotiable gaps, in next-iteration order:
 
 The next iteration is not accepted until these tests exist and pass for each implemented gap:
 
-Completed domain artifact materialization tests are archived in `../architecture/archive/v4-domain-artifact-materialization-archive.md`; completed opt-in SDK AgentSession execution is archived in `../architecture/archive/v4-sdk-agent-session-opt-in-archive.md`; completed Web-safe read-only SDK tools foundation is archived in `../architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`; completed Web-safe mutation tools foundation is archived in `../architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`; completed structured event stream foundation is archived in `../architecture/archive/v4-structured-event-stream-foundation-archive.md`. The active gap-specific gates now begin at real-time streaming + browser runtime UI + Web workflow orchestration.
+Completed domain artifact materialization tests are archived in `../architecture/archive/v4-domain-artifact-materialization-archive.md`; completed opt-in SDK AgentSession execution is archived in `../architecture/archive/v4-sdk-agent-session-opt-in-archive.md`; completed Web-safe read-only SDK tools foundation is archived in `../architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`; completed Web-safe mutation tools foundation is archived in `../architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`; completed structured event stream foundation is archived in `../architecture/archive/v4-structured-event-stream-foundation-archive.md`; completed async Web bridge run registry + persistent SSE foundation is archived in `../architecture/archive/v4-async-sse-foundation-archive.md`; completed browser runtime task UI foundation is archived in `../architecture/archive/v4-browser-runtime-task-ui-foundation-archive.md`. The active gap-specific gates now begin at Web workflow orchestration + Playwright UI-only acceptance.
 
-#### Gap 1 — Real-Time Streaming + Browser Runtime UI + Web Workflow Orchestration
+#### Gap 1 — Web Workflow Orchestration + Playwright UI-Only Acceptance
 
 Required tests:
 
-- bridge/Web tests prove browser-visible start/status/stream/cancel/retry semantics using the archived structured event stream envelope;
-- runtime UI tests assert stable visible event categories for session started, model output, tool request/denial, validation, completion, cancellation, retry, and failure;
+- Playwright tests use UI controls only, with 50000+ ports and no console/API shortcuts;
+- browser controls start workflow jobs, attach runtime sessions, consume the archived browser runtime task UI and SSE foundations, and surface visible bounded/redacted evidence;
+- user flow covers upload/import, workflow start/status/stream/cancel/retry, StorySwarm, ReportAgent, chapter generation, editor review, and save;
+- assertions inspect visible runtime evidence, final domain artifacts, editor content, and audit records;
 - sanitization tests prove rendered event payloads expose bounded/redacted summaries only, with no internal paths, prompt files, session files, raw secrets, or unbounded model output;
-- orchestration tests prove Web controls can start workflow jobs, attach runtime sessions, surface evidence, cancel/retry safely, and refresh artifact state without console/API shortcuts;
 - policy tests prove Web sessions deny raw `bash`, raw `write`, raw `edit`, arbitrary network, and arbitrary paths.
 
-#### Gap 2 — Web Full Workflow Binding
-
-Required tests:
-
-- Playwright test uses UI controls only, with 50000+ ports and no console/API shortcuts;
-- user flow covers upload/import, semantic assets, context/RAG, StorySwarm, ReportAgent, chapter generation, editor review, and save;
-- assertions inspect visible runtime evidence, final domain artifacts, editor content, and audit records.
-
-#### Gap 3 — Semantic Import / Materialization
+#### Gap 2 — Semantic Import / Materialization
 
 Required tests:
 
@@ -81,7 +73,7 @@ Required tests:
 - invalid or low-quality pi output fails validation and leaves source files intact;
 - apply is reversible or conflict-safe through base hashes and audit.
 
-#### Gap 4 — External Swarm REST/MCP Adapters
+#### Gap 3 — External Swarm REST/MCP Adapters
 
 Required tests:
 
@@ -89,7 +81,7 @@ Required tests:
 - MCP golden tests for `tools/list` and `tools/call` on `external_swarm_infer`, `external_swarm_require_context`, and `external_swarm_get`;
 - idempotency, artifact path semantics, `structuredContent`, and additive-field compatibility are asserted.
 
-#### Gap 5 — Domain-Specific Capabilities
+#### Gap 4 — Domain-Specific Capabilities
 
 Required tests:
 
@@ -177,7 +169,7 @@ test/acceptance/v4-full-usability.contract.test.ts
 
 They cover:
 
-- opt-in pi AgentSession execution, Web-safe SDK tools, mutation tools, and structured event stream foundations are archived; active contracts now target real-time browser runtime UI and Web workflow orchestration;
+- opt-in pi AgentSession execution, Web-safe SDK tools, mutation tools, structured event stream, async/SSE, and browser runtime task UI foundations are archived; active contracts now target Web workflow orchestration + Playwright UI-only acceptance;
 - nontechnical Web workflow with no dangerous tool exposure;
 - pi-backed semantic拆书;
 - pi-backed role reasoning and StorySwarm;

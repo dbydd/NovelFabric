@@ -17,7 +17,7 @@ This directory is the V4 mono app direction after being renamed from the old `ba
 
 ### Current V4 Handoff Snapshot
 
-Completed pi-evidence hardening, domain artifact materialization, opt-in SDK AgentSession execution, Web-safe read-only SDK tools foundation, Web-safe mutation tools foundation, and structured event stream foundation are archived in:
+Completed pi-evidence hardening, domain artifact materialization, opt-in SDK AgentSession execution, Web-safe read-only SDK tools foundation, Web-safe mutation tools foundation, structured event stream foundation, async/SSE bridge foundation, and browser runtime task UI foundation are archived in:
 
 - `docs/architecture/archive/v4-pi-evidence-loop-archive.md`
 - `docs/architecture/archive/v4-domain-artifact-materialization-archive.md`
@@ -25,16 +25,17 @@ Completed pi-evidence hardening, domain artifact materialization, opt-in SDK Age
 - `docs/architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`
 - `docs/architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`
 - `docs/architecture/archive/v4-structured-event-stream-foundation-archive.md`
+- `docs/architecture/archive/v4-async-sse-foundation-archive.md`
+- `docs/architecture/archive/v4-browser-runtime-task-ui-foundation-archive.md`
 
 Active handoff should stay focused on unfinished gaps, not repeat completed history.
 
 Next iteration gap order:
 
-1. **Real-time streaming + browser runtime UI + Web workflow orchestration**: browser controls must consume the archived structured event stream foundation, show live bounded/redacted runtime evidence, expose start/status/stream/cancel/retry, and orchestrate workflow jobs without console/API shortcuts.
-2. **Web full workflow path**: browser controls must execute upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → role reasoning/StorySwarm → ReportAgent → chapter generation → editor review/save through CLI-backed services.
-3. **Semantic import/materialization**: source text must be pi-backed into chapters, cards, world/rule assets, timeline, memory, and context packs, with content-quality validation.
-4. **External swarm compatibility**: land frozen REST/MCP adapters and golden tests for existing external swarm inference contracts.
-5. **Capability tightening**: make cards/memory/swarm/report/writing domain operations use narrower capability names instead of broad file/project rights.
+1. **Web workflow orchestration + Playwright UI-only acceptance**: browser controls must use the archived browser runtime task UI and async/SSE foundations to execute upload/import → workflow jobs → runtime sessions → final domain artifact visibility without console/API shortcuts.
+2. **Semantic import/materialization**: source text must be pi-backed into chapters, cards, world/rule assets, timeline, memory, and context packs, with content-quality validation.
+3. **External swarm compatibility**: land frozen REST/MCP adapters and golden tests for existing external swarm inference contracts.
+4. **Capability tightening**: make cards/memory/swarm/report/writing domain operations use narrower capability names instead of broad file/project rights.
 
 The full product/business loop is still incomplete, and the full-usability pending contracts remain open until Web-controlled acceptance proves the loop end to end.
 

@@ -2,11 +2,11 @@
 
 ## Current phase
 
-V4 TypeScript mono app — next iteration planning for real-time streaming + browser runtime UI + Web workflow orchestration after archiving the structured event stream foundation.
+V4 TypeScript mono app — next iteration planning for Web workflow orchestration + Playwright UI-only acceptance after archiving the browser runtime task UI foundation.
 
 ## Current cycle
 
-Archive completed pi-evidence, domain artifact, opt-in SDK AgentSession, Web-safe SDK tools, Web-safe mutation tools, and structured event stream foundation work → keep active docs focused on unfinished gaps → next implementation starts with real-time streaming + browser runtime UI + Web workflow orchestration.
+Archive completed pi-evidence, domain artifact, opt-in SDK AgentSession, Web-safe SDK tools, Web-safe mutation tools, structured event stream, async/SSE, and browser runtime task UI foundation work → keep active docs focused on unfinished gaps → next implementation starts with Web workflow orchestration + Playwright UI-only acceptance.
 
 ## Current V4 status
 
@@ -18,8 +18,10 @@ Archive completed pi-evidence, domain artifact, opt-in SDK AgentSession, Web-saf
 - Completed Web-safe read-only SDK tools foundation is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`.
 - Completed Web-safe mutation tools foundation is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`.
 - Completed structured event stream foundation is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-structured-event-stream-foundation-archive.md`.
+- Completed async Web bridge run registry + persistent SSE foundation is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-async-sse-foundation-archive.md`.
+- Completed browser runtime task UI foundation is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-browser-runtime-task-ui-foundation-archive.md`.
 - Workflow pi-task stages now require pi evidence and domain artifact evidence for StorySwarm, ReportAgent, and writing outputs.
-- Active planning now starts at **real-time streaming + browser runtime UI + Web workflow orchestration**. The full product/business loop is still incomplete until Web workflow binding, semantic import, external swarm REST/MCP, and domain-specific capabilities are finished.
+- Active planning now starts at **Web workflow orchestration + Playwright UI-only acceptance** over the archived browser runtime task UI and async/SSE foundations. The full product/business loop is still incomplete until Web-controlled workflow acceptance, semantic import, external swarm REST/MCP, and domain-specific capabilities are finished.
 - Detailed active gap ledger and test standards live in:
   - `novelfabric_v4_mono/docs/architecture/v4-cli-workspace-harness-plan.md`
   - `novelfabric_v4_mono/docs/architecture/v4-cli-command-contract.md`
@@ -28,11 +30,10 @@ Archive completed pi-evidence, domain artifact, opt-in SDK AgentSession, Web-saf
 
 ## Active next-iteration gaps
 
-1. **Real-time streaming + browser runtime UI + Web workflow orchestration** — browser controls consume the archived structured event stream foundation, show live bounded/redacted runtime evidence, expose start/status/stream/cancel/retry, and orchestrate workflow jobs without console/API shortcuts.
-2. **Web full workflow binding** — source upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through CLI-backed services.
-3. **Semantic import/materialization** — pi-backed generation of chapters, cards, world/rule assets, timeline, memory, and context packs with content-quality validation and reversible/conflict-safe apply.
-4. **External swarm REST/MCP adapters** — preserve the frozen external swarm inference REST/MCP contract with golden fixture tests.
-5. **Domain-specific capabilities** — tighten cards/memory/swarm/report/writing operations around narrow capabilities instead of broad project/file write authority.
+1. **Web workflow orchestration + Playwright UI-only acceptance** — browser controls use the archived browser runtime task UI and async/SSE foundations to execute upload/import → workflow jobs → runtime sessions → final domain artifact visibility without console/API shortcuts.
+2. **Semantic import/materialization** — pi-backed generation of chapters, cards, world/rule assets, timeline, memory, and context packs with content-quality validation and reversible/conflict-safe apply.
+3. **External swarm REST/MCP adapters** — preserve the frozen external swarm inference REST/MCP contract with golden fixture tests.
+4. **Domain-specific capabilities** — tighten cards/memory/swarm/report/writing operations around narrow capabilities instead of broad project/file write authority.
 
 ## Required V4 verification gates
 

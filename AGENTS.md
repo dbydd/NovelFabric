@@ -68,7 +68,7 @@ V4 的方向不是继续扩大旧后端 agent runtime，而是：
 
 #### 当前 V4 handoff gap（下一轮迭代入口）
 
-已完成的 pi-backed semantic evidence loop、domain artifact materialization、opt-in SDK AgentSession execution、Web-safe read-only SDK tools foundation、Web-safe mutation tools foundation 与 structured event stream foundation 已归档到：
+已完成的 pi-backed semantic evidence loop、domain artifact materialization、opt-in SDK AgentSession execution、Web-safe read-only SDK tools foundation、Web-safe mutation tools foundation、structured event stream foundation、async/SSE bridge foundation 与 browser runtime task UI foundation 已归档到：
 
 - `novelfabric_v4_mono/docs/architecture/archive/v4-pi-evidence-loop-archive.md`
 - `novelfabric_v4_mono/docs/architecture/archive/v4-domain-artifact-materialization-archive.md`
@@ -76,16 +76,17 @@ V4 的方向不是继续扩大旧后端 agent runtime，而是：
 - `novelfabric_v4_mono/docs/architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`
 - `novelfabric_v4_mono/docs/architecture/archive/v4-web-safe-mutation-tools-foundation-archive.md`
 - `novelfabric_v4_mono/docs/architecture/archive/v4-structured-event-stream-foundation-archive.md`
+- `novelfabric_v4_mono/docs/architecture/archive/v4-async-sse-foundation-archive.md`
+- `novelfabric_v4_mono/docs/architecture/archive/v4-browser-runtime-task-ui-foundation-archive.md`
 
 active handoff 不再堆叠已完成细节，下一轮只聚焦未完成 gap。
 
 下一轮优先 gap：
 
-1. 补齐 real-time streaming + browser runtime UI + Web workflow orchestration：浏览器控件消费已归档的 structured event stream foundation，显示 bounded/redacted runtime evidence，提供 start/status/stream/cancel/retry，并通过 Web 控件编排 workflow jobs，不能用 console/API shortcut。
-2. 打通 Web 全流程：上传/导入原文 → semantic 拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save。
-3. 实现 semantic import/materialization：原文通过 pi 生成章节、角色/世界/规则卡、timeline、memory、context pack，并做内容质量校验。
-4. 落 frozen external swarm REST/MCP adapters 与 golden tests。
-5. 收紧 cards/memory/swarm/report/writing 的 domain-specific capabilities，避免用 broad file/project 权限代替业务授权。
+1. 补齐 Web workflow orchestration + Playwright UI-only acceptance：浏览器控件基于已归档的 browser runtime task UI 与 async/SSE foundations 执行上传/导入 → workflow jobs → runtime sessions → 最终 domain artifact 可见性，不能用 console/API shortcut。
+2. 实现 semantic import/materialization：原文通过 pi 生成章节、角色/世界/规则卡、timeline、memory、context pack，并做内容质量校验。
+3. 落 frozen external swarm REST/MCP adapters 与 golden tests。
+4. 收紧 cards/memory/swarm/report/writing 的 domain-specific capabilities，避免用 broad file/project 权限代替业务授权。
 
 完整产品/业务闭环仍未完成；full-usability pending contracts 必须保持打开，直到 Web-controlled acceptance 真正端到端通过。
 
