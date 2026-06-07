@@ -34,6 +34,11 @@ describe("cards and memory command registrations", () => {
     workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-cards-memory-cli-test-"));
     await fs.cp(VALID_FIXTURE, workspacePath, { recursive: true });
     await fs.writeFile(
+      path.join(workspacePath, ".novelfabric", "capabilities.toml"),
+      '[main_agent]\nallow = ["project.manage", "cards.propose", "cards.apply"]\n',
+      "utf8"
+    );
+    await fs.writeFile(
       path.join(workspacePath, "imports", "source", "cli-source.md"),
       "# CLI Source\n\n阿莉娅在星门雨城发现钟楼规则。\n",
       "utf8"

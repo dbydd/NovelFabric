@@ -125,8 +125,8 @@ const CARD_DIRECTORIES = {
   rule: "cards/rules"
 } as const satisfies Record<CardKind, string>;
 
-const CARD_PROPOSE_CAPABILITIES = ["cards.propose", "project.manage"] as const;
-const CARD_APPLY_CAPABILITIES = ["cards.apply", "project.manage"] as const;
+const CARD_PROPOSE_CAPABILITY = "cards.propose";
+const CARD_APPLY_CAPABILITY = "cards.apply";
 
 export async function listCards(request: CardsListRequest): Promise<CardsListResult> {
   const kinds = request.kind === undefined ? cardKinds() : [request.kind];
@@ -176,7 +176,7 @@ export async function readCard(request: CardsReadRequest): Promise<CardsReadResu
 }
 
 export async function proposeCards(request: CardsProposeRequest): Promise<CardsProposeResult> {
-  await requireAnyCapability(request.workspacePath, request.actor, CARD_PROPOSE_CAPABILITIES);
+  await requireAnyCapability(request.workspacePath, request.actor, [CARD_PROPOSE_CAPABILITY]);
   const contextPack =
     request.contextPackPath === undefined
       ? null
@@ -216,7 +216,8 @@ export async function proposeCards(request: CardsProposeRequest): Promise<CardsP
     path: outputPath,
     content: serialized,
     actor: request.actor,
-    reason: request.reason ?? "cards propose"
+    reason: request.reason ?? "cards propose",
+    authorizedCapability: CARD_PROPOSE_CAPABILITY
   });
   return {
     proposalPath: write.path,
@@ -263,7 +264,7 @@ export async function validateCardProposal(
 }
 
 export async function applyCardProposal(request: CardsApplyRequest): Promise<CardsApplyResult> {
-  await requireAnyCapability(request.workspacePath, request.actor, CARD_APPLY_CAPABILITIES);
+  await requireAnyCapability(request.workspacePath, request.actor, [CARD_APPLY_CAPABILITY]);
   const validation = await validateCardProposal({
     workspacePath: request.workspacePath,
     proposalPath: request.proposalPath
@@ -288,7 +289,8 @@ export async function applyCardProposal(request: CardsApplyRequest): Promise<Car
       path: card.targetPath,
       content: card.content,
       actor: request.actor,
-      reason: request.reason ?? `cards apply ${request.proposalPath}`
+      reason: request.reason ?? `cards apply ${request.proposalPath}`,
+      authorizedCapability: CARD_APPLY_CAPABILITY
     });
     applied.push({ ...summarizeWrite(write), kind: card.kind, title: card.title });
   }

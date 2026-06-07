@@ -43,9 +43,13 @@ export type WorkspaceFileWriteRequest = {
   readonly expectedBaseHash?: string;
   readonly reason?: string;
   readonly auditAction?: WorkspaceFileAuditAction;
+  readonly authorizedCapability?: string;
 };
 
-export type WorkspaceFileAppendRequest = Omit<WorkspaceFileWriteRequest, "auditAction">;
+export type WorkspaceFileAppendRequest = Omit<
+  WorkspaceFileWriteRequest,
+  "auditAction" | "authorizedCapability"
+>;
 
 export type WorkspaceFilePatchReplacement = {
   readonly oldText: string;
@@ -364,7 +368,7 @@ export async function writeWorkspaceFile(
   const normalizedPath = normalizeWorkspacePath(resolved.relativePath);
   const protectedTarget = isProtectedWorkspacePath(normalizedPath);
   const manifest = await readCapabilityManifest(resolved.root);
-  requireWriteCapability(manifest, request.actor, protectedTarget);
+  requireWriteCapability(manifest, request.actor, protectedTarget, request.authorizedCapability);
 
   await assertNoSymlinkInWorkspacePath(
     resolved.root,
@@ -412,7 +416,13 @@ export async function writeWorkspaceFile(
     expectedBaseHash: request.expectedBaseHash ?? null,
     protectedTarget,
     bytes: Buffer.byteLength(request.content, "utf8"),
-    action: request.auditAction ?? "file.write"
+    action: request.auditAction ?? "file.write",
+    capability: resolveWriteCapability(
+      manifest,
+      request.actor,
+      protectedTarget,
+      request.authorizedCapability
+    )
   });
 
   return {
@@ -503,14 +513,15 @@ function applyWorkspaceTextPatch(
 function requireWriteCapability(
   manifest: CapabilityManifest,
   actor: string,
-  protectedTarget: boolean
+  protectedTarget: boolean,
+  authorizedCapability?: string
 ): void {
   if (protectedTarget) {
     requireCapability(manifest, actor, PROTECTED_WRITE_CAPABILITY);
     return;
   }
 
-  if (!actorCanWrite(manifest, actor, protectedTarget)) {
+  if (resolveWriteCapability(manifest, actor, protectedTarget, authorizedCapability) === null) {
     throw new CommandFailure(
       "capability_denied",
       `Actor '${actor}' does not have required capability 'files.write' or 'project.manage'.`,
@@ -519,15 +530,38 @@ function requireWriteCapability(
   }
 }
 
+function resolveWriteCapability(
+  manifest: CapabilityManifest,
+  actor: string,
+  protectedTarget: boolean,
+  authorizedCapability?: string
+): string | null {
+  if (protectedTarget) {
+    return actorHasCapability(manifest, actor, PROTECTED_WRITE_CAPABILITY)
+      ? PROTECTED_WRITE_CAPABILITY
+      : null;
+  }
+
+  if (
+    authorizedCapability !== undefined &&
+    actorHasCapability(manifest, actor, authorizedCapability)
+  ) {
+    return authorizedCapability;
+  }
+
+  return (
+    NORMAL_WRITE_CAPABILITIES.find((capability) =>
+      actorHasCapability(manifest, actor, capability)
+    ) ?? null
+  );
+}
+
 function actorCanWrite(
   manifest: CapabilityManifest,
   actor: string,
   protectedTarget: boolean
 ): boolean {
-  if (protectedTarget) return actorHasCapability(manifest, actor, PROTECTED_WRITE_CAPABILITY);
-  return NORMAL_WRITE_CAPABILITIES.some((capability) =>
-    actorHasCapability(manifest, actor, capability)
-  );
+  return resolveWriteCapability(manifest, actor, protectedTarget) !== null;
 }
 
 function requiredWriteCapabilities(protectedTarget: boolean): readonly string[] {
@@ -700,6 +734,7 @@ type AuditLogEntry = {
   readonly protectedTarget: boolean;
   readonly bytes: number;
   readonly action: WorkspaceFileAuditAction;
+  readonly capability: string | null;
 };
 
 async function appendFileAuditLog(entry: AuditLogEntry): Promise<string> {
@@ -718,7 +753,8 @@ async function appendFileAuditLog(entry: AuditLogEntry): Promise<string> {
     previousHash: entry.previousHash,
     expectedBaseHash: entry.expectedBaseHash,
     protected: entry.protectedTarget,
-    bytes: entry.bytes
+    bytes: entry.bytes,
+    capability: entry.capability
   } as const;
   await writeFile(auditPath, `${JSON.stringify(payload)}\n`, { encoding: "utf8", flag: "a" });
   return relativeAuditPath;

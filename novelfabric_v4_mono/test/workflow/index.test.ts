@@ -101,7 +101,7 @@ describe("workflow acceptance state machine", () => {
     await fs.cp(VALID_FIXTURE, workspacePath, { recursive: true });
     await fs.writeFile(
       path.join(workspacePath, ".novelfabric", "capabilities.toml"),
-      '[main_agent]\nallow = ["project.manage", "files.patch_protected", "external_swarm.run"]\n',
+      '[main_agent]\nallow = ["project.manage", "files.patch_protected", "external_swarm.run", "cards.propose", "cards.apply"]\n',
       "utf8"
     );
     await writeWorkspaceFile({

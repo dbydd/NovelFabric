@@ -37,6 +37,11 @@ describe("NovelFabric web-safe SDK custom tools", () => {
   beforeEach(async () => {
     workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-web-safe-tools-"));
     await fs.cp(VALID_FIXTURE, workspacePath, { recursive: true });
+    await fs.writeFile(
+      path.join(workspacePath, ".novelfabric", "capabilities.toml"),
+      '[main_agent]\nallow = ["project.manage", "report.render", "knowledge.query", "cards.propose", "cards.apply"]\n',
+      "utf8"
+    );
   });
 
   afterEach(async () => {
