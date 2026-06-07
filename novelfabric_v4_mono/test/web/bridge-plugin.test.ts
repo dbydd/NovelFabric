@@ -7,6 +7,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { PiSdkAgentSessionModule } from "../../src/agent-runtime/pi-adapter.js";
+import { clearAgentTaskRunStateForTesting } from "../../src/agent-runtime/task-runner.js";
 import {
   createAgentTask,
   setAgentTaskPiSdkModuleForTesting
@@ -45,6 +46,7 @@ const ORIGINAL_ENV = { ...process.env };
 
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
+  clearAgentTaskRunStateForTesting();
 });
 
 describe("NovelFabric web bridge agent task routes", () => {
@@ -219,14 +221,14 @@ describe("NovelFabric web bridge agent task routes", () => {
     }
   });
 
-  it("runs web tasks through the shared pi-sdk service and returns a sanitized success summary", async () => {
+  it("starts web tasks asynchronously through the shared pi-sdk service and returns a sanitized running summary", async () => {
     const workspacePath = await tempWorkspace();
     configureBridge({ workspacePath, actor: "main_agent" });
     await writeTestRuntimeSettings(workspacePath);
     const secretModelOutput =
       '{"kind":"novelfabric.web.run-output","version":1,"summary":"secret raw model output should stay in result.json"}';
     const restoreSdkModule = setAgentTaskPiSdkModuleForTesting(
-      fakePiSdkModuleForWebTest({ outputText: secretModelOutput })
+      fakePiSdkModuleForWebTest({ outputText: secretModelOutput, delayMs: 25 })
     );
     try {
       await createAgentTask({
@@ -252,23 +254,39 @@ describe("NovelFabric web bridge agent task routes", () => {
         task: "web-run-task"
       });
 
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(202);
       expect(response.body.ok).toBe(true);
       if (response.body.ok) {
         expect(response.body.data).toMatchObject({
           taskId: "web-run-task",
-          status: "completed",
-          resultAvailable: true,
-          eventsAvailable: true,
-          writeCount: 2
-        });
-        expect(response.body.data["runtimeEvidence"]).toMatchObject({
-          engine: "sdk",
-          toolPolicy: "sdk-web-safe-custom-tools",
-          sessionPolicy: "workspace-session-dir"
+          status: "running",
+          eventStreamAvailable: true
         });
         expectNoInternalTaskPaths(response.body.data, workspacePath);
       }
+
+      const immediateStatus = await postBridge("/api/bridge/agent/tasks/status", {
+        workspacePath,
+        actor: "main_agent",
+        task: "web-run-task"
+      });
+      expect(immediateStatus.status).toBe(200);
+      expect(immediateStatus.body.ok).toBe(true);
+      if (immediateStatus.body.ok) {
+        expect(immediateStatus.body.data).toMatchObject({
+          taskId: "web-run-task",
+          status: "running",
+          resultAvailable: false
+        });
+        expectNoInternalTaskPaths(immediateStatus.body.data, workspacePath);
+      }
+
+      const pendingResultFile = await fs.readFile(
+        path.join(workspacePath, ".novelfabric", "tasks", "web-run-task", "result.json"),
+        "utf8"
+      );
+      expect(pendingResultFile).toContain('"status": "pending-pi-runtime"');
+
       const serialized = JSON.stringify(response.body);
       expect(serialized).not.toContain("secret raw model output");
       expect(serialized).not.toContain("rawText");
@@ -277,6 +295,23 @@ describe("NovelFabric web bridge agent task routes", () => {
       expect(serialized).not.toContain("/tmp/novelfabric-sdk-web-session.jsonl");
       expect(serialized).not.toContain(workspacePath);
 
+      const status = await waitForBridgeTaskStatus(workspacePath, "web-run-task", "completed");
+      expect(status.body.ok).toBe(true);
+      if (status.body.ok) {
+        expect(status.body.data).toMatchObject({
+          taskId: "web-run-task",
+          status: "completed",
+          resultAvailable: true,
+          eventsAvailable: true
+        });
+        expect(status.body.data["runtimeEvidence"]).toMatchObject({
+          engine: "sdk",
+          toolPolicy: "sdk-web-safe-custom-tools",
+          sessionPolicy: "workspace-session-dir"
+        });
+        expectNoInternalTaskPaths(status.body.data, workspacePath);
+      }
+
       const resultFile = await fs.readFile(
         path.join(workspacePath, ".novelfabric", "tasks", "web-run-task", "result.json"),
         "utf8"
@@ -284,6 +319,137 @@ describe("NovelFabric web bridge agent task routes", () => {
       expect(resultFile).toContain("secret raw model output");
     } finally {
       restoreSdkModule();
+    }
+  });
+
+  it("prefers durable terminal status over an in-memory active run", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    await writeTestRuntimeSettings(workspacePath);
+    const restoreSdkModule = setAgentTaskPiSdkModuleForTesting(
+      fakePiSdkModuleForWebTest({
+        outputText:
+          '{"kind":"novelfabric.web.durable-terminal-output","version":1,"summary":"durable terminal output"}',
+        delayMs: 80
+      })
+    );
+    try {
+      await createAgentTask({
+        workspacePath,
+        actor: "main_agent",
+        title: "Durable terminal status task",
+        instruction: "Return durable terminal JSON.",
+        taskId: "durable-terminal-status-task",
+        outputSchemaJson: JSON.stringify({ type: "object" })
+      });
+
+      const run = await postBridge("/api/bridge/agent/tasks/run", {
+        workspacePath,
+        actor: "main_agent",
+        task: "durable-terminal-status-task"
+      });
+      expect(run.status).toBe(202);
+      await writeSyntheticCompletedResult(workspacePath, "durable-terminal-status-task");
+
+      const status = await postBridge("/api/bridge/agent/tasks/status", {
+        workspacePath,
+        actor: "main_agent",
+        task: "durable-terminal-status-task"
+      });
+      expect(status.status).toBe(200);
+      expect(status.body.ok).toBe(true);
+      if (status.body.ok) {
+        expect(status.body.data).toMatchObject({
+          taskId: "durable-terminal-status-task",
+          status: "completed",
+          resultAvailable: true
+        });
+        expect(status.body.data["runState"]).toMatchObject({ status: "running" });
+        expectNoInternalTaskPaths(status.body.data, workspacePath);
+      }
+
+      await waitForBridgeTaskStatus(workspacePath, "durable-terminal-status-task", "completed");
+    } finally {
+      restoreSdkModule();
+    }
+  });
+
+  it("rejects duplicate active web task runs", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    await writeTestRuntimeSettings(workspacePath);
+    const restoreSdkModule = setAgentTaskPiSdkModuleForTesting(
+      fakePiSdkModuleForWebTest({
+        outputText:
+          '{"kind":"novelfabric.web.duplicate-run-output","version":1,"summary":"duplicate active run output"}',
+        delayMs: 80
+      })
+    );
+    try {
+      await createAgentTask({
+        workspacePath,
+        actor: "main_agent",
+        title: "Duplicate run task",
+        instruction: "Return duplicate run JSON.",
+        taskId: "duplicate-run-task",
+        outputSchemaJson: JSON.stringify({ type: "object" })
+      });
+
+      const [left, right] = await Promise.all([
+        postBridge("/api/bridge/agent/tasks/run", {
+          workspacePath,
+          actor: "main_agent",
+          task: "duplicate-run-task"
+        }),
+        postBridge("/api/bridge/agent/tasks/run", {
+          workspacePath,
+          actor: "main_agent",
+          task: "duplicate-run-task"
+        })
+      ]);
+      const responses = [left, right] as const;
+      expect(responses.filter((response) => response.status === 202)).toHaveLength(1);
+      expect(responses.filter((response) => response.status === 409)).toHaveLength(1);
+      const duplicate = responses.find((response) => response.status === 409);
+      expect(duplicate).toBeDefined();
+      if (duplicate !== undefined) {
+        expect(duplicate.body.ok).toBe(false);
+        if (!duplicate.body.ok) {
+          expect(duplicate.body.error.code).toBe("bridge_agent_task_already_running");
+          expectNoInternalTaskPaths(duplicate.body.error, workspacePath);
+        }
+      }
+
+      await waitForBridgeTaskStatus(workspacePath, "duplicate-run-task", "completed");
+    } finally {
+      restoreSdkModule();
+    }
+  });
+
+  it("rejects starting completed web tasks again and leaves retry as the lifecycle path", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    await createAgentTask({
+      workspacePath,
+      actor: "main_agent",
+      title: "Completed run guard task",
+      instruction: "Return JSON.",
+      taskId: "completed-run-guard-task",
+      outputSchemaJson: JSON.stringify({ type: "object" })
+    });
+    await writeSyntheticCompletedResult(workspacePath, "completed-run-guard-task");
+
+    const response = await postBridge("/api/bridge/agent/tasks/run", {
+      workspacePath,
+      actor: "main_agent",
+      task: "completed-run-guard-task"
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body.ok).toBe(false);
+    if (!response.body.ok) {
+      expect(response.body.error.code).toBe("bridge_agent_task_already_completed");
+      expectNoInternalTaskPaths(response.body.error, workspacePath);
     }
   });
 
@@ -613,7 +779,8 @@ describe("NovelFabric web bridge agent task routes", () => {
         actor: "main_agent",
         task: "stream-structured-task"
       });
-      expect(run.status).toBe(200);
+      expect(run.status).toBe(202);
+      await waitForBridgeTaskStatus(workspacePath, "stream-structured-task", "completed");
 
       const stream = await postBridgeText("/api/bridge/agent/tasks/stream", {
         workspacePath,
@@ -700,9 +867,35 @@ describe("NovelFabric web bridge agent task routes", () => {
         task: "failing-web-task"
       });
 
-      expect(response.status).toBeGreaterThanOrEqual(400);
-      expect(response.body.ok).toBe(false);
-      const serializedResponse = JSON.stringify(response.body);
+      expect(response.status).toBe(202);
+      expect(response.body.ok).toBe(true);
+      if (response.body.ok) {
+        expect(response.body.data).toMatchObject({
+          taskId: "failing-web-task",
+          status: "running",
+          eventStreamAvailable: true
+        });
+        expectNoInternalTaskPaths(response.body.data, workspacePath);
+      }
+      const failedStatus = await waitForBridgeTaskStatus(
+        workspacePath,
+        "failing-web-task",
+        "failed"
+      );
+      expect(failedStatus.body.ok).toBe(true);
+      if (failedStatus.body.ok) {
+        expect(failedStatus.body.data).toMatchObject({
+          taskId: "failing-web-task",
+          status: "failed",
+          resultAvailable: true,
+          eventsAvailable: true
+        });
+        expectNoInternalTaskPaths(failedStatus.body.data, workspacePath);
+      }
+      const serializedResponse = JSON.stringify({
+        response: response.body,
+        failedStatus: failedStatus.body
+      });
       expect(serializedResponse).not.toContain(workspacePath);
       expect(serializedResponse).not.toContain(".novelfabric/tasks/failing-web-task/result.json");
       expect(serializedResponse).not.toContain("/tmp/novelfabric-failing-session.jsonl");
@@ -916,6 +1109,29 @@ describe("NovelFabric web bridge runtime session prepare route", () => {
 
 function sha256(content: string): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+async function waitForBridgeTaskStatus(
+  workspacePath: string,
+  taskId: string,
+  expectedStatus: string,
+  timeoutMs = 3000
+): Promise<{ readonly status: number; readonly body: GenericBridgeEnvelope }> {
+  const started = Date.now();
+  let last: { readonly status: number; readonly body: GenericBridgeEnvelope } | undefined;
+  while (Date.now() - started < timeoutMs) {
+    last = await postBridge("/api/bridge/agent/tasks/status", {
+      workspacePath,
+      actor: "main_agent",
+      task: taskId
+    });
+    if (last.body.ok && last.body.data["status"] === expectedStatus) {
+      return last;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  if (last !== undefined) return last;
+  throw new Error(`Timed out waiting for ${taskId} to reach ${expectedStatus}.`);
 }
 
 function parseStreamFrame(body: string, eventName: string): GenericBridgeEnvelope {
@@ -1211,6 +1427,7 @@ function fakeFailingPiSdkModuleForWebTest(errorMessage: string): PiSdkAgentSessi
 function fakePiSdkModuleForWebTest(input: {
   readonly outputText: string;
   readonly eventsBeforeOutput?: readonly Record<string, unknown>[];
+  readonly delayMs?: number;
 }): PiSdkAgentSessionModule {
   let emit: (event: unknown) => void = () => undefined;
   return {
@@ -1224,12 +1441,14 @@ function fakePiSdkModuleForWebTest(input: {
             emit = listener;
             return () => undefined;
           },
-          prompt() {
+          async prompt() {
+            if (input.delayMs !== undefined && input.delayMs > 0) {
+              await new Promise((resolve) => setTimeout(resolve, input.delayMs));
+            }
             for (const event of input.eventsBeforeOutput ?? []) {
               emit(event);
             }
             emit({ type: "model_output", text: input.outputText });
-            return Promise.resolve();
           },
           dispose() {
             return undefined;

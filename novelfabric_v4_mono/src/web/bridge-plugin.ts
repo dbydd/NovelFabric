@@ -9,15 +9,19 @@ import {
   createAgentTask,
   getAgentTaskStatus,
   inspectAgentTask,
-  runAgentTask,
   type AgentTaskAbortResult,
   type AgentTaskCreateResult,
   type AgentTaskEvent,
   type AgentTaskInspectResult,
-  type AgentTaskRunResult,
   type AgentTaskRuntimeEvidence,
+  type PiSdkAvailability,
   type AgentTaskStatusResult
 } from "../agent-runtime/tasks.js";
+import {
+  getAgentTaskRunState,
+  startAgentTaskRun,
+  type AgentTaskRunState
+} from "../agent-runtime/task-runner.js";
 import {
   buildWebSafePiSessionOptions,
   inspectPiSdkAvailability
@@ -233,17 +237,16 @@ export async function handleBridgeRequest(
         );
       }
       assertBridgeAgentTaskIdSafe(body.task);
-      const result = await runAgentTask({
+      const runState = await startAgentTaskRun({
         workspacePath,
         actor: body.actor,
         task: body.task,
         runtime: "pi-sdk",
         ...(body.reason === undefined ? {} : { reason: body.reason })
       });
-      const inspected = await inspectAgentTask({ workspacePath, task: result.taskId });
-      writeJson(response, 200, {
+      writeJson(response, 202, {
         ok: true,
-        data: summarizeAgentTaskRunResult(result, inspected)
+        data: summarizeAgentTaskAsyncRunResult(runState)
       });
       return;
     }
@@ -257,9 +260,10 @@ export async function handleBridgeRequest(
         getAgentTaskStatus({ workspacePath, task: body.task }),
         inspectAgentTask({ workspacePath, task: body.task })
       ]);
+      const runState = getAgentTaskRunState(body.task, workspacePath);
       writeJson(response, 200, {
         ok: true,
-        data: summarizeAgentTaskStatusResult(status, inspected)
+        data: summarizeAgentTaskStatusResult(status, inspected, runState)
       });
       return;
     }
@@ -387,34 +391,24 @@ function summarizeAgentTaskCreateResult(result: AgentTaskCreateResult): {
   };
 }
 
-function summarizeAgentTaskRunResult(
-  result: AgentTaskRunResult,
-  inspected: AgentTaskInspectResult
-): {
+function summarizeAgentTaskAsyncRunResult(state: AgentTaskRunState): {
   readonly taskId: string;
-  readonly status: string;
-  readonly piSdk: ReturnType<typeof summarizePiSdkAvailability>;
-  readonly runtimeEvidence: ReturnType<typeof summarizeRuntimeEvidence>;
-  readonly eventCount: number;
-  readonly writeCount: number;
-  readonly resultAvailable: boolean;
-  readonly eventsAvailable: boolean;
+  readonly status: "running";
+  readonly eventStreamAvailable: true;
+  readonly runStartedAt: string;
 } {
   return {
-    taskId: result.taskId,
-    status: result.status,
-    piSdk: summarizePiSdkAvailability(result.piSdk),
-    runtimeEvidence: summarizeRuntimeEvidence(inspected.result.runtimeEvidence),
-    eventCount: inspected.events.length,
-    writeCount: result.writes.length,
-    resultAvailable: inspected.result.status !== "pending-pi-runtime",
-    eventsAvailable: inspected.events.length > 0
+    taskId: state.taskId,
+    status: "running",
+    eventStreamAvailable: true,
+    runStartedAt: state.startedAt
   };
 }
 
 function summarizeAgentTaskStatusResult(
   status: AgentTaskStatusResult,
-  inspected: AgentTaskInspectResult
+  inspected: AgentTaskInspectResult,
+  runState: AgentTaskRunState | undefined
 ): {
   readonly taskId: string;
   readonly status: string;
@@ -424,17 +418,38 @@ function summarizeAgentTaskStatusResult(
   readonly runtimeEvidence: ReturnType<typeof summarizeRuntimeEvidence>;
   readonly resultAvailable: boolean;
   readonly eventsAvailable: boolean;
+  readonly runState?: {
+    readonly status: AgentTaskRunState["status"];
+    readonly startedAt: string;
+    readonly updatedAt: string;
+    readonly errorCode?: string;
+  };
 } {
+  const durableTerminal = isTerminalAgentTaskStatus(inspected.result.status);
   return {
     taskId: status.taskId,
-    status: status.status,
+    status: !durableTerminal && runState?.status === "running" ? "running" : status.status,
     updatedAt: status.updatedAt,
     piSdk: summarizePiSdkAvailability(status.piSdk),
     eventCount: status.eventCount,
     runtimeEvidence: summarizeRuntimeEvidence(inspected.result.runtimeEvidence),
     resultAvailable: inspected.result.status !== "pending-pi-runtime",
-    eventsAvailable: inspected.events.length > 0
+    eventsAvailable: inspected.events.length > 0,
+    ...(runState === undefined
+      ? {}
+      : {
+          runState: {
+            status: runState.status,
+            startedAt: runState.startedAt,
+            updatedAt: runState.updatedAt,
+            ...(runState.errorCode === undefined ? {} : { errorCode: runState.errorCode })
+          }
+        })
   };
+}
+
+function isTerminalAgentTaskStatus(status: string): boolean {
+  return status === "completed" || status === "failed" || status === "aborted";
 }
 
 function summarizeAgentTaskEventsResult(
@@ -537,7 +552,7 @@ function writeAgentTaskEventStream(
   response.end(frames.join(""));
 }
 
-function summarizePiSdkAvailability(piSdk: AgentTaskRunResult["piSdk"]): {
+function summarizePiSdkAvailability(piSdk: PiSdkAvailability): {
   readonly adapter: string;
   readonly available: boolean;
 } {
@@ -600,10 +615,6 @@ function summarizeAgentTaskEvent(event: AgentTaskEvent): {
     ...(event.terminal === undefined ? {} : { terminal: event.terminal }),
     ...(event.sequence === undefined ? {} : { sequence: event.sequence })
   };
-}
-
-function isTerminalAgentTaskStatus(status: string): boolean {
-  return status === "completed" || status === "aborted" || status === "failed";
 }
 
 function bridgeWorkspacePath(): string {
