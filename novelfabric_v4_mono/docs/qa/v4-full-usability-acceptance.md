@@ -40,11 +40,12 @@ Current strengths:
 
 Current non-negotiable gaps, in next-iteration order:
 
-1. **Web-safe runtime extensions and Web bridge orchestration** — `agent run --runtime pi` launches the NovelFabric-owned pi CLI with `generic-writer`; `agent run --runtime pi-sdk` is an opt-in SDK AgentSession path covered by hard acceptance. Web runtime sessions still need NovelFabric-controlled SDK extensions/tools, event stream, runtime trace, bridge lifecycle controls, and enforced Web-safe tool policy.
-2. **Web full workflow binding** — Web workflow controls are not yet bound to upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through the full workflow/agent runtime path.
-3. **Semantic import/materialization** — deterministic import exists, but source text still needs pi-backed chapter/card/world/rule/timeline/memory/context-pack generation with content-quality validation.
-4. **External swarm REST/MCP adapters** — adapters still need to call the shared external-swarm service and pass golden fixture tests for the frozen compatibility contract.
-5. **Domain-specific capabilities** — cards/memory/swarm/report/writing commands still need tighter domain capabilities beyond broad project/file write capabilities.
+1. **Web-safe mutation tools** — read-only Web-safe SDK tools are archived, but Web sessions still need mutation tools such as `novelfabric_write_file`, `novelfabric_apply_proposal`, and domain artifact apply tools with namespace, capability, base-hash, protected-path, and audit enforcement.
+2. **Web runtime event stream and lifecycle orchestration** — bridge runtime routes still need browser-visible start/status/stream/cancel/retry lifecycle behavior, bounded/redacted event traces, denial events, and stable evidence envelopes.
+3. **Web full workflow binding** — Web workflow controls are not yet bound to upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through the full workflow/agent runtime path.
+4. **Semantic import/materialization** — deterministic import exists, but source text still needs pi-backed chapter/card/world/rule/timeline/memory/context-pack generation with content-quality validation.
+5. **External swarm REST/MCP adapters** — adapters still need to call the shared external-swarm service and pass golden fixture tests for the frozen compatibility contract.
+6. **Domain-specific capabilities** — cards/memory/swarm/report/writing commands still need tighter domain capabilities beyond broad project/file write capabilities.
 
 ## 3. Test Layers
 
@@ -52,19 +53,27 @@ Current non-negotiable gaps, in next-iteration order:
 
 The next iteration is not accepted until these tests exist and pass for each implemented gap:
 
-Completed domain artifact materialization tests are archived in `../architecture/archive/v4-domain-artifact-materialization-archive.md`; completed opt-in SDK AgentSession execution is archived in `../architecture/archive/v4-sdk-agent-session-opt-in-archive.md`. The active gap-specific gates begin at Web-safe runtime orchestration.
+Completed domain artifact materialization tests are archived in `../architecture/archive/v4-domain-artifact-materialization-archive.md`; completed opt-in SDK AgentSession execution is archived in `../architecture/archive/v4-sdk-agent-session-opt-in-archive.md`; completed Web-safe read-only SDK tools foundation is archived in `../architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`. The active gap-specific gates begin at Web-safe mutation tools and Web runtime event orchestration.
 
-#### Gap 1 — Web-Safe Runtime Extensions And Web Bridge Session Orchestration
+#### Gap 1 — Web-Safe Mutation Tools
 
 Required tests:
 
-- runtime service test instantiates the SDK bridge with a temp NovelFabric config root and NovelFabric extension set;
-- extension/tool tests prove NovelFabric SDK tools route reads/writes/context/validate/apply/report through CLI/shared services rather than raw filesystem mutation;
-- event-stream test asserts stable browser-visible event types for session started, model output, tool request/denial, validation, completion, cancellation, retry, and failure;
-- policy tests prove Web sessions deny raw `bash`, raw `write`, raw `edit`, arbitrary network, and arbitrary paths;
-- bridge lifecycle tests prove start/status/stream/cancel/retry cleanup semantics and comparable task evidence envelopes.
+- tool tests prove `novelfabric_write_file` writes only allowed namespaces through shared workspace services, never raw filesystem mutation;
+- apply-tool tests prove proposal/domain artifact apply routes through validators, base-hash checks, capability checks, protected-path policy, atomic write, and audit JSONL;
+- negative tests cover path traversal, wrong namespace, protected path, stale hash, unauthorized actor, invalid proposal/domain schema, and missing audit evidence;
+- SDK session tests prove raw builtin write/edit/bash remain denied while only NovelFabric mutation tools are exposed.
 
-#### Gap 2 — Web Full Workflow Binding
+#### Gap 2 — Web Runtime Event Stream And Lifecycle Orchestration
+
+Required tests:
+
+- bridge lifecycle tests prove start/status/stream/cancel/retry semantics and cleanup for completed, failed, cancelled, and retried sessions;
+- event-stream tests assert stable browser-visible event types for session started, model output, tool request/denial, validation, completion, cancellation, retry, and failure;
+- sanitization tests prove event payloads expose bounded/redacted summaries only, with no internal paths, prompt files, session files, raw secrets, or unbounded model output;
+- policy tests prove Web sessions deny raw `bash`, raw `write`, raw `edit`, arbitrary network, and arbitrary paths.
+
+#### Gap 3 — Web Full Workflow Binding
 
 Required tests:
 
@@ -72,7 +81,7 @@ Required tests:
 - user flow covers upload/import, semantic assets, context/RAG, StorySwarm, ReportAgent, chapter generation, editor review, and save;
 - assertions inspect visible runtime evidence, final domain artifacts, editor content, and audit records.
 
-#### Gap 3 — Semantic Import / Materialization
+#### Gap 4 — Semantic Import / Materialization
 
 Required tests:
 
@@ -81,7 +90,7 @@ Required tests:
 - invalid or low-quality pi output fails validation and leaves source files intact;
 - apply is reversible or conflict-safe through base hashes and audit.
 
-#### Gap 4 — External Swarm REST/MCP Adapters
+#### Gap 5 — External Swarm REST/MCP Adapters
 
 Required tests:
 
@@ -89,7 +98,7 @@ Required tests:
 - MCP golden tests for `tools/list` and `tools/call` on `external_swarm_infer`, `external_swarm_require_context`, and `external_swarm_get`;
 - idempotency, artifact path semantics, `structuredContent`, and additive-field compatibility are asserted.
 
-#### Gap 5 — Domain-Specific Capabilities
+#### Gap 6 — Domain-Specific Capabilities
 
 Required tests:
 

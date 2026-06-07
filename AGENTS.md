@@ -68,21 +68,25 @@ V4 的方向不是继续扩大旧后端 agent runtime，而是：
 
 #### 当前 V4 handoff gap（下一轮迭代入口）
 
-已完成的 pi-backed semantic evidence loop、domain artifact materialization 与 opt-in SDK AgentSession execution 已归档到：
+已完成的 pi-backed semantic evidence loop、domain artifact materialization、opt-in SDK AgentSession execution 与 Web-safe read-only SDK tools foundation 已归档到：
 
 - `novelfabric_v4_mono/docs/architecture/archive/v4-pi-evidence-loop-archive.md`
 - `novelfabric_v4_mono/docs/architecture/archive/v4-domain-artifact-materialization-archive.md`
 - `novelfabric_v4_mono/docs/architecture/archive/v4-sdk-agent-session-opt-in-archive.md`
+- `novelfabric_v4_mono/docs/architecture/archive/v4-web-safe-sdk-tools-foundation-archive.md`
 
 active handoff 不再堆叠已完成细节，下一轮只聚焦未完成 gap。
 
 下一轮优先 gap：
 
-1. 基于 opt-in `agent run --runtime pi-sdk` 路径，补齐 Web-safe runtime extensions、NovelFabric SDK tools、event stream、Web bridge session lifecycle 与 Web-safe tool policy。
-2. 打通 Web 全流程：上传/导入原文 → semantic 拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save。
-3. 实现 semantic import/materialization：原文通过 pi 生成章节、角色/世界/规则卡、timeline、memory、context pack，并做内容质量校验。
-4. 落 frozen external swarm REST/MCP adapters 与 golden tests。
-5. 收紧 cards/memory/swarm/report/writing 的 domain-specific capabilities，避免用 broad file/project 权限代替业务授权。
+1. 补齐 Web-safe mutation tools：`novelfabric_write_file`、`novelfabric_apply_proposal`、domain artifact apply，必须有 namespace restriction、actor/capability、base-hash conflict、protected-path denial 与 audit JSONL。
+2. 补齐 Web runtime event stream 与 lifecycle orchestration：browser-visible start/status/stream/cancel/retry、bounded/redacted runtime events、denial trace 与稳定 evidence envelope。
+3. 打通 Web 全流程：上传/导入原文 → semantic 拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save。
+4. 实现 semantic import/materialization：原文通过 pi 生成章节、角色/世界/规则卡、timeline、memory、context pack，并做内容质量校验。
+5. 落 frozen external swarm REST/MCP adapters 与 golden tests。
+6. 收紧 cards/memory/swarm/report/writing 的 domain-specific capabilities，避免用 broad file/project 权限代替业务授权。
+
+完整产品/业务闭环仍未完成；full-usability pending contracts 必须保持打开，直到 Web-controlled acceptance 真正端到端通过。
 
 详细测试标准见 `novelfabric_v4_mono/docs/architecture/v4-cli-workspace-harness-plan.md` 与 `novelfabric_v4_mono/docs/qa/v4-full-usability-acceptance.md`。
 
