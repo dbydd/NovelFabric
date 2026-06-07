@@ -5,6 +5,18 @@ import type { Plugin } from "vite";
 import { z } from "zod";
 
 import {
+  createAgentTask,
+  getAgentTaskStatus,
+  inspectAgentTask,
+  runAgentTask,
+  type AgentTaskCreateResult,
+  type AgentTaskEvent,
+  type AgentTaskInspectResult,
+  type AgentTaskRunResult,
+  type AgentTaskRuntimeEvidence,
+  type AgentTaskStatusResult
+} from "../agent-runtime/tasks.js";
+import {
   buildWebSafePiSessionOptions,
   inspectPiSdkAvailability
 } from "../agent-runtime/pi-adapter.js";
@@ -30,6 +42,33 @@ const runtimeSessionPrepareRequestSchema = z.object({
   workspacePath: z.string().min(1),
   actor: z.string().min(1),
   requestedTools: z.array(z.string().min(1)).optional()
+});
+
+const agentTaskCreateRequestSchema = z.object({
+  workspacePath: z.string().min(1),
+  actor: z.string().min(1),
+  title: z.string().min(1),
+  instruction: z.string().min(1),
+  taskId: z.string().min(1).optional(),
+  inputJson: z.string().min(1).optional(),
+  contextPackPath: z.string().min(1).optional(),
+  outputSchemaJson: z.string().min(1).optional(),
+  allowedCommands: z.array(z.string().min(1)).optional(),
+  reason: z.string().min(1).optional()
+});
+
+const agentTaskRunRequestSchema = z.object({
+  workspacePath: z.string().min(1),
+  actor: z.string().min(1),
+  task: z.string().min(1),
+  runtime: z.string().min(1).optional(),
+  reason: z.string().min(1).optional()
+});
+
+const agentTaskReadRequestSchema = z.object({
+  workspacePath: z.string().min(1),
+  actor: z.string().min(1),
+  task: z.string().min(1)
 });
 
 export function novelFabricBridgePlugin(): Plugin {
@@ -139,6 +178,95 @@ export async function handleBridgeRequest(
       return;
     }
 
+    if (request.method === "POST" && routePath === "/api/bridge/agent/tasks/create") {
+      const body = agentTaskCreateRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      if (body.allowedCommands !== undefined) {
+        throw new CommandFailure(
+          "bridge_agent_allowed_commands_forbidden",
+          "Web bridge agent tasks must use the NovelFabric web-safe command policy; client-supplied allowedCommands are not accepted.",
+          403
+        );
+      }
+      if (body.taskId !== undefined) {
+        assertBridgeAgentTaskIdSafe(body.taskId);
+      }
+      const result = await createAgentTask({
+        workspacePath,
+        actor: body.actor,
+        title: body.title,
+        instruction: body.instruction,
+        ...(body.taskId === undefined ? {} : { taskId: body.taskId }),
+        ...(body.inputJson === undefined ? {} : { inputJson: body.inputJson }),
+        ...(body.contextPackPath === undefined ? {} : { contextPackPath: body.contextPackPath }),
+        ...(body.outputSchemaJson === undefined ? {} : { outputSchemaJson: body.outputSchemaJson }),
+        ...(body.reason === undefined ? {} : { reason: body.reason })
+      });
+      writeJson(response, 200, {
+        ok: true,
+        data: summarizeAgentTaskCreateResult(result)
+      });
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/api/bridge/agent/tasks/run") {
+      const body = agentTaskRunRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      const runtime = body.runtime ?? "pi-sdk";
+      if (runtime !== "pi-sdk") {
+        throw new CommandFailure(
+          "bridge_agent_runtime_forbidden",
+          "Web bridge agent tasks may only run through the pi-sdk runtime.",
+          403
+        );
+      }
+      assertBridgeAgentTaskIdSafe(body.task);
+      const result = await runAgentTask({
+        workspacePath,
+        actor: body.actor,
+        task: body.task,
+        runtime: "pi-sdk",
+        ...(body.reason === undefined ? {} : { reason: body.reason })
+      });
+      const inspected = await inspectAgentTask({ workspacePath, task: result.taskId });
+      writeJson(response, 200, {
+        ok: true,
+        data: summarizeAgentTaskRunResult(result, inspected)
+      });
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/api/bridge/agent/tasks/status") {
+      const body = agentTaskReadRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      assertBridgeAgentTaskIdSafe(body.task);
+      const [status, inspected] = await Promise.all([
+        getAgentTaskStatus({ workspacePath, task: body.task }),
+        inspectAgentTask({ workspacePath, task: body.task })
+      ]);
+      writeJson(response, 200, {
+        ok: true,
+        data: summarizeAgentTaskStatusResult(status, inspected)
+      });
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/api/bridge/agent/tasks/events") {
+      const body = agentTaskReadRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      assertBridgeAgentTaskIdSafe(body.task);
+      const inspected = await inspectAgentTask({ workspacePath, task: body.task });
+      writeJson(response, 200, {
+        ok: true,
+        data: summarizeAgentTaskEventsResult(inspected)
+      });
+      return;
+    }
+
     throw new CommandFailure(
       "bridge_route_not_found",
       `Unsupported bridge route ${request.method ?? "GET"} ${routePath}.`,
@@ -152,8 +280,138 @@ export async function handleBridgeRequest(
 function isBridgeRoute(routePath: string): boolean {
   return (
     routePath.startsWith("/api/bridge/files/") ||
-    routePath === "/api/bridge/runtime/session/prepare"
+    routePath === "/api/bridge/runtime/session/prepare" ||
+    routePath.startsWith("/api/bridge/agent/tasks/")
   );
+}
+
+function summarizeAgentTaskCreateResult(result: AgentTaskCreateResult): {
+  readonly taskId: string;
+  readonly packageCreated: true;
+  readonly fileCount: number;
+  readonly writeCount: number;
+} {
+  return {
+    taskId: result.taskId,
+    packageCreated: true,
+    fileCount: Object.keys(result.files).length,
+    writeCount: result.writes.length
+  };
+}
+
+function summarizeAgentTaskRunResult(
+  result: AgentTaskRunResult,
+  inspected: AgentTaskInspectResult
+): {
+  readonly taskId: string;
+  readonly status: string;
+  readonly piSdk: ReturnType<typeof summarizePiSdkAvailability>;
+  readonly runtimeEvidence: ReturnType<typeof summarizeRuntimeEvidence>;
+  readonly eventCount: number;
+  readonly writeCount: number;
+  readonly resultAvailable: boolean;
+  readonly eventsAvailable: boolean;
+} {
+  return {
+    taskId: result.taskId,
+    status: result.status,
+    piSdk: summarizePiSdkAvailability(result.piSdk),
+    runtimeEvidence: summarizeRuntimeEvidence(inspected.result.runtimeEvidence),
+    eventCount: inspected.events.length,
+    writeCount: result.writes.length,
+    resultAvailable: inspected.result.status !== "pending-pi-runtime",
+    eventsAvailable: inspected.events.length > 0
+  };
+}
+
+function summarizeAgentTaskStatusResult(
+  status: AgentTaskStatusResult,
+  inspected: AgentTaskInspectResult
+): {
+  readonly taskId: string;
+  readonly status: string;
+  readonly updatedAt: string;
+  readonly piSdk: ReturnType<typeof summarizePiSdkAvailability>;
+  readonly eventCount: number;
+  readonly runtimeEvidence: ReturnType<typeof summarizeRuntimeEvidence>;
+  readonly resultAvailable: boolean;
+  readonly eventsAvailable: boolean;
+} {
+  return {
+    taskId: status.taskId,
+    status: status.status,
+    updatedAt: status.updatedAt,
+    piSdk: summarizePiSdkAvailability(status.piSdk),
+    eventCount: status.eventCount,
+    runtimeEvidence: summarizeRuntimeEvidence(inspected.result.runtimeEvidence),
+    resultAvailable: inspected.result.status !== "pending-pi-runtime",
+    eventsAvailable: inspected.events.length > 0
+  };
+}
+
+function summarizeAgentTaskEventsResult(inspected: AgentTaskInspectResult): {
+  readonly taskId: string;
+  readonly eventCount: number;
+  readonly eventsAvailable: boolean;
+  readonly events: ReturnType<typeof summarizeAgentTaskEvent>[];
+} {
+  return {
+    taskId: inspected.taskId,
+    eventCount: inspected.events.length,
+    eventsAvailable: inspected.events.length > 0,
+    events: inspected.events.map(summarizeAgentTaskEvent)
+  };
+}
+
+function summarizePiSdkAvailability(piSdk: AgentTaskRunResult["piSdk"]): {
+  readonly adapter: string;
+  readonly available: boolean;
+} {
+  return {
+    adapter: piSdk.adapter,
+    available: piSdk.available
+  };
+}
+
+function summarizeRuntimeEvidence(evidence: AgentTaskRuntimeEvidence | undefined):
+  | {
+      readonly provider: string;
+      readonly model: string;
+      readonly engine: "cli" | "sdk";
+      readonly toolPolicy: string;
+      readonly sessionPolicy: string;
+      readonly contextPolicy: "attached" | "none";
+      readonly stdoutBytes: number;
+      readonly stderrBytes: number;
+      readonly sessionId?: string;
+    }
+  | undefined {
+  if (evidence === undefined) return undefined;
+  return {
+    provider: evidence.provider,
+    model: evidence.model,
+    engine: evidence.engine,
+    toolPolicy: evidence.toolPolicy,
+    sessionPolicy: evidence.sessionPolicy,
+    contextPolicy: evidence.contextPolicy.includes("no-context") ? "none" : "attached",
+    stdoutBytes: evidence.stdoutBytes,
+    stderrBytes: evidence.stderrBytes,
+    ...(evidence.sessionId === undefined ? {} : { sessionId: evidence.sessionId })
+  };
+}
+
+function summarizeAgentTaskEvent(event: AgentTaskEvent): {
+  readonly taskId: string;
+  readonly type: AgentTaskEvent["type"];
+  readonly actor: string;
+  readonly timestamp: string;
+} {
+  return {
+    taskId: event.taskId,
+    type: event.type,
+    actor: event.actor,
+    timestamp: event.timestamp
+  };
 }
 
 function bridgeWorkspacePath(): string {
@@ -192,6 +450,15 @@ function assertBridgeActorMatches(requestedActor: string, configuredActor: strin
     "bridge_actor_mismatch",
     "Bridge writes may only use the actor selected when the bridge was launched.",
     403
+  );
+}
+
+function assertBridgeAgentTaskIdSafe(taskId: string): void {
+  if (!taskId.includes("/") && !taskId.includes("\\")) return;
+  throw new CommandFailure(
+    "bridge_agent_task_id_forbidden",
+    "Web bridge agent task ids must be plain task identifiers, not path-like values.",
+    400
   );
 }
 
