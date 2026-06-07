@@ -2877,3 +2877,78 @@ body,
 .runtime-event-row small {
   color: var(--tn-text);
 }
+
+.workflow-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.workflow-action-row button {
+  min-height: 34px;
+}
+
+.workflow-status-box {
+  grid-template-columns: 74px minmax(0, 1fr);
+}
+
+.workflow-verify-panel,
+.workflow-artifact-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  border: 1px solid #243041;
+  border-radius: 12px;
+  background: rgba(10, 15, 26, 0.52);
+  padding: 12px;
+}
+
+.workflow-verify-panel ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  color: #a9b7cc;
+}
+
+.workflow-artifact-list article {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 140px) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  border-bottom: 1px solid rgba(36, 48, 65, 0.72);
+  padding-bottom: 8px;
+}
+
+.workflow-artifact-list article:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.workflow-artifact-list span {
+  color: #7e8ca3;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.workflow-artifact-list button {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: #6ee7ff;
+  text-align: left;
+  overflow-wrap: anywhere;
+  padding: 0;
+}
+
+.workflow-artifact-list code {
+  grid-column: 1 / -1;
+  color: #8fd6ff;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.error-text {
+  color: #ffb4b4;
+}

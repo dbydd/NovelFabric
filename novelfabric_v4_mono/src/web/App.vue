@@ -1187,6 +1187,7 @@ onMounted(() => {
 onUnmounted(() => {
   clusterSimulation?.stop();
   stopRuntimePolling();
+  stopWorkflowPolling();
 });
 
 const stages: readonly SwarmStage[] = [
@@ -1316,6 +1317,14 @@ const latestImportedText = ref("");
 const workflowRound = ref(0);
 const workflowStatus = ref("等待导入小说文本。");
 const workflowArtifacts = ref<readonly WorkflowArtifact[]>([]);
+const workflowPlan = ref<WorkflowPlanBridgeResult | null>(null);
+const workflowJob = ref<WorkflowStatusBridgeResult | null>(null);
+const workflowArtifactList = ref<readonly WorkflowArtifactBridgeResult["artifacts"][number][]>([]);
+const workflowVerify = ref<WorkflowVerifyBridgeResult | null>(null);
+const workflowError = ref("");
+const workflowRunning = ref(false);
+const workflowPollingTimer = ref<number | null>(null);
+const workflowSourcePath = ref("");
 const selectedPlayRole = ref("aria");
 const customPlayRole = ref("原创旅人");
 const chatMessages = ref<readonly ChatMessage[]>([
@@ -1833,6 +1842,73 @@ type RuntimeTaskEventsResult = {
   readonly nextCursor: number;
   readonly eventsAvailable: boolean;
   readonly events: readonly RuntimeTaskEvent[];
+};
+
+type WorkflowPlanBridgeResult = {
+  readonly planId: string;
+  readonly sourcePath: string;
+  readonly role: string;
+  readonly stageCount: number;
+  readonly stages: readonly {
+    readonly id: string;
+    readonly family: string;
+    readonly semanticRuntime: "deterministic" | "pi-task";
+  }[];
+};
+
+type WorkflowStatusBridgeResult = {
+  readonly jobId: string;
+  readonly status: string;
+  readonly completedStages: readonly string[];
+  readonly nextStage: string | null;
+  readonly progress: {
+    readonly completed: number;
+    readonly total: number;
+    readonly percent: number;
+  };
+  readonly stepRun?: {
+    readonly status: string;
+    readonly startedAt: string;
+    readonly updatedAt: string;
+    readonly errorCode?: string;
+  };
+};
+
+type WorkflowStepBridgeResult = {
+  readonly jobId: string;
+  readonly status: "running";
+  readonly runStartedAt: string;
+  readonly eventStreamAvailable: true;
+};
+
+type WorkflowStepStatusBridgeResult = {
+  readonly jobId: string;
+  readonly workflowStatus: string;
+  readonly completedStages: readonly string[];
+  readonly nextStage: string | null;
+  readonly progress: WorkflowStatusBridgeResult["progress"];
+  readonly stepRun?: WorkflowStatusBridgeResult["stepRun"];
+};
+
+type WorkflowArtifactBridgeResult = {
+  readonly jobId: string;
+  readonly artifactCount: number;
+  readonly artifacts: readonly {
+    readonly stage: string;
+    readonly name: string;
+    readonly path: string;
+    readonly hash?: string;
+  }[];
+};
+
+type WorkflowVerifyBridgeResult = {
+  readonly valid: boolean;
+  readonly issues: readonly {
+    readonly severity: string;
+    readonly code: string;
+    readonly path: string;
+    readonly message: string;
+  }[];
 };
 
 async function bridgeReadFile(pathValue: string): Promise<BridgeReadResult> {
@@ -2468,126 +2544,236 @@ async function stageSourceImport(event: Event): Promise<void> {
     toastMessage.value = `已选择原始拆书文件：${targetPath}`;
   }
 
+  workflowSourcePath.value = targetPath;
   expandToPath(targetPath);
   openWorkspacePath(targetPath);
 }
 
-async function runCompleteWorkflowRound(): Promise<void> {
-  const sourceText = latestImportedText.value.trim() || activeFileContent.value.trim();
-  if (sourceText.length === 0) {
-    workflowStatus.value = "请先在 imports/source 上传或打开一份小说文本。";
+async function planAndStartWorkflowFromSource(): Promise<void> {
+  if (!bridgeEnabled.value) {
+    workflowError.value = "离线 buffer：未连接 bridge，不能创建真实工作流。";
+    workflowStatus.value = workflowError.value;
     return;
   }
 
-  const nextRound = workflowRound.value + 1;
-  const roundLabel = nextRound.toString().padStart(2, "0");
+  const sourcePath = workflowSourcePath.value || inferActiveSourcePath();
+  if (sourcePath.length === 0) {
+    workflowError.value = "请先在 imports/source 上传或打开一份小说文本。";
+    workflowStatus.value = workflowError.value;
+    return;
+  }
+
   const role =
     selectedPlayRole.value === "custom" ? customPlayRole.value.trim() : selectedPlayRole.value;
   const playRole = role.length > 0 ? role : "原创角色";
-  const excerpt = sourceText.slice(0, 520).replace(/\s+/g, " ").trim();
-  const artifacts = workflowArtifactsForRound(roundLabel);
-  const artifactContents: readonly { readonly path: string; readonly content: string }[] = [
-    {
-      path: artifacts[0]?.path ?? `cards/characters/imported-protagonist-${roundLabel}.md`,
-      content: `# Imported Protagonist ${roundLabel}\n\n- 玩家带入：${playRole}\n- 来源摘录：${excerpt}\n- 写卡状态：已根据当前导入文本生成，可继续编辑。\n`
-    },
-    {
-      path: artifacts[1]?.path ?? `cards/scenes/imported-scene-${roundLabel}.md`,
-      content: `# Imported Scene ${roundLabel}\n\n- 拆书依据：imports/source/\n- 场景摘要：${excerpt}\n- 进入跑团：${playRole} 将以当前处境做出行动。\n`
-    },
-    {
-      path: artifacts[2]?.path ?? `simulation/turns/browser-round-${roundLabel}.json`,
-      content: JSON.stringify(
-        {
-          round: nextRound,
-          playerRole: playRole,
-          source: "imports/source",
-          steps: ["拆书", "写卡", "跑团", "集群推演", "落成章节"],
-          action: `${playRole} 根据导入文本推进当前场景`,
-          evidencePaths: [artifacts[0]?.path, artifacts[1]?.path].filter(
-            (pathValue) => pathValue !== undefined
-          )
-        },
-        null,
-        2
-      )
-    },
-    {
-      path: artifacts[3]?.path ?? `reports/swarm-inference-${roundLabel}.md`,
-      content: `# 集群推演报告 ${roundLabel}\n\n- 带入角色：${playRole}\n- 角色阶段：characters → random-event → world-maintainer → kp → project-auditor\n- 依据：${artifacts[2]?.path}\n- 结论：当前文本可继续落成章节，未发现阻塞。\n`
-    },
-    {
-      path: artifacts[4]?.path ?? `writing/chapters/browser-chapter-${roundLabel}.md`,
-      content: `# 浏览器闭环章节 ${roundLabel}\n\n${playRole}站在故事的入口，重新整理刚刚拆出的场景、人物卡和推演结果。\n\n${excerpt}\n\n集群推演给出一致意见：本轮行动可以写入正文，并保留证据路径以便回溯。\n`
-    }
-  ];
-
-  workflowStatus.value = `正在执行第 ${roundLabel} 轮闭环。`;
-  for (const artifact of artifactContents) {
-    await writeWorkflowArtifact(artifact.path, artifact.content);
+  workflowRunning.value = true;
+  workflowError.value = "";
+  workflowStatus.value = `正在为 ${sourcePath} 创建真实工作流。`;
+  try {
+    const plan = await bridgeWorkflowPlan(sourcePath, playRole);
+    workflowPlan.value = plan;
+    workflowSourcePath.value = plan.sourcePath;
+    const job = await bridgeWorkflowStart(plan.planId);
+    workflowJob.value = job;
+    workflowRound.value += 1;
+    workflowStatus.value = `工作流 ${job.jobId} 已创建；下一步：${job.nextStage ?? "完成"}。`;
+    await refreshWorkflowArtifacts();
+    await refreshWorkflowVerify();
+  } catch (error) {
+    workflowError.value = bridgeErrorMessage(error);
+    workflowStatus.value = `真实工作流创建失败：${workflowError.value}`;
+  } finally {
+    workflowRunning.value = false;
   }
-  workflowRound.value = nextRound;
-  workflowArtifacts.value = artifacts;
-  workflowStatus.value = `第 ${roundLabel} 轮完成：拆书 → 写卡 → 跑团 → 集群推演 → 章节。`;
-  await loadWorkspaceTreeFromBridge();
-  openWorkspacePath(artifacts[4]?.path ?? `writing/chapters/browser-chapter-${roundLabel}.md`);
 }
 
-function workflowArtifactsForRound(roundLabel: string): readonly WorkflowArtifact[] {
-  return [
-    {
-      label: "人物卡",
-      path: `cards/characters/imported-protagonist-${roundLabel}.md`,
-      status: "ready"
-    },
-    { label: "场景卡", path: `cards/scenes/imported-scene-${roundLabel}.md`, status: "ready" },
-    {
-      label: "跑团记录",
-      path: `simulation/turns/browser-round-${roundLabel}.json`,
-      status: "ready"
-    },
-    { label: "集群推演", path: `reports/swarm-inference-${roundLabel}.md`, status: "ready" },
-    {
-      label: "小说章节",
-      path: `writing/chapters/browser-chapter-${roundLabel}.md`,
-      status: "ready"
+function inferActiveSourcePath(): string {
+  const uploadPath = importUpload.value?.targetPath ?? "";
+  if (uploadPath.startsWith("imports/source/")) return uploadPath;
+  if (selectedFilePath.value.startsWith("imports/source/")) return selectedFilePath.value;
+  const activePath = activeFilePath.value;
+  return activePath.startsWith("imports/source/") ? activePath : "";
+}
+
+async function startWorkflowStep(): Promise<void> {
+  const jobId = workflowJob.value?.jobId;
+  if (!bridgeEnabled.value || jobId === undefined) {
+    workflowError.value = bridgeEnabled.value
+      ? "请先创建真实工作流。"
+      : "离线 buffer：不能执行真实工作流。";
+    workflowStatus.value = workflowError.value;
+    return;
+  }
+  workflowRunning.value = true;
+  workflowError.value = "";
+  try {
+    await bridgeWorkflowStep(jobId);
+    workflowStatus.value = `工作流 ${jobId} 正在执行下一步。`;
+    startWorkflowPolling();
+    await refreshWorkflowStatus();
+  } catch (error) {
+    workflowRunning.value = false;
+    stopWorkflowPolling();
+    workflowError.value = bridgeErrorMessage(error);
+    workflowStatus.value = `工作流执行失败：${workflowError.value}`;
+  }
+}
+
+async function refreshWorkflowStatus(): Promise<void> {
+  const jobId = workflowJob.value?.jobId;
+  if (!bridgeEnabled.value || jobId === undefined) return;
+  try {
+    const result = await bridgeWorkflowStatus(jobId);
+    workflowJob.value = result;
+    const stepRun = await bridgeWorkflowStepStatus(jobId);
+    const runStatus = stepRun.stepRun?.status;
+    workflowStatus.value = `工作流 ${jobId}：${result.status}，进度 ${result.progress.completed.toString()}/${result.progress.total.toString()}，下一步 ${result.nextStage ?? "完成"}${runStatus === undefined ? "" : `，step ${runStatus}`}`;
+    if (
+      isWorkflowStepTerminal(runStatus) ||
+      result.status === "completed" ||
+      result.status === "cancelled"
+    ) {
+      workflowRunning.value = false;
+      stopWorkflowPolling();
+      await refreshWorkflowArtifacts();
+      await refreshWorkflowVerify();
+      await loadWorkspaceTreeFromBridge();
     }
-  ];
+  } catch (error) {
+    workflowRunning.value = false;
+    stopWorkflowPolling();
+    workflowError.value = bridgeErrorMessage(error);
+    workflowStatus.value = `工作流状态刷新失败：${workflowError.value}`;
+  }
 }
 
-async function writeWorkflowArtifact(pathValue: string, content: string): Promise<void> {
-  setDraft(pathValue, {
-    ...createSeedDraft(pathValue, false),
-    original: content,
-    current: content,
-    dirty: !bridgeEnabled.value
+async function refreshWorkflowArtifacts(): Promise<void> {
+  const jobId = workflowJob.value?.jobId;
+  if (!bridgeEnabled.value || jobId === undefined) return;
+  try {
+    const result = await bridgeWorkflowArtifacts(jobId);
+    workflowArtifactList.value = result.artifacts;
+    workflowArtifacts.value = result.artifacts.map((artifact) => ({
+      label: artifact.name,
+      path: artifact.path,
+      status: artifact.stage
+    }));
+  } catch (error) {
+    workflowError.value = bridgeErrorMessage(error);
+  }
+}
+
+async function refreshWorkflowVerify(): Promise<void> {
+  const jobId = workflowJob.value?.jobId;
+  if (!bridgeEnabled.value || jobId === undefined) return;
+  try {
+    workflowVerify.value = await bridgeWorkflowVerify(jobId);
+  } catch (error) {
+    workflowError.value = bridgeErrorMessage(error);
+  }
+}
+
+function startWorkflowPolling(): void {
+  stopWorkflowPolling();
+  workflowPollingTimer.value = window.setInterval(() => {
+    void refreshWorkflowStatus();
+  }, 1500);
+}
+
+function stopWorkflowPolling(): void {
+  if (workflowPollingTimer.value === null) return;
+  window.clearInterval(workflowPollingTimer.value);
+  workflowPollingTimer.value = null;
+}
+
+async function cancelWorkflowRun(): Promise<void> {
+  const jobId = workflowJob.value?.jobId;
+  if (!bridgeEnabled.value || jobId === undefined) return;
+  try {
+    workflowJob.value = await bridgeWorkflowCancel(jobId);
+    workflowRunning.value = false;
+    stopWorkflowPolling();
+    workflowStatus.value = `工作流 ${jobId} 已取消。`;
+    await refreshWorkflowVerify();
+  } catch (error) {
+    workflowError.value = bridgeErrorMessage(error);
+  }
+}
+
+function isWorkflowStepTerminal(status: string | undefined): boolean {
+  return status === "completed" || status === "failed" || status === "aborted";
+}
+
+async function bridgeWorkflowPlan(
+  sourcePath: string,
+  role: string
+): Promise<WorkflowPlanBridgeResult> {
+  return bridgeRequest<WorkflowPlanBridgeResult>("/api/bridge/workflow/plan", {
+    workspacePath: workspaceRoot.value,
+    actor: defaultEditorActor.value,
+    sourcePath,
+    role,
+    reason: "web source inbox workflow plan"
   });
-  if (bridgeEnabled.value) {
-    const result = await bridgeWriteFile(
-      pathValue,
-      content,
-      undefined,
-      "browser workflow artifact"
-    );
-    setDraft(pathValue, {
-      original: content,
-      current: content,
-      baseHash: result.hash,
-      dirty: false,
-      loading: false,
-      saving: false,
-      locked: false,
-      error: "",
-      source: "bridge",
-      lastSavedAuditPath: result.auditPath
-    });
-  } else {
-    workspaceTree.value = insertWorkspaceFile(workspaceTree.value, {
-      label: fileLabelForPath(pathValue),
-      path: pathValue,
-      kind: "file"
-    });
-  }
+}
+
+async function bridgeWorkflowStart(planId: string): Promise<WorkflowStatusBridgeResult> {
+  return bridgeRequest<WorkflowStatusBridgeResult>("/api/bridge/workflow/start", {
+    workspacePath: workspaceRoot.value,
+    actor: defaultEditorActor.value,
+    planId,
+    reason: "web source inbox workflow start"
+  });
+}
+
+async function bridgeWorkflowStatus(jobId: string): Promise<WorkflowStatusBridgeResult> {
+  return bridgeRequest<WorkflowStatusBridgeResult>("/api/bridge/workflow/status", {
+    workspacePath: workspaceRoot.value,
+    actor: defaultEditorActor.value,
+    jobId
+  });
+}
+
+async function bridgeWorkflowStep(jobId: string): Promise<WorkflowStepBridgeResult> {
+  return bridgeRequest<WorkflowStepBridgeResult>("/api/bridge/workflow/step", {
+    workspacePath: workspaceRoot.value,
+    actor: defaultEditorActor.value,
+    jobId,
+    reason: "web source inbox workflow step"
+  });
+}
+
+async function bridgeWorkflowStepStatus(jobId: string): Promise<WorkflowStepStatusBridgeResult> {
+  return bridgeRequest<WorkflowStepStatusBridgeResult>("/api/bridge/workflow/step/status", {
+    workspacePath: workspaceRoot.value,
+    actor: defaultEditorActor.value,
+    jobId
+  });
+}
+
+async function bridgeWorkflowArtifacts(jobId: string): Promise<WorkflowArtifactBridgeResult> {
+  return bridgeRequest<WorkflowArtifactBridgeResult>("/api/bridge/workflow/artifacts", {
+    workspacePath: workspaceRoot.value,
+    actor: defaultEditorActor.value,
+    jobId
+  });
+}
+
+async function bridgeWorkflowVerify(jobId: string): Promise<WorkflowVerifyBridgeResult> {
+  return bridgeRequest<WorkflowVerifyBridgeResult>("/api/bridge/workflow/verify", {
+    workspacePath: workspaceRoot.value,
+    actor: defaultEditorActor.value,
+    jobId
+  });
+}
+
+async function bridgeWorkflowCancel(jobId: string): Promise<WorkflowStatusBridgeResult> {
+  return bridgeRequest<WorkflowStatusBridgeResult>("/api/bridge/workflow/cancel", {
+    workspacePath: workspaceRoot.value,
+    actor: defaultEditorActor.value,
+    jobId,
+    reason: "web source inbox workflow cancel"
+  });
 }
 
 async function decodeSourceFileText(file: File): Promise<string> {
@@ -3282,8 +3468,9 @@ function openTab(tab: Tab): void {
                 </button>
               </section>
               <section>
-                <h3>闭环测试入口</h3>
+                <h3>真实工作流</h3>
                 <p class="manager-note">{{ workflowStatus }}</p>
+                <p v-if="workflowError" class="manager-note error-text">{{ workflowError }}</p>
                 <label class="workflow-field">
                   <span>带入角色</span>
                   <select v-model="selectedPlayRole">
@@ -3296,10 +3483,88 @@ function openTab(tab: Tab): void {
                   <span>原创角色名</span>
                   <input v-model="customPlayRole" />
                 </label>
-                <button class="primary-action" type="button" @click="runCompleteWorkflowRound">
-                  执行完整闭环
-                </button>
+                <div class="workflow-action-row">
+                  <button
+                    class="primary-action"
+                    type="button"
+                    :disabled="workflowRunning || !bridgeEnabled"
+                    @click="planAndStartWorkflowFromSource"
+                  >
+                    创建真实工作流
+                  </button>
+                  <button
+                    type="button"
+                    :disabled="workflowRunning || workflowJob === null || !bridgeEnabled"
+                    @click="startWorkflowStep"
+                  >
+                    执行下一步
+                  </button>
+                  <button
+                    type="button"
+                    :disabled="workflowJob === null"
+                    @click="refreshWorkflowStatus"
+                  >
+                    刷新状态
+                  </button>
+                  <button
+                    type="button"
+                    :disabled="workflowJob === null"
+                    @click="refreshWorkflowVerify"
+                  >
+                    验证结果
+                  </button>
+                  <button
+                    type="button"
+                    :disabled="
+                      workflowJob === null ||
+                      workflowJob.status === 'completed' ||
+                      workflowJob.status === 'cancelled'
+                    "
+                    @click="cancelWorkflowRun"
+                  >
+                    取消工作流
+                  </button>
+                </div>
+                <dl v-if="workflowJob" class="import-target-panel workflow-status-box">
+                  <dt>Job</dt>
+                  <dd>{{ workflowJob.jobId }}</dd>
+                  <dt>状态</dt>
+                  <dd>
+                    {{ workflowJob.status }} · {{ workflowJob.progress.completed }}/{{
+                      workflowJob.progress.total
+                    }}
+                    · {{ workflowJob.progress.percent }}%
+                  </dd>
+                  <dt>下一步</dt>
+                  <dd>{{ workflowJob.nextStage ?? "完成" }}</dd>
+                  <dt>已完成</dt>
+                  <dd>{{ workflowJob.completedStages.join(" / ") || "无" }}</dd>
+                </dl>
+                <div v-if="workflowVerify" class="workflow-verify-panel">
+                  <strong>{{ workflowVerify.valid ? "验证通过" : "验证未通过" }}</strong>
+                  <p v-if="workflowVerify.issues.length === 0" class="manager-note">
+                    暂无 verify issue。
+                  </p>
+                  <ul v-else>
+                    <li v-for="issue in workflowVerify.issues" :key="`${issue.code}:${issue.path}`">
+                      <code>{{ issue.code }}</code> · {{ issue.path }} · {{ issue.message }}
+                    </li>
+                  </ul>
+                </div>
               </section>
+            </div>
+            <div v-if="workflowArtifactList.length > 0" class="workflow-artifact-list">
+              <article
+                v-for="artifact in workflowArtifactList"
+                :key="`${artifact.stage}:${artifact.name}`"
+              >
+                <span>{{ artifact.stage }}</span>
+                <strong>{{ artifact.name }}</strong>
+                <button type="button" @click="openWorkspacePath(artifact.path)">
+                  {{ artifact.path }}
+                </button>
+                <code v-if="artifact.hash">{{ artifact.hash }}</code>
+              </article>
             </div>
             <div class="chapter-preview-grid">
               <button
