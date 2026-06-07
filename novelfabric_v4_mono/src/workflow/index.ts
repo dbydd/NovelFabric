@@ -181,6 +181,7 @@ export type WorkflowPeekResult = {
   readonly status: WorkflowStatus;
   readonly sourcePath: string;
   readonly role: string;
+  readonly completedStages: readonly WorkflowStageId[];
   readonly nextStage: WorkflowStageDefinition | null;
   readonly progress: WorkflowProgress;
   readonly paths: WorkflowJobPaths;
@@ -973,6 +974,7 @@ function peekFromRuntime(runtime: WorkflowRuntime): WorkflowPeekResult {
     status: runtime.state.status,
     sourcePath: runtime.plan.sourcePath,
     role: runtime.plan.role,
+    completedStages: runtime.state.completedStages.map((completed) => completed.stage),
     nextStage,
     progress: {
       completed: runtime.state.completedStages.length,

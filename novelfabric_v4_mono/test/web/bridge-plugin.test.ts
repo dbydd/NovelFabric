@@ -1280,6 +1280,246 @@ describe("NovelFabric web bridge runtime session prepare route", () => {
   });
 });
 
+describe("NovelFabric web bridge workflow routes", () => {
+  it("returns bridge_disabled when workflow bridge is not enabled", async () => {
+    delete process.env["NOVELFABRIC_WEB_BRIDGE"];
+    const response = await postBridge("/api/bridge/workflow/plan", {
+      workspacePath: fixtureWorkspace(),
+      actor: "main_agent",
+      sourcePath: "project.md",
+      role: "Aria"
+    });
+
+    expect(response.status).toBe(404);
+    expect(response.body.ok).toBe(false);
+    if (!response.body.ok) {
+      expect(response.body.error.code).toBe("bridge_disabled");
+    }
+  });
+
+  it("rejects workflow workspace mismatches", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+
+    const response = await postBridge("/api/bridge/workflow/peek", {
+      workspacePath: path.join(workspacePath, "..", "other"),
+      actor: "main_agent",
+      jobId: "workflow-missing"
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.ok).toBe(false);
+    if (!response.body.ok) {
+      expect(response.body.error.code).toBe("bridge_workspace_mismatch");
+    }
+  });
+
+  it("rejects workflow actor mismatches for mutating routes", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    await postBridge("/api/bridge/workflow/plan", {
+      workspacePath,
+      actor: "main_agent",
+      sourcePath: "project.md",
+      role: "Aria",
+      planId: "actor-mismatch-workflow"
+    });
+    await postBridge("/api/bridge/workflow/start", {
+      workspacePath,
+      actor: "main_agent",
+      planId: "actor-mismatch-workflow"
+    });
+
+    for (const [routePath, body] of [
+      [
+        "/api/bridge/workflow/plan",
+        { workspacePath, actor: "role_agent", sourcePath: "project.md", role: "Aria" }
+      ],
+      [
+        "/api/bridge/workflow/start",
+        { workspacePath, actor: "role_agent", planId: "actor-mismatch-workflow" }
+      ],
+      [
+        "/api/bridge/workflow/cancel",
+        { workspacePath, actor: "role_agent", jobId: "actor-mismatch-workflow" }
+      ]
+    ] as const) {
+      const response = await postBridge(routePath, body);
+      expect(response.status).toBe(403);
+      expect(response.body.ok).toBe(false);
+      if (!response.body.ok) {
+        expect(response.body.error.code).toBe("bridge_actor_mismatch");
+      }
+    }
+  });
+
+  it("plans, starts, reads, verifies, lists artifacts, and cancels workflow jobs", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+
+    const plan = await postBridge("/api/bridge/workflow/plan", {
+      workspacePath,
+      actor: "main_agent",
+      sourcePath: "project.md",
+      role: "Aria",
+      planId: "web-workflow-001"
+    });
+    expect(plan.status).toBe(200);
+    expect(plan.body.ok).toBe(true);
+    if (plan.body.ok) {
+      expect(plan.body.data).toMatchObject({
+        planId: "web-workflow-001",
+        sourcePath: "project.md",
+        role: "Aria"
+      });
+      expect(plan.body.data["stageCount"]).toBeGreaterThan(0);
+      expect(plan.body.data["stages"]).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: "swarm.task.create" })])
+      );
+      expectNoInternalTaskPaths(plan.body.data, workspacePath);
+    }
+
+    const start = await postBridge("/api/bridge/workflow/start", {
+      workspacePath,
+      actor: "main_agent",
+      planId: "web-workflow-001"
+    });
+    expect(start.status).toBe(200);
+    expect(start.body.ok).toBe(true);
+    if (start.body.ok) {
+      expect(start.body.data).toMatchObject({
+        jobId: "web-workflow-001",
+        status: "running",
+        completedStages: [],
+        nextStage: "import.normalize",
+        progress: { completed: 0, total: 14 }
+      });
+      expectNoInternalTaskPaths(start.body.data, workspacePath);
+    }
+
+    for (const routePath of ["/api/bridge/workflow/peek", "/api/bridge/workflow/status"] as const) {
+      const response = await postBridge(routePath, {
+        workspacePath,
+        actor: "main_agent",
+        jobId: "web-workflow-001"
+      });
+      expect(response.status).toBe(200);
+      expect(response.body.ok).toBe(true);
+      if (response.body.ok) {
+        expect(response.body.data).toMatchObject({
+          jobId: "web-workflow-001",
+          status: "running",
+          completedStages: [],
+          nextStage: "import.normalize"
+        });
+        expectNoInternalTaskPaths(response.body.data, workspacePath);
+      }
+    }
+
+    const artifacts = await postBridge("/api/bridge/workflow/artifacts", {
+      workspacePath,
+      actor: "main_agent",
+      jobId: "web-workflow-001"
+    });
+    expect(artifacts.status).toBe(200);
+    expect(artifacts.body.ok).toBe(true);
+    if (artifacts.body.ok) {
+      expect(artifacts.body.data).toMatchObject({
+        jobId: "web-workflow-001",
+        artifactCount: 0,
+        artifacts: []
+      });
+      expectNoInternalTaskPaths(artifacts.body.data, workspacePath);
+    }
+
+    const verify = await postBridge("/api/bridge/workflow/verify", {
+      workspacePath,
+      actor: "main_agent",
+      jobId: "web-workflow-001"
+    });
+    expect(verify.status).toBe(200);
+    expect(verify.body.ok).toBe(true);
+    if (verify.body.ok) {
+      expect(verify.body.data).toEqual({ valid: true, issues: [] });
+      expectNoInternalTaskPaths(verify.body.data, workspacePath);
+    }
+
+    const cancel = await postBridge("/api/bridge/workflow/cancel", {
+      workspacePath,
+      actor: "main_agent",
+      jobId: "web-workflow-001",
+      reason: "web operator cancelled"
+    });
+    expect(cancel.status).toBe(200);
+    expect(cancel.body.ok).toBe(true);
+    if (cancel.body.ok) {
+      expect(cancel.body.data).toEqual({ jobId: "web-workflow-001", status: "cancelled" });
+      expectNoInternalTaskPaths(cancel.body.data, workspacePath);
+    }
+  });
+
+  it("sanitizes raw task paths from workflow artifact summaries", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    await postBridge("/api/bridge/workflow/plan", {
+      workspacePath,
+      actor: "main_agent",
+      sourcePath: "project.md",
+      role: "Aria",
+      planId: "web-workflow-artifacts"
+    });
+    await postBridge("/api/bridge/workflow/start", {
+      workspacePath,
+      actor: "main_agent",
+      planId: "web-workflow-artifacts"
+    });
+    await writeWorkspaceFile({
+      workspacePath,
+      actor: "main_agent",
+      path: ".novelfabric/jobs/web-workflow-artifacts/artifacts.json",
+      reason: "inject internal workflow artifact for bridge sanitization",
+      content: JSON.stringify(
+        {
+          kind: "novelfabric.workflow.artifacts",
+          version: 1,
+          jobId: "web-workflow-artifacts",
+          items: [
+            {
+              stage: "swarm.task.create",
+              name: "agent-task-result",
+              path: ".novelfabric/tasks/workflow-web-workflow-artifacts-swarm-task-create/result.json",
+              hash: "sha256:test",
+              artifactKind: "novelfabric.agent.task.result"
+            }
+          ]
+        },
+        null,
+        2
+      )
+    });
+
+    const response = await postBridge("/api/bridge/workflow/artifacts", {
+      workspacePath,
+      actor: "main_agent",
+      jobId: "web-workflow-artifacts"
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    if (response.body.ok) {
+      expect(response.body.data["artifacts"]).toEqual([
+        {
+          stage: "swarm.task.create",
+          name: "agent-task-result",
+          path: "[internal-task-artifact]",
+          hash: "sha256:test"
+        }
+      ]);
+      expectNoInternalTaskPaths(response.body.data, workspacePath);
+    }
+  });
+});
+
 function sha256(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }

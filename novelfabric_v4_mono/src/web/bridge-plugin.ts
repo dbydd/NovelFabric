@@ -29,6 +29,21 @@ import {
 import { readProcessEnvironment } from "../environment.js";
 import { CommandFailure, isCommandFailure } from "../errors.js";
 import { readWorkspaceFile, readWorkspaceTree, writeWorkspaceFile } from "../workspace/files.js";
+import {
+  cancelWorkflow,
+  listWorkflowArtifacts,
+  peekWorkflow,
+  planWorkflow,
+  startWorkflow,
+  statusWorkflow,
+  verifyWorkflow,
+  type WorkflowArtifactsResult,
+  type WorkflowCancelRequest,
+  type WorkflowPeekResult,
+  type WorkflowPlanResult,
+  type WorkflowStageDefinition,
+  type WorkflowVerifyResult
+} from "../workflow/index.js";
 
 const readRequestSchema = z.object({
   workspacePath: z.string().min(1),
@@ -82,6 +97,32 @@ const agentTaskStreamRequestSchema = agentTaskReadRequestSchema.extend({
 });
 
 const agentTaskLifecycleRequestSchema = agentTaskReadRequestSchema.extend({
+  reason: z.string().min(1).optional()
+});
+
+const workflowPlanRequestSchema = z.object({
+  workspacePath: z.string().min(1),
+  actor: z.string().min(1),
+  sourcePath: z.string().min(1),
+  role: z.string().min(1),
+  planId: z.string().min(1).optional(),
+  reason: z.string().min(1).optional()
+});
+
+const workflowStartRequestSchema = z.object({
+  workspacePath: z.string().min(1),
+  actor: z.string().min(1),
+  planId: z.string().min(1),
+  reason: z.string().min(1).optional()
+});
+
+const workflowReadRequestSchema = z.object({
+  workspacePath: z.string().min(1),
+  actor: z.string().min(1),
+  jobId: z.string().min(1)
+});
+
+const workflowCancelRequestSchema = workflowReadRequestSchema.extend({
   reason: z.string().min(1).optional()
 });
 
@@ -198,6 +239,86 @@ export async function handleBridgeRequest(
           }
         }
       });
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/api/bridge/workflow/plan") {
+      const body = workflowPlanRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      const result = await planWorkflow({
+        workspacePath,
+        actor: body.actor,
+        sourcePath: body.sourcePath,
+        role: body.role,
+        ...(body.planId === undefined ? {} : { planId: body.planId }),
+        ...(body.reason === undefined ? {} : { reason: body.reason })
+      });
+      writeJson(response, 200, { ok: true, data: summarizeWorkflowPlanResult(result) });
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/api/bridge/workflow/start") {
+      const body = workflowStartRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      const result = await startWorkflow({
+        workspacePath,
+        actor: body.actor,
+        planId: body.planId,
+        ...(body.reason === undefined ? {} : { reason: body.reason })
+      });
+      writeJson(response, 200, { ok: true, data: summarizeWorkflowPeekResult(result) });
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/api/bridge/workflow/peek") {
+      const body = workflowReadRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      const result = await peekWorkflow({ workspacePath, jobId: body.jobId });
+      writeJson(response, 200, { ok: true, data: summarizeWorkflowPeekResult(result) });
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/api/bridge/workflow/status") {
+      const body = workflowReadRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      const result = await statusWorkflow({ workspacePath, jobId: body.jobId });
+      writeJson(response, 200, { ok: true, data: summarizeWorkflowPeekResult(result) });
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/api/bridge/workflow/artifacts") {
+      const body = workflowReadRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      const result = await listWorkflowArtifacts({ workspacePath, jobId: body.jobId });
+      writeJson(response, 200, { ok: true, data: summarizeWorkflowArtifactsResult(result) });
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/api/bridge/workflow/verify") {
+      const body = workflowReadRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      const result = await verifyWorkflow({ workspacePath, jobId: body.jobId });
+      writeJson(response, 200, { ok: true, data: summarizeWorkflowVerifyResult(result) });
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/api/bridge/workflow/cancel") {
+      const body = workflowCancelRequestSchema.parse(await readJsonBody(request));
+      assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
+      assertBridgeActorMatches(body.actor, bridgeActor());
+      const result = await cancelWorkflow({
+        workspacePath,
+        actor: body.actor,
+        jobId: body.jobId,
+        ...(body.reason === undefined ? {} : { reason: body.reason })
+      } satisfies WorkflowCancelRequest);
+      writeJson(response, 200, { ok: true, data: summarizeWorkflowCancelResult(result) });
       return;
     }
 
@@ -384,8 +505,107 @@ function isBridgeRoute(routePath: string): boolean {
   return (
     routePath.startsWith("/api/bridge/files/") ||
     routePath === "/api/bridge/runtime/session/prepare" ||
-    routePath.startsWith("/api/bridge/agent/tasks/")
+    routePath.startsWith("/api/bridge/agent/tasks/") ||
+    routePath.startsWith("/api/bridge/workflow/")
   );
+}
+
+function summarizeWorkflowPlanResult(result: WorkflowPlanResult): {
+  readonly planId: string;
+  readonly sourcePath: string;
+  readonly role: string;
+  readonly stageCount: number;
+  readonly stages: ReturnType<typeof summarizeWorkflowStage>[];
+} {
+  return {
+    planId: result.planId,
+    sourcePath: result.sourcePath,
+    role: result.role,
+    stageCount: result.stageCount,
+    stages: result.stages.map(summarizeWorkflowStage)
+  };
+}
+
+function summarizeWorkflowPeekResult(result: WorkflowPeekResult): {
+  readonly jobId: string;
+  readonly status: string;
+  readonly completedStages: readonly string[];
+  readonly nextStage: string | null;
+  readonly progress: WorkflowPeekResult["progress"];
+} {
+  return {
+    jobId: result.jobId,
+    status: result.status,
+    completedStages: result.completedStages,
+    nextStage: result.nextStage?.id ?? null,
+    progress: result.progress
+  };
+}
+
+function summarizeWorkflowArtifactsResult(result: WorkflowArtifactsResult): {
+  readonly jobId: string;
+  readonly artifactCount: number;
+  readonly artifacts: readonly {
+    readonly stage: string;
+    readonly name: string;
+    readonly path: string;
+    readonly hash?: string;
+  }[];
+} {
+  return {
+    jobId: result.jobId,
+    artifactCount: result.artifactCount,
+    artifacts: result.artifacts.map((artifact) => ({
+      stage: artifact.stage,
+      name: artifact.name,
+      path: sanitizeWorkflowArtifactPath(artifact.path),
+      ...(artifact.hash === undefined ? {} : { hash: artifact.hash })
+    }))
+  };
+}
+
+function summarizeWorkflowVerifyResult(result: WorkflowVerifyResult): {
+  readonly valid: boolean;
+  readonly issues: readonly {
+    readonly severity: string;
+    readonly code: string;
+    readonly path: string;
+    readonly message: string;
+  }[];
+} {
+  return {
+    valid: result.valid,
+    issues: result.issues.map((issue) => ({
+      severity: issue.severity,
+      code: issue.code,
+      path: sanitizeWorkflowArtifactPath(issue.path),
+      message: sanitizeBridgeErrorMessage(issue.message)
+    }))
+  };
+}
+
+function summarizeWorkflowCancelResult(result: WorkflowPeekResult): {
+  readonly jobId: string;
+  readonly status: string;
+} {
+  return { jobId: result.jobId, status: result.status };
+}
+
+function summarizeWorkflowStage(stage: WorkflowStageDefinition): {
+  readonly id: string;
+  readonly family: string;
+  readonly semanticRuntime: WorkflowStageDefinition["semanticRuntime"];
+} {
+  return {
+    id: stage.id,
+    family: stage.family,
+    semanticRuntime: stage.semanticRuntime
+  };
+}
+
+function sanitizeWorkflowArtifactPath(pathValue: string): string {
+  if (pathValue.includes(".novelfabric/tasks/")) return "[internal-task-artifact]";
+  return sanitizeBridgeErrorMessage(pathValue);
 }
 
 function summarizeAgentTaskCreateResult(result: AgentTaskCreateResult): {
