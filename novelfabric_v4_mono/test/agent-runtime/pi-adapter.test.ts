@@ -84,9 +84,10 @@ describe("pi SDK adapter skeleton", () => {
       "novelfabric_validate",
       "novelfabric_context_pack",
       "novelfabric_report",
-      "novelfabric_write_file"
+      "novelfabric_write_file",
+      "novelfabric_apply_proposal"
     ]);
-    expect(policy.allowedNovelFabricTools).not.toContain("novelfabric_apply_proposal");
+    expect(policy.allowedNovelFabricTools).toContain("novelfabric_apply_proposal");
   });
 
   it("rejects raw builtin tools from web-safe session options", () => {
@@ -115,7 +116,8 @@ describe("pi SDK adapter skeleton", () => {
         "novelfabric_read_file",
         "novelfabric_validate",
         "novelfabric_report",
-        "novelfabric_write_file"
+        "novelfabric_write_file",
+        "novelfabric_apply_proposal"
       ]
     });
 
@@ -124,7 +126,20 @@ describe("pi SDK adapter skeleton", () => {
     expect(options.allowedTools).toContain("novelfabric_validate");
     expect(options.allowedTools).toContain("novelfabric_report");
     expect(options.allowedTools).toContain("novelfabric_write_file");
+    expect(options.allowedTools).toContain("novelfabric_apply_proposal");
     expect(options.deniedRawTools).toContain("bash");
+  });
+
+  it("accepts apply proposal as a web-safe requested tool", () => {
+    const options = buildWebSafePiSessionOptions({
+      environment: makeEnvironment({ xdgConfigHome: "/tmp/xdg" }),
+      actor: "main_agent",
+      requestedTools: ["novelfabric_apply_proposal"]
+    });
+
+    expect(options.valid).toBe(true);
+    expect(options.violations).toEqual([]);
+    expect(options.allowedTools).toContain("novelfabric_apply_proposal");
   });
 
   it("inspects SDK availability without returning configuration secrets", async () => {

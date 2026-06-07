@@ -50,7 +50,8 @@ export type WebSafePiToolName =
   | "novelfabric_validate"
   | "novelfabric_context_pack"
   | "novelfabric_report"
-  | "novelfabric_write_file";
+  | "novelfabric_write_file"
+  | "novelfabric_apply_proposal";
 
 export type RawPiToolName =
   | "bash"
@@ -211,7 +212,8 @@ const WEB_SAFE_ALLOWED_TOOLS: readonly WebSafePiToolName[] = [
   "novelfabric_validate",
   "novelfabric_context_pack",
   "novelfabric_report",
-  "novelfabric_write_file"
+  "novelfabric_write_file",
+  "novelfabric_apply_proposal"
 ];
 
 const WEB_SAFE_DENIED_RAW_TOOLS: readonly RawPiToolName[] = [
