@@ -33,6 +33,13 @@ import {
 } from "../agent-runtime/pi-adapter.js";
 import { readProcessEnvironment } from "../environment.js";
 import { CommandFailure, isCommandFailure } from "../errors.js";
+import {
+  createOrGetExternalSwarmInference,
+  getExternalSwarmInference,
+  type ExternalEntityCard,
+  type ExternalSwarmInferenceRequest,
+  type ExternalSwarmItem
+} from "../external-swarm/index.js";
 import { readWorkspaceFile, readWorkspaceTree, writeWorkspaceFile } from "../workspace/files.js";
 import {
   cancelWorkflow,
@@ -136,6 +143,102 @@ const workflowStepRequestSchema = workflowReadRequestSchema.extend({
   input: z.record(z.string(), z.unknown()).optional()
 });
 
+const externalSwarmItemSchema = z.object({
+  id: z.string().min(1).optional(),
+  title: z.string().min(1),
+  content: z.string().min(1),
+  published_at: z.string().min(1).optional(),
+  source: z.string().min(1).optional(),
+  url: z.string().min(1).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional()
+});
+
+const externalSwarmContextSchema = z.object({
+  entity_cards: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        kind: z.string().min(1),
+        name: z.string().min(1),
+        summary: z.string().min(1),
+        evidence: z.array(z.string().min(1)).optional()
+      })
+    )
+    .optional(),
+  background: z.string().min(1).optional(),
+  worldview: z.string().min(1).optional(),
+  research_notes: z.array(z.string().min(1)).optional()
+});
+
+const externalSwarmInferenceRequestSchema = z.object({
+  client_request_id: z.string().min(1).optional(),
+  domain: z.string().min(1),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  items: z.array(externalSwarmItemSchema).min(1),
+  questions: z.array(z.string().min(1)).min(1),
+  context: externalSwarmContextSchema.optional(),
+  rounds: z.number().int().positive().optional()
+});
+
+type ParsedExternalSwarmInferenceRequest = z.infer<typeof externalSwarmInferenceRequestSchema>;
+
+type ParsedExternalSwarmItem = ParsedExternalSwarmInferenceRequest["items"][number];
+type ParsedExternalSwarmContext = NonNullable<ParsedExternalSwarmInferenceRequest["context"]>;
+type ParsedExternalEntityCard = NonNullable<ParsedExternalSwarmContext["entity_cards"]>[number];
+
+function toExternalSwarmInferenceRequest(
+  body: ParsedExternalSwarmInferenceRequest
+): ExternalSwarmInferenceRequest {
+  return {
+    ...(body.client_request_id === undefined ? {} : { client_request_id: body.client_request_id }),
+    domain: body.domain,
+    title: body.title,
+    summary: body.summary,
+    items: body.items.map(toExternalSwarmItem),
+    questions: body.questions,
+    ...(body.context === undefined ? {} : { context: toExternalSwarmContext(body.context) }),
+    ...(body.rounds === undefined ? {} : { rounds: body.rounds })
+  };
+}
+
+function toExternalSwarmItem(item: ParsedExternalSwarmItem): ExternalSwarmItem {
+  return {
+    ...(item.id === undefined ? {} : { id: item.id }),
+    title: item.title,
+    content: item.content,
+    ...(item.published_at === undefined ? {} : { published_at: item.published_at }),
+    ...(item.source === undefined ? {} : { source: item.source }),
+    ...(item.url === undefined ? {} : { url: item.url }),
+    ...(item.metadata === undefined ? {} : { metadata: item.metadata })
+  };
+}
+
+function toExternalSwarmContext(
+  context: ParsedExternalSwarmContext
+): NonNullable<ExternalSwarmInferenceRequest["context"]> {
+  return {
+    ...(context.entity_cards === undefined
+      ? {}
+      : { entity_cards: context.entity_cards.map(toExternalEntityCard) }),
+    ...(context.background === undefined ? {} : { background: context.background }),
+    ...(context.worldview === undefined ? {} : { worldview: context.worldview }),
+    ...(context.research_notes === undefined ? {} : { research_notes: context.research_notes })
+  };
+}
+
+function toExternalEntityCard(card: ParsedExternalEntityCard): ExternalEntityCard {
+  return {
+    id: card.id,
+    kind: card.kind,
+    name: card.name,
+    summary: card.summary,
+    ...(card.evidence === undefined ? {} : { evidence: card.evidence })
+  };
+}
+
+const externalSwarmInferenceIdPattern = /^\/api\/external\/swarm-inferences\/([^/]+)$/u;
+
 const DEFAULT_AGENT_TASK_STREAM_POLL_MS = 1000;
 const DEFAULT_AGENT_TASK_STREAM_MAX_MS = 5 * 60 * 1000;
 
@@ -181,6 +284,40 @@ export async function handleBridgeRequest(
 
   try {
     const workspacePath = bridgeWorkspacePath();
+
+    if (request.method === "POST" && routePath === "/api/external/swarm-inferences") {
+      const body = externalSwarmInferenceRequestSchema.parse(await readJsonBody(request));
+      const result = await createOrGetExternalSwarmInference({
+        workspacePath,
+        actor: bridgeActor(),
+        request: toExternalSwarmInferenceRequest(body),
+        reason: "external swarm REST inference"
+      });
+      writeJson(response, 200, result);
+      return;
+    }
+
+    if (request.method === "GET") {
+      const externalSwarmMatch = externalSwarmInferenceIdPattern.exec(routePath);
+      if (externalSwarmMatch !== null) {
+        const inferenceId = decodeURIComponent(externalSwarmMatch[1] ?? "");
+        if (inferenceId.trim().length === 0) {
+          throw new CommandFailure(
+            "invalid_external_swarm_request",
+            "External swarm inference id must not be empty.",
+            400
+          );
+        }
+        const result = await getExternalSwarmInference({
+          workspacePath,
+          actor: bridgeActor(),
+          inferenceId
+        });
+        writeJson(response, 200, result);
+        return;
+      }
+    }
+
     if (request.method === "POST" && routePath === "/api/bridge/files/read") {
       const body = readRequestSchema.parse(await readJsonBody(request));
       assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
@@ -542,6 +679,10 @@ export async function handleBridgeRequest(
       404
     );
   } catch (error) {
+    if (isExternalSwarmRoute(routePath)) {
+      writeExternalSwarmError(response, error);
+      return;
+    }
     writeBridgeError(response, error);
   }
 }
@@ -551,7 +692,15 @@ function isBridgeRoute(routePath: string): boolean {
     routePath.startsWith("/api/bridge/files/") ||
     routePath === "/api/bridge/runtime/session/prepare" ||
     routePath.startsWith("/api/bridge/agent/tasks/") ||
-    routePath.startsWith("/api/bridge/workflow/")
+    routePath.startsWith("/api/bridge/workflow/") ||
+    isExternalSwarmRoute(routePath)
+  );
+}
+
+function isExternalSwarmRoute(routePath: string): boolean {
+  return (
+    routePath === "/api/external/swarm-inferences" ||
+    externalSwarmInferenceIdPattern.test(routePath)
   );
 }
 
@@ -1181,6 +1330,30 @@ function writeBridgeError(response: ServerResponse, error: unknown): void {
   });
 }
 
+function writeExternalSwarmError(response: ServerResponse, error: unknown): void {
+  if (error instanceof Error && isCommandFailure(error)) {
+    writeJson(response, httpStatusForExternalSwarmFailure(error), {
+      error: { code: error.code, message: sanitizeBridgeErrorMessage(error.message) }
+    });
+    return;
+  }
+
+  if (error instanceof z.ZodError) {
+    writeJson(response, 400, {
+      error: {
+        code: "invalid_external_swarm_request",
+        message: sanitizeBridgeErrorMessage(z.prettifyError(error))
+      }
+    });
+    return;
+  }
+
+  const message = error instanceof Error ? error.message : "Unexpected external swarm failure.";
+  writeJson(response, 500, {
+    error: { code: "external_swarm_unexpected_error", message: sanitizeBridgeErrorMessage(message) }
+  });
+}
+
 function sanitizeBridgeErrorMessage(message: string): string {
   return message
     .replace(/\.novelfabric\/tasks\/[^\s"'`)]+/gu, "[internal-task-path]")
@@ -1202,6 +1375,13 @@ function sanitizeBridgeErrorMessage(message: string): string {
 function httpStatusForCommandFailure(error: CommandFailure): number {
   if (error.exitCode === 3) return 403;
   if (error.exitCode === 4) return 409;
+  if (error.exitCode >= 400 && error.exitCode <= 599) return error.exitCode;
+  return 400;
+}
+
+function httpStatusForExternalSwarmFailure(error: CommandFailure): number {
+  if (error.exitCode === 3) return 403;
+  if (error.code === "external_swarm_not_found") return 404;
   if (error.exitCode >= 400 && error.exitCode <= 599) return error.exitCode;
   return 400;
 }

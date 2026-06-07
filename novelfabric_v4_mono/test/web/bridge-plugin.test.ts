@@ -54,6 +54,101 @@ afterEach(() => {
   clearWorkflowStepRunStateForTesting();
 });
 
+describe("external swarm REST adapter", () => {
+  it("POST returns the frozen external swarm response shape and preserves client_request_id idempotency", async () => {
+    const workspacePath = await tempExternalSwarmWorkspace("main_agent");
+    configureBridge({ workspacePath, actor: "main_agent" });
+    const request = externalSwarmRequest();
+
+    const first = await postExternalSwarm(request);
+    expect(first.status).toBe(200);
+    expect(isRecord(first.body)).toBe(true);
+    if (!isRecord(first.body)) throw new Error("Expected external swarm response object.");
+    expect(first.body["ok"]).toBeUndefined();
+    expect(first.body["inference_id"]).toEqual(
+      expect.stringMatching(/^external-caller-stable-id-/u)
+    );
+    expect(first.body["project_slug"]).toBe("external-market-impact");
+    expect(first.body["session_id"]).toEqual(expect.stringMatching(/^external-caller-stable-id-/u));
+    expect(first.body["domain"]).toBe("market-impact");
+    expect(first.body["title"]).toBe("Hermes market-impact fixture");
+    expect(first.body["rounds_completed"]).toBe(1);
+    expect(first.body["item_count"]).toBe(1);
+    expect(isRecord(first.body["artifact_paths"])).toBe(true);
+    const artifactPaths = requireRecord(first.body["artifact_paths"]);
+    expect(artifactPaths["manifest"]).toEqual(
+      expect.stringContaining("projects/external-market-impact/external/inferences/")
+    );
+    expect(artifactPaths["report"]).toEqual(
+      expect.stringContaining("projects/external-market-impact/external/reports/")
+    );
+    expect(Array.isArray(artifactPaths["input_items"])).toBe(true);
+    expect(artifactPaths["session"]).toEqual(
+      expect.stringContaining("projects/external-market-impact/simulation/sessions/")
+    );
+    expect(Array.isArray(artifactPaths["swarm_rounds"])).toBe(true);
+    expect(artifactPaths["context"]).toEqual(
+      expect.stringContaining("projects/external-market-impact/external/context/")
+    );
+    expect(Array.isArray(artifactPaths["role_reasoning"])).toBe(true);
+    expect(isRecord(first.body["context_requirements"])).toBe(true);
+    const contextRequirements = requireRecord(first.body["context_requirements"]);
+    expect(contextRequirements["is_ready"]).toBe(true);
+    expect(Array.isArray(first.body["role_reasoning"])).toBe(true);
+    expect((first.body["role_reasoning"] as readonly unknown[]).length).toBeGreaterThan(0);
+
+    const second = await postExternalSwarm(request);
+    expect(second.status).toBe(200);
+    expect(requireRecord(second.body)["inference_id"]).toBe(first.body["inference_id"]);
+    expect(requireRecord(second.body)["artifact_paths"]).toEqual(first.body["artifact_paths"]);
+  });
+
+  it("GET returns the persisted external swarm inference shape", async () => {
+    const workspacePath = await tempExternalSwarmWorkspace("main_agent");
+    configureBridge({ workspacePath, actor: "main_agent" });
+    const created = await postExternalSwarm(externalSwarmRequest());
+    const inferenceId = String(requireRecord(created.body)["inference_id"]);
+
+    const fetched = await getExternalSwarm(inferenceId);
+    expect(fetched.status).toBe(200);
+    expect(fetched.body).toEqual(created.body);
+  });
+
+  it("returns 403 when the configured bridge actor lacks external swarm capability", async () => {
+    const workspacePath = await tempExternalSwarmWorkspace("role_agent");
+    configureBridge({ workspacePath, actor: "role_agent" });
+
+    const response = await postExternalSwarm(externalSwarmRequest());
+    expect(response.status).toBe(403);
+    expect(isRecord(response.body)).toBe(true);
+    const body = requireRecord(response.body);
+    expect(body["ok"]).toBeUndefined();
+    expect(requireRecord(body["error"])["code"]).toBe("capability_denied");
+  });
+
+  it("returns 400 for invalid external swarm requests", async () => {
+    const workspacePath = await tempExternalSwarmWorkspace("main_agent");
+    configureBridge({ workspacePath, actor: "main_agent" });
+
+    const response = await postExternalSwarm({ ...externalSwarmRequest(), items: [] });
+    expect(response.status).toBe(400);
+    const body = requireRecord(response.body);
+    expect(body["ok"]).toBeUndefined();
+    expect(requireRecord(body["error"])["code"]).toBe("invalid_external_swarm_request");
+  });
+
+  it("returns 404 for missing external swarm inference ids", async () => {
+    const workspacePath = await tempExternalSwarmWorkspace("main_agent");
+    configureBridge({ workspacePath, actor: "main_agent" });
+
+    const response = await getExternalSwarm("external-missing-fixture");
+    expect(response.status).toBe(404);
+    const body = requireRecord(response.body);
+    expect(body["ok"]).toBeUndefined();
+    expect(requireRecord(body["error"])["code"]).toBe("external_swarm_not_found");
+  });
+});
+
 describe("NovelFabric web bridge agent task routes", () => {
   it("returns bridge_disabled when bridge is not enabled", async () => {
     delete process.env["NOVELFABRIC_WEB_BRIDGE"];
@@ -1741,6 +1836,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function requireRecord(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error("Expected JSON object.");
+  return value;
+}
+
 function parseStreamFrame(body: string, eventName: string): GenericBridgeEnvelope {
   const marker = `event: ${eventName}\ndata: `;
   const start = body.indexOf(marker);
@@ -1776,6 +1876,65 @@ function expectNoInternalTaskPaths(value: unknown, workspacePath?: string): void
 
 function fixtureWorkspace(): string {
   return path.resolve(import.meta.dirname, "../../fixtures/workspaces/valid-basic");
+}
+
+function externalSwarmRequest(): Record<string, unknown> {
+  return {
+    client_request_id: "caller-stable-id",
+    domain: "market-impact",
+    title: "Hermes market-impact fixture",
+    summary: "Infer plausible effects from a caller-provided market signal.",
+    items: [
+      {
+        id: "signal-001",
+        title: "Factory outage signal",
+        content:
+          "A supplier reported a temporary factory outage that may affect Example Corp deliveries.",
+        published_at: "2026-06-01T12:00:00Z",
+        source: "Hermes fixture",
+        metadata: { symbol: "EXM" }
+      }
+    ],
+    questions: ["Which impacts are plausible?", "What should be monitored next?"],
+    context: {
+      entity_cards: [
+        {
+          id: "entity-example-corp",
+          kind: "company",
+          name: "Example Corp",
+          summary: "A caller-provided company card for the affected entity.",
+          evidence: ["signal-001"]
+        }
+      ],
+      background: "Caller-provided context says Example Corp depends on this supplier.",
+      worldview: "Supply disruptions can affect delivery timing and risk sentiment.",
+      research_notes: ["Treat single-source claims as uncertain until corroborated."]
+    },
+    rounds: 1
+  };
+}
+
+async function tempExternalSwarmWorkspace(actor: "main_agent" | "role_agent"): Promise<string> {
+  const workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-external-swarm-rest-test-"));
+  await fs.cp(fixtureWorkspace(), workspacePath, { recursive: true });
+  const mainAllow =
+    actor === "main_agent"
+      ? 'allow = ["project.manage", "files.patch_protected", "external_swarm.run"]'
+      : 'allow = ["project.manage", "files.patch_protected"]';
+  await fs.writeFile(
+    path.join(workspacePath, ".novelfabric", "capabilities.toml"),
+    [
+      "[main_agent]",
+      mainAllow,
+      "",
+      "[role_agent]",
+      'allow = ["memory.recall", "simulation.append_turn"]',
+      'deny = ["files.patch_protected", "external_swarm.run"]',
+      ""
+    ].join("\n"),
+    "utf8"
+  );
+  return workspacePath;
 }
 
 async function tempWorkspace(): Promise<string> {
@@ -1903,6 +2062,50 @@ function configureBridge(input: { readonly workspacePath: string; readonly actor
   process.env["NOVELFABRIC_WEB_BRIDGE"] = "1";
   process.env["NOVELFABRIC_WEB_BRIDGE_WORKSPACE"] = input.workspacePath;
   process.env["NOVELFABRIC_WEB_BRIDGE_ACTOR"] = input.actor;
+}
+
+async function postExternalSwarm(
+  body: Record<string, unknown>
+): Promise<{ readonly status: number; readonly body: unknown }> {
+  const server = await listenBridgeServer();
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected bridge test server to listen on a TCP port.");
+    }
+    const response = await fetch(
+      `http://127.0.0.1:${address.port.toString()}/api/external/swarm-inferences`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      }
+    );
+    const responseBody: unknown = await response.json();
+    return { status: response.status, body: responseBody };
+  } finally {
+    await closeServer(server);
+  }
+}
+
+async function getExternalSwarm(
+  inferenceId: string
+): Promise<{ readonly status: number; readonly body: unknown }> {
+  const server = await listenBridgeServer();
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected bridge test server to listen on a TCP port.");
+    }
+    const response = await fetch(
+      `http://127.0.0.1:${address.port.toString()}/api/external/swarm-inferences/${encodeURIComponent(inferenceId)}`,
+      { method: "GET" }
+    );
+    const responseBody: unknown = await response.json();
+    return { status: response.status, body: responseBody };
+  } finally {
+    await closeServer(server);
+  }
 }
 
 async function postBridge(
