@@ -361,6 +361,108 @@ describe("pi SDK adapter skeleton", () => {
     );
   });
 
+  it("rejects getLastAssistantText fallback when SDK messages are unavailable", async () => {
+    const workspacePath = await fs.mkdtemp(
+      path.join(os.tmpdir(), "nf-pi-sdk-unavailable-messages-workspace-")
+    );
+    const runtimeRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "nf-pi-sdk-unavailable-messages-runtime-")
+    );
+    tempPaths.push(workspacePath, runtimeRoot);
+
+    const sdkModule = fakeSdkModuleWithSession({
+      getLastAssistantText: () => "stale assistant text from a previous prompt",
+      prompt: () => Promise.resolve()
+    });
+
+    await expect(
+      runPiSdkAgentTask({
+        workspacePath,
+        taskId: "unavailable-messages-sdk-task",
+        prompt: "Return current JSON only.",
+        runtime: {
+          runtimeRoot,
+          provider: "axonhub",
+          model: "generic-writer"
+        },
+        sdkModule
+      })
+    ).rejects.toMatchObject({ code: "pi_sdk_empty_output" });
+  });
+
+  it("does not reuse stale assistant messages as pi-sdk output", async () => {
+    const workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-pi-sdk-stale-workspace-"));
+    const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nf-pi-sdk-stale-runtime-"));
+    tempPaths.push(workspacePath, runtimeRoot);
+
+    const messages: unknown[] = [
+      { role: "assistant", content: "stale assistant text from a previous prompt" }
+    ];
+    const sdkModule = fakeSdkModuleWithSession({
+      messages,
+      getLastAssistantText: () => "stale assistant text from a previous prompt",
+      prompt: () => Promise.resolve()
+    });
+
+    await expect(
+      runPiSdkAgentTask({
+        workspacePath,
+        taskId: "stale-sdk-task",
+        prompt: "Return current JSON only.",
+        runtime: {
+          runtimeRoot,
+          provider: "axonhub",
+          model: "generic-writer"
+        },
+        sdkModule
+      })
+    ).rejects.toMatchObject({ code: "pi_sdk_empty_output" });
+  });
+
+  it("uses assistant messages appended by the current pi-sdk prompt as fallback output", async () => {
+    const workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-pi-sdk-current-workspace-"));
+    const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nf-pi-sdk-current-runtime-"));
+    tempPaths.push(workspacePath, runtimeRoot);
+
+    const messages: unknown[] = [
+      { role: "assistant", content: "stale assistant text from a previous prompt" }
+    ];
+    const sdkModule = fakeSdkModuleWithSession({
+      messages,
+      getLastAssistantText: () => "stale assistant text from a previous prompt",
+      prompt: () => {
+        messages.push({
+          role: "assistant",
+          content: [{ type: "text", text: '{"kind":"novelfabric.current-prompt"}' }]
+        });
+        return Promise.resolve();
+      }
+    });
+
+    const result = await runPiSdkAgentTask({
+      workspacePath,
+      taskId: "current-sdk-task",
+      prompt: "Return current JSON only.",
+      runtime: {
+        runtimeRoot,
+        provider: "axonhub",
+        model: "generic-writer"
+      },
+      sdkModule
+    });
+
+    expect(result.outputText).toContain("novelfabric.current-prompt");
+    expect(result.outputText).not.toContain("stale assistant text");
+    expect(result.normalizedEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "model.output",
+          text: '{"kind":"novelfabric.current-prompt"}'
+        })
+      ])
+    );
+  });
+
   it("accepts class-shaped SDK exports with static factory methods", async () => {
     const workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-pi-sdk-class-workspace-"));
     const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nf-pi-sdk-class-runtime-"));
@@ -507,6 +609,67 @@ describe("pi SDK adapter skeleton", () => {
       result.sessionDirectory
     );
   });
+
+  function fakeSdkModuleWithSession(input: {
+    readonly messages?: readonly unknown[];
+    readonly getLastAssistantText?: () => string | undefined;
+    readonly prompt: (prompt: string) => Promise<void>;
+  }): PiSdkAgentSessionModule {
+    return {
+      createAgentSession: () =>
+        Promise.resolve({
+          session: {
+            sessionId: "fallback-sdk-session",
+            ...(input.messages === undefined ? {} : { messages: input.messages }),
+            ...(input.getLastAssistantText === undefined
+              ? {}
+              : { getLastAssistantText: input.getLastAssistantText }),
+            subscribe() {
+              return () => undefined;
+            },
+            prompt(prompt) {
+              return input.prompt(prompt);
+            },
+            dispose() {
+              return undefined;
+            }
+          }
+        }),
+      AuthStorage: {
+        create(authPath) {
+          return { authPath };
+        }
+      },
+      ModelRegistry: {
+        create() {
+          return {
+            raw: { registry: true },
+            find(provider, modelId) {
+              return { provider, modelId };
+            }
+          };
+        }
+      },
+      SettingsManager: {
+        create(cwd, agentDir) {
+          return { cwd, agentDir };
+        }
+      },
+      SessionManager: {
+        create(cwd, sessionDir) {
+          return { cwd, sessionDir };
+        },
+        inMemory(cwd) {
+          return { cwd };
+        }
+      },
+      DefaultResourceLoader: class {
+        async reload(): Promise<void> {
+          await Promise.resolve();
+        }
+      }
+    };
+  }
 
   function recordValue(value: unknown): Record<string, unknown> {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {

@@ -16,6 +16,7 @@
     "test:contracts": "vitest run --passWithNoTests test/acceptance",
     "test:acceptance": "vitest run --passWithNoTests test/acceptance test/workflow test/cli/workflow.test.ts && npm run test:pi-acceptance",
     "test:pi-acceptance": "node scripts/pi-content-acceptance.mjs",
+    "test:pi-sdk-acceptance": "node scripts/pi-sdk-acceptance.mjs",
     "test:e2e": "playwright test test/e2e --pass-with-no-tests",
     "cli": "tsx src/cli.ts",
     "web:dev": "vite --host 127.0.0.1 --port 50021",

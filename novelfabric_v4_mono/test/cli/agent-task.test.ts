@@ -329,6 +329,72 @@ describe("agent task command module", () => {
     }
   });
 
+  it("captures pi-sdk assistant text when the SDK does not emit model.output events", async () => {
+    const restoreSdkModule = setAgentTaskPiSdkModuleForTesting(
+      fakePiSdkModuleForCliTest({
+        outputText:
+          '{"kind":"novelfabric.agent.sdk-fallback-output","version":1,"summary":"sdk fallback assistant text processed cli task"}',
+        emitModelOutput: false
+      })
+    );
+    try {
+      await runCommand([
+        "agent",
+        "task",
+        "create",
+        "--workspace",
+        workspacePath,
+        "--actor",
+        "main_agent",
+        "--task-id",
+        "sdk-fallback-check",
+        "--title",
+        "SDK Fallback Check",
+        "--instruction",
+        "Return the SDK fallback check JSON.",
+        "--output-schema-json",
+        JSON.stringify({
+          type: "object",
+          required: ["kind", "version", "summary"],
+          properties: {
+            kind: { type: "string" },
+            version: { type: "number" },
+            summary: { type: "string", containsText: "sdk fallback" }
+          }
+        }),
+        "--json"
+      ]);
+
+      const runResult = await runCommand([
+        "agent",
+        "run",
+        "--workspace",
+        workspacePath,
+        "--actor",
+        "main_agent",
+        "--task",
+        "sdk-fallback-check",
+        "--runtime",
+        "pi-sdk",
+        "--json"
+      ]);
+
+      expect(runResult.ok).toBe(true);
+      const resultFile = await readWorkspaceFile({
+        workspacePath,
+        path: ".novelfabric/tasks/sdk-fallback-check/result.json"
+      });
+      expect(resultFile.content).toContain("sdk fallback assistant text");
+      const eventsFile = await readWorkspaceFile({
+        workspacePath,
+        path: ".novelfabric/tasks/sdk-fallback-check/events.jsonl"
+      });
+      expect(eventsFile.content).toContain("sdk model output");
+    } finally {
+      restoreSdkModule();
+    }
+  });
+
   it("rejects completed pi output that does not match output.schema.json", async () => {
     await runCommand([
       "agent",
@@ -626,20 +692,33 @@ async function captureStdout(action: () => Promise<void>): Promise<string> {
 
 function fakePiSdkModuleForCliTest(input: {
   readonly outputText: string;
+  readonly emitModelOutput?: boolean;
 }): PiSdkAgentSessionModule {
   let emit: (event: unknown) => void = () => undefined;
+  const messages: unknown[] = [];
   return {
     createAgentSession: () =>
       Promise.resolve({
         session: {
           sessionId: "sdk-cli-session",
           sessionFile: "/tmp/novelfabric-sdk-cli-session.jsonl",
+          messages,
+          getLastAssistantText() {
+            return input.outputText;
+          },
           subscribe(listener) {
             emit = listener;
             return () => undefined;
           },
           prompt() {
-            emit({ type: "model_output", text: input.outputText });
+            if (input.emitModelOutput !== false) {
+              emit({ type: "model_output", text: input.outputText });
+            } else {
+              messages.push({
+                role: "assistant",
+                content: [{ type: "text", text: input.outputText }]
+              });
+            }
             return Promise.resolve();
           },
           dispose() {

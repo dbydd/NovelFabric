@@ -153,6 +153,7 @@ type PiSdkAgentSession = {
   readonly sessionFile?: string;
   readonly messages?: readonly unknown[];
   readonly isStreaming?: boolean;
+  getLastAssistantText?(): string | undefined;
   subscribe(listener: (event: unknown) => void): () => void;
   prompt(text: string, options?: Readonly<Record<string, unknown>>): Promise<void>;
   dispose(): void;
@@ -497,13 +498,24 @@ export async function runPiSdkAgentTask(
   });
 
   try {
+    const messageCountBeforePrompt = session.messages?.length ?? 0;
     normalizedEvents.push({
       type: "session.started",
       ...(session.sessionId === undefined ? {} : { sessionId: session.sessionId })
     });
     await session.prompt(request.prompt, { expandPromptTemplates: false, source: "novelfabric" });
     normalizedEvents.push({ type: "session.completed" });
-    const outputText = outputParts.join("").trim();
+    let outputText = outputParts.join("").trim();
+    if (outputText.length === 0) {
+      const fallbackOutput = extractLastAssistantTextFromCurrentPrompt(
+        session,
+        messageCountBeforePrompt
+      );
+      if (fallbackOutput !== undefined) {
+        outputText = fallbackOutput;
+        normalizedEvents.push({ type: "model.output", text: fallbackOutput });
+      }
+    }
     if (outputText.length === 0) {
       throw new CommandFailure("pi_sdk_empty_output", "pi SDK session returned empty output.", 2);
     }
@@ -525,6 +537,37 @@ export async function runPiSdkAgentTask(
     unsubscribe();
     session.dispose();
   }
+}
+
+function extractLastAssistantTextFromCurrentPrompt(
+  session: PiSdkAgentSession,
+  messageCountBeforePrompt: number
+): string | undefined {
+  const messages = session.messages;
+  if (messages === undefined) return undefined;
+  if (messages.length <= messageCountBeforePrompt) return undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (index < messageCountBeforePrompt) break;
+    const message = messages[index];
+    const text = extractAssistantTextFromMessage(message);
+    if (text !== undefined) return text;
+  }
+  return undefined;
+}
+
+function extractAssistantTextFromMessage(message: unknown): string | undefined {
+  if (!isJsonObject(message) || message["role"] !== "assistant") return undefined;
+  const content = message["content"];
+  if (typeof content === "string" && content.trim().length > 0) return content.trim();
+  if (!Array.isArray(content)) return undefined;
+  const parts = content.flatMap((item): readonly string[] => {
+    if (typeof item === "string") return [item];
+    if (!isJsonObject(item)) return [];
+    const text = item["text"];
+    return typeof text === "string" ? [text] : [];
+  });
+  const joined = parts.join("").trim();
+  return joined.length > 0 ? joined : undefined;
 }
 
 function toPiSdkAgentSessionModule(moduleExports: unknown): PiSdkAgentSessionModule {
