@@ -5,7 +5,9 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createAgentTask, validateAgentOutput } from "../../src/agent-runtime/tasks.js";
+import { validateReportArtifact } from "../../src/report/index.js";
 import { createSimulationSession } from "../../src/simulation/index.js";
+import { validateSwarmOutput } from "../../src/swarm/index.js";
 import {
   cancelWorkflow,
   listWorkflowArtifacts,
@@ -17,6 +19,7 @@ import {
   workflowStages
 } from "../../src/workflow/index.js";
 import { readWorkspaceFile, writeWorkspaceFile } from "../../src/workspace/files.js";
+import { validateWritingDraftArtifact } from "../../src/writing/index.js";
 
 const VALID_FIXTURE = path.resolve(import.meta.dirname, "../../fixtures/workspaces/valid-basic");
 
@@ -59,6 +62,34 @@ function parseAgentTaskResult(content: string): {
     outputText,
     sourceAnchors
   };
+}
+
+function parseJsonRecord(content: string, label: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(content);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`Expected ${label} object.`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function parseWorkflowArtifacts(content: string): {
+  readonly items: readonly { readonly name: string; readonly [key: string]: unknown }[];
+  readonly [key: string]: unknown;
+} {
+  const record = parseJsonRecord(content, "workflow artifacts");
+  const items = record["items"];
+  if (!Array.isArray(items)) throw new Error("Expected workflow artifacts items array.");
+  const narrowedItems = items.map((item) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw new Error("Expected workflow artifact item object.");
+    }
+    const itemRecord = item as Record<string, unknown>;
+    if (typeof itemRecord["name"] !== "string") {
+      throw new Error("Expected workflow artifact item name.");
+    }
+    return itemRecord as { readonly name: string; readonly [key: string]: unknown };
+  });
+  return { ...record, items: narrowedItems };
 }
 
 describe("workflow acceptance state machine", () => {
@@ -178,8 +209,10 @@ describe("workflow acceptance state machine", () => {
     await writeWorkflowEvidenceArtifacts(completedWrite.hash);
 
     const executed = await verifyWorkflow({ workspacePath, jobId });
-    expect(executed.issues).toEqual([]);
-    expect(executed.valid).toBe(true);
+    expect(executed.valid).toBe(false);
+    expect(executed.issues).toContainEqual(
+      expect.objectContaining({ code: "workflow_domain_artifact_missing" })
+    );
 
     async function writeWorkflowEvidenceArtifacts(hash: string): Promise<void> {
       await writeWorkspaceFile({
@@ -530,6 +563,18 @@ describe("workflow acceptance state machine", () => {
     expect(evidenceArtifact).toBeDefined();
     if (evidenceArtifact === undefined) throw new Error("Missing evidence artifact.");
     expect(evidenceArtifact.hash).toMatch(/^sha256:/u);
+    const swarmOutputArtifact = swarmStep.artifacts.find(
+      (a) => a.name === "swarm-output" && a.artifactKind === "novelfabric.swarm.output"
+    );
+    expect(swarmOutputArtifact).toBeDefined();
+    if (swarmOutputArtifact === undefined) throw new Error("Missing swarm output artifact.");
+    expect(swarmOutputArtifact.hash).toMatch(/^sha256:/u);
+    const swarmValidation = await validateSwarmOutput({
+      workspacePath,
+      artifactPath: swarmOutputArtifact.path
+    });
+    expect(swarmValidation.valid).toBe(true);
+    expect(swarmValidation.issues).toEqual([]);
 
     const resultRead = await readWorkspaceFile({
       workspacePath,
@@ -545,6 +590,124 @@ describe("workflow acceptance state machine", () => {
     const verified = await verifyWorkflow({ workspacePath, jobId });
     expect(verified.valid).toBe(true);
     expect(verified.issues).toEqual([]);
+
+    const artifactsRead = await readWorkspaceFile({
+      workspacePath,
+      path: `.novelfabric/jobs/${jobId}/artifacts.json`
+    });
+    const artifactsRecord = parseWorkflowArtifacts(artifactsRead.content);
+    await writeWorkspaceFile({
+      workspacePath,
+      path: `.novelfabric/jobs/${jobId}/artifacts.json`,
+      actor: "main_agent",
+      content: stableJson({
+        ...artifactsRecord,
+        items: artifactsRecord.items.filter((item) => item.name !== "swarm-output")
+      }),
+      reason: "test remove domain artifact evidence"
+    });
+    const missingDomain = await verifyWorkflow({ workspacePath, jobId });
+    expect(missingDomain.valid).toBe(false);
+    expect(missingDomain.issues).toContainEqual(
+      expect.objectContaining({ code: "workflow_domain_artifact_missing" })
+    );
+    await writeWorkspaceFile({
+      workspacePath,
+      path: `.novelfabric/jobs/${jobId}/artifacts.json`,
+      actor: "main_agent",
+      content: artifactsRead.content,
+      reason: "test restore domain artifact evidence"
+    });
+
+    const swarmOutputRead = await readWorkspaceFile({
+      workspacePath,
+      path: swarmOutputArtifact.path
+    });
+    await writeWorkspaceFile({
+      workspacePath,
+      path: swarmOutputArtifact.path,
+      actor: "main_agent",
+      content: swarmOutputRead.content.replace("pi-agent-proposal", "tampered-proposal"),
+      reason: "test domain artifact tamper"
+    });
+    const tamperedDomain = await verifyWorkflow({ workspacePath, jobId });
+    expect(tamperedDomain.valid).toBe(false);
+    expect(tamperedDomain.issues).toContainEqual(
+      expect.objectContaining({
+        code: "workflow_domain_artifact_hash_mismatch",
+        path: swarmOutputArtifact.path
+      })
+    );
+    await writeWorkspaceFile({
+      workspacePath,
+      path: swarmOutputArtifact.path,
+      actor: "main_agent",
+      content: swarmOutputRead.content,
+      reason: "test restore domain artifact content"
+    });
+
+    const otherResultPath = `.novelfabric/tasks/workflow-other-job-swarm.task.create/result.json`;
+    const otherResultWrite = await writeWorkspaceFile({
+      workspacePath,
+      path: otherResultPath,
+      actor: "main_agent",
+      content: resultRead.content,
+      reason: "test other workflow result fixture"
+    });
+    const otherSwarmArtifactPath = `simulation/sessions/${jobId}/rounds/1/proposals/other-job-materialized.json`;
+    const swarmOutputRecord = parseJsonRecord(swarmOutputRead.content, "swarm output");
+    const otherSwarmWrite = await writeWorkspaceFile({
+      workspacePath,
+      path: otherSwarmArtifactPath,
+      actor: "main_agent",
+      content: stableJson({
+        ...swarmOutputRecord,
+        createdFromTask: otherResultPath,
+        citationHashes: [
+          { path: otherResultPath, hash: otherResultWrite.hash },
+          ...(Array.isArray(swarmOutputRecord["citationHashes"])
+            ? swarmOutputRecord["citationHashes"]
+            : []
+          ).filter((item): item is Record<string, unknown> => {
+            if (typeof item !== "object" || item === null || Array.isArray(item)) return false;
+            const record = item as Record<string, unknown>;
+            const citationPath = record["path"];
+            return citationPath !== evidenceArtifact.path;
+          })
+        ]
+      }),
+      reason: "test other workflow swarm artifact fixture"
+    });
+    const restoredArtifactsRecord = parseWorkflowArtifacts(artifactsRead.content);
+    await writeWorkspaceFile({
+      workspacePath,
+      path: `.novelfabric/jobs/${jobId}/artifacts.json`,
+      actor: "main_agent",
+      content: stableJson({
+        ...restoredArtifactsRecord,
+        items: restoredArtifactsRecord.items.map((item) =>
+          item.name === "swarm-output"
+            ? { ...item, path: otherSwarmWrite.path, hash: otherSwarmWrite.hash }
+            : item
+        )
+      }),
+      reason: "test replace domain artifact with other workflow artifact"
+    });
+    const otherWorkflowDomain = await verifyWorkflow({ workspacePath, jobId });
+    expect(otherWorkflowDomain.valid).toBe(false);
+    expect(otherWorkflowDomain.issues).toContainEqual(
+      expect.objectContaining({
+        code: "workflow_domain_artifact_evidence_mismatch",
+        path: otherSwarmWrite.path
+      })
+    );
+    await writeWorkspaceFile({
+      workspacePath,
+      path: `.novelfabric/jobs/${jobId}/artifacts.json`,
+      actor: "main_agent",
+      content: artifactsRead.content,
+      reason: "test restore domain artifact evidence after mismatch"
+    });
 
     await writeWorkspaceFile({
       workspacePath,
@@ -630,6 +793,18 @@ describe("workflow acceptance state machine", () => {
     expect(evidenceArtifact).toBeDefined();
     if (evidenceArtifact === undefined) throw new Error("Missing report evidence artifact.");
     expect(evidenceArtifact.hash).toMatch(/^sha256:/u);
+    const reportArtifact = reportStep.artifacts.find(
+      (a) => a.name === "report-artifact" && a.artifactKind === "novelfabric.report.artifact"
+    );
+    expect(reportArtifact).toBeDefined();
+    if (reportArtifact === undefined) throw new Error("Missing report artifact.");
+    expect(reportArtifact.hash).toMatch(/^sha256:/u);
+    const reportValidation = await validateReportArtifact({
+      workspacePath,
+      artifactPath: reportArtifact.path
+    });
+    expect(reportValidation.valid).toBe(true);
+    expect(reportValidation.issues).toEqual([]);
 
     const resultRead = await readWorkspaceFile({ workspacePath, path: evidenceArtifact.path });
     expect(evidenceArtifact.hash).toBe(resultRead.hash);
@@ -686,13 +861,32 @@ describe("workflow acceptance state machine", () => {
     });
     expect(simulationContextStep.stageStatus).toBe("completed");
 
-    await writeWorkflowRuntimeFixture({
+    const planStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
       jobId,
-      now: new Date().toISOString(),
-      nextStageIndex: writingContextIndex,
-      completedStages: completedStagesBefore(writingContextIndex, now),
-      artifacts: simulationContextStep.artifacts
+      input: { stage: "swarm.plan" }
     });
+    expect(planStep.stageStatus).toBe("completed");
+    expect(planStep.executedStage).toBe("swarm.plan");
+
+    const swarmStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId,
+      input: { stage: "swarm.task.create" }
+    });
+    expect(swarmStep.stageStatus).toBe("completed");
+    expect(swarmStep.executedStage).toBe("swarm.task.create");
+
+    const reportStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId,
+      input: { stage: "report.task.create" }
+    });
+    expect(reportStep.stageStatus).toBe("completed");
+    expect(reportStep.executedStage).toBe("report.task.create");
 
     const writingContextStep = await stepWorkflow({
       workspacePath,
@@ -726,6 +920,18 @@ describe("workflow acceptance state machine", () => {
     );
     expect(evidenceArtifact).toBeDefined();
     if (evidenceArtifact === undefined) throw new Error("Missing writing evidence artifact.");
+    const writingDraftArtifact = draftStep.artifacts.find(
+      (a) => a.name === "writing-draft" && a.artifactKind === "novelfabric.writing.draft"
+    );
+    expect(writingDraftArtifact).toBeDefined();
+    if (writingDraftArtifact === undefined) throw new Error("Missing writing draft artifact.");
+    const draftValidation = await validateWritingDraftArtifact(
+      workspacePath,
+      writingDraftArtifact.path
+    );
+    expect(draftValidation.valid).toBe(true);
+    expect(draftValidation.issues).toEqual([]);
+
     const resultRead = await readWorkspaceFile({ workspacePath, path: evidenceArtifact.path });
     const resultJson = parseAgentTaskResult(resultRead.content);
     expect(resultJson.status).toBe("completed");
@@ -742,7 +948,11 @@ describe("workflow acceptance state machine", () => {
     });
     expect(validation.valid).toBe(true);
     expect(validation.issues).toEqual([]);
-  }, 60000);
+
+    const verified = await verifyWorkflow({ workspacePath, jobId });
+    expect(verified.valid).toBe(true);
+    expect(verified.issues).toEqual([]);
+  }, 120000);
 
   it("plans, starts, steps deterministic stages, verifies artifacts, and can be cancelled", async () => {
     const planned = await planWorkflow({

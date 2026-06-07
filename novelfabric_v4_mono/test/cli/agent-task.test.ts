@@ -335,6 +335,94 @@ describe("agent task command module", () => {
     }
   });
 
+  it("validates exact source anchor schema constraints", async () => {
+    const sourceAnchors = ["叶小伟醒来", "城市边缘传来钟声", "第二章"];
+    await runCommand([
+      "agent",
+      "task",
+      "create",
+      "--workspace",
+      workspacePath,
+      "--actor",
+      "main_agent",
+      "--task-id",
+      "anchor-schema-check",
+      "--title",
+      "Anchor Schema Check",
+      "--instruction",
+      "Return exact source anchors.",
+      "--output-schema-json",
+      JSON.stringify({
+        type: "object",
+        required: ["kind", "version", "sourceAnchors"],
+        properties: {
+          kind: { type: "string" },
+          version: { type: "number" },
+          sourceAnchors: {
+            type: "array",
+            minItems: sourceAnchors.length,
+            containsAllText: sourceAnchors,
+            containsOnlyText: sourceAnchors,
+            items: { type: "string", minLength: 2 }
+          }
+        }
+      }),
+      "--json"
+    ]);
+
+    await writeCompletedTaskResult(workspacePath, "anchor-schema-check", {
+      kind: "novelfabric.agent.anchor-test-output",
+      version: 1,
+      sourceAnchors
+    });
+    const validResult = await runCommand([
+      "agent",
+      "output",
+      "validate",
+      "--workspace",
+      workspacePath,
+      "--task",
+      "anchor-schema-check",
+      "--json"
+    ]);
+    expect(validResult.ok).toBe(true);
+    if (validResult.ok) {
+      expect(validResult.data.valid).toBe(true);
+      expect(validResult.data.issues).toEqual([]);
+    }
+
+    for (const invalidAnchors of [
+      ["叶小伟醒来（模型补充）", "城市边缘传来钟声", "第二章"],
+      ["叶小伟醒来 城市边缘传来钟声 第二章"],
+      ["叶小伟醒来", "城市边缘传来钟声"]
+    ]) {
+      await writeCompletedTaskResult(workspacePath, "anchor-schema-check", {
+        kind: "novelfabric.agent.anchor-test-output",
+        version: 1,
+        sourceAnchors: invalidAnchors
+      });
+      const invalidResult = await runCommand([
+        "agent",
+        "output",
+        "validate",
+        "--workspace",
+        workspacePath,
+        "--task",
+        "anchor-schema-check",
+        "--json"
+      ]);
+      expect(invalidResult.ok).toBe(true);
+      if (invalidResult.ok) {
+        expect(invalidResult.data.valid).toBe(false);
+        expect(invalidResult.data.issues).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ code: "agent_task_output_schema_mismatch" })
+          ])
+        );
+      }
+    }
+  });
+
   it("keeps task package writes behind protected workspace capabilities", async () => {
     await fs.writeFile(
       path.join(workspacePath, ".novelfabric", "capabilities.toml"),
@@ -362,6 +450,53 @@ describe("agent task command module", () => {
     ).rejects.toMatchObject({ code: "capability_denied" });
   });
 });
+
+async function writeCompletedTaskResult(
+  workspacePath: string,
+  taskId: string,
+  parsedJson: Record<string, unknown>
+): Promise<void> {
+  await writeWorkspaceFile({
+    workspacePath,
+    path: `.novelfabric/tasks/${taskId}/result.json`,
+    actor: "main_agent",
+    content: JSON.stringify(
+      {
+        kind: "novelfabric.agent.task.result",
+        version: 1,
+        taskId,
+        status: "completed",
+        runtime: "pi",
+        actor: "main_agent",
+        updatedAt: new Date().toISOString(),
+        piSdk: { adapter: "@earendil-works/pi-coding-agent", available: true },
+        runtimeEvidence: {
+          runtimeRoot: "/tmp/novelfabric/pi",
+          provider: "axonhub",
+          model: "generic-writer",
+          modelPurpose: "production",
+          piBin: "pi",
+          toolPolicy: "--no-tools",
+          sessionPolicy: "--no-session",
+          contextPolicy: "--no-context-files",
+          stdoutBytes: 10,
+          stderrBytes: 0
+        },
+        output: {
+          kind: "novelfabric.agent.task.output",
+          version: 1,
+          format: "json",
+          rawText: JSON.stringify(parsedJson),
+          parsedJson
+        },
+        notes: []
+      },
+      null,
+      2
+    ),
+    reason: "test completed task result"
+  });
+}
 
 async function grantProtectedTaskWrite(workspacePath: string): Promise<void> {
   await fs.writeFile(

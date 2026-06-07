@@ -678,9 +678,20 @@ function validateJsonSchemaValue(
       for (const requiredText of containsAllText) {
         if (
           typeof requiredText === "string" &&
-          !arrayValue.some((item) => typeof item === "string" && item.includes(requiredText))
+          !arrayValue.some((item) => typeof item === "string" && item === requiredText)
         ) {
-          issues.push(`${pathLabel} must include an item containing '${requiredText}'.`);
+          issues.push(`${pathLabel} must include exact item '${requiredText}'.`);
+        }
+      }
+    }
+    const containsOnlyText = schema["containsOnlyText"];
+    if (Array.isArray(containsOnlyText)) {
+      const allowedTexts = containsOnlyText.filter(
+        (item): item is string => typeof item === "string" && item.length > 0
+      );
+      for (const item of arrayValue) {
+        if (typeof item === "string" && !allowedTexts.includes(item)) {
+          issues.push(`${pathLabel} item '${item}' must exactly equal one allowed source text.`);
         }
       }
     }

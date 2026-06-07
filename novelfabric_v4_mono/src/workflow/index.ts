@@ -8,15 +8,29 @@ import {
   normalizeImportSource
 } from "../import/source.js";
 import { buildContextPack, rebuildKnowledgeIndex } from "../knowledge/index.js";
-import { createReportTask } from "../report/index.js";
+import {
+  createReportTask,
+  materializeReportArtifactFromAgentTask,
+  validateReportArtifact
+} from "../report/index.js";
 import {
   buildSimulationContextPack,
   createSimulationSession,
   safePathSegment,
   stableJson
 } from "../simulation/index.js";
-import { createSwarmTask, planSwarmRound } from "../swarm/index.js";
-import { buildWritingContextPack, createWritingDraftTask } from "../writing/index.js";
+import {
+  createSwarmTask,
+  materializeSwarmOutputFromAgentTask,
+  planSwarmRound,
+  validateSwarmOutput
+} from "../swarm/index.js";
+import {
+  buildWritingContextPack,
+  createWritingDraftTask,
+  materializeWritingDraftFromAgentTask,
+  validateWritingDraftArtifact
+} from "../writing/index.js";
 import { contentHash, readWorkspaceFile, writeWorkspaceFile } from "../workspace/files.js";
 
 export type WorkflowStatus = "planned" | "running" | "completed" | "failed" | "cancelled";
@@ -111,6 +125,11 @@ type AgentTaskEvidence = {
   readonly packagePath: string;
   readonly resultPath: string;
   readonly resultWrite: WorkflowWriteSummary;
+};
+
+type WorkflowDomainArtifactSpec = {
+  readonly name: string;
+  readonly kind: string;
 };
 
 export type WorkflowTraceEntry = {
@@ -786,13 +805,20 @@ export async function verifyWorkflow(
   issues.push(...missingCompletedStageIssues(runtime.plan, runtime.state, paths.statePath));
   for (const stage of expectedCompletedStages) {
     if (stage.semanticRuntime !== "pi-task") continue;
-    const issue = await verifyPiTaskEvidence({
+    const piTaskIssue = await verifyPiTaskEvidence({
       workspacePath: request.workspacePath,
       artifacts: runtime.artifacts,
       jobId: runtime.job.jobId,
       stage: stage.id
     });
-    if (issue !== null) issues.push(issue);
+    if (piTaskIssue !== null) issues.push(piTaskIssue);
+    const domainArtifactIssue = await verifyDomainArtifactEvidence({
+      workspacePath: request.workspacePath,
+      artifacts: runtime.artifacts,
+      jobId: runtime.job.jobId,
+      stage: stage.id
+    });
+    if (domainArtifactIssue !== null) issues.push(domainArtifactIssue);
   }
   if (runtime.state.status === "failed" && runtime.state.failedStage === null) {
     issues.push({
@@ -1231,7 +1257,17 @@ async function executeStage(request: {
             result.proposalWrite,
             "novelfabric.swarm.output"
           ),
-          agentTaskEvidenceArtifact(request.stage, agentTask)
+          agentTaskEvidenceArtifact(request.stage, agentTask),
+          await materializeWorkflowDomainArtifact({
+            workspacePath: request.workspacePath,
+            actor: request.actor,
+            stage: request.stage,
+            jobId: sessionId,
+            taskId: agentTask.taskId,
+            session: sessionId,
+            round: 1,
+            agent: roleAgent
+          })
         ]
       };
     }
@@ -1279,7 +1315,16 @@ async function executeStage(request: {
         },
         artifacts: [
           artifactFromWrite(request.stage, "report-task", result.write, "novelfabric.report.task"),
-          agentTaskEvidenceArtifact(request.stage, agentTask)
+          agentTaskEvidenceArtifact(request.stage, agentTask),
+          await materializeWorkflowDomainArtifact({
+            workspacePath: request.workspacePath,
+            actor: request.actor,
+            stage: request.stage,
+            jobId: sessionId,
+            taskId: agentTask.taskId,
+            session: sessionId,
+            outputPath: result.reportPath
+          })
         ]
       };
     }
@@ -1349,7 +1394,15 @@ async function executeStage(request: {
             result.write,
             "novelfabric.writing.task"
           ),
-          agentTaskEvidenceArtifact(request.stage, agentTask)
+          agentTaskEvidenceArtifact(request.stage, agentTask),
+          await materializeWorkflowDomainArtifact({
+            workspacePath: request.workspacePath,
+            actor: request.actor,
+            stage: request.stage,
+            jobId: sessionId,
+            taskId: agentTask.taskId,
+            outputPath: result.expectedDraftPath
+          })
         ]
       };
     }
@@ -1461,9 +1514,16 @@ async function createAndRunWorkflowAgentTask(request: {
   readonly allowedCommands: readonly string[];
 }): Promise<AgentTaskEvidence> {
   const taskId = `workflow-${request.jobId}-${request.stage}`;
+  if (request.contextPackPath === undefined) {
+    throw new CommandFailure(
+      "workflow_context_pack_required",
+      "Workflow pi-task stages require a context pack before agent execution."
+    );
+  }
+  const contextPackPath = request.contextPackPath;
   const requiredSourceAnchors = await deriveRequiredSourceAnchors(
     request.workspacePath,
-    request.contextPackPath
+    contextPackPath
   );
   const result = await createAgentTask({
     workspacePath: request.workspacePath,
@@ -1473,8 +1533,11 @@ async function createAndRunWorkflowAgentTask(request: {
     instruction: [
       request.instruction,
       "",
-      `Output requirement: return valid JSON with sourceAnchors copied exactly from requiredSourceAnchors in the task input or context pack. Required anchors: ${requiredSourceAnchors.join(", ")}.`,
-      "Set requiredAnchor to one of those required source phrases so verification can prove workflow data reached the model.",
+      `Output requirement: return exactly one valid JSON object with kind '${workflowOutputKindForStage(request.stage)}', version 1, summary, citations, sourceAnchors, requiredAnchor, and all domain fields required by OUTPUT_SCHEMA_JSON.`,
+      `Source anchor requirement: sourceAnchors must contain every requiredSourceAnchors item exactly as written. Do not summarize, translate, shorten, or invent sourceAnchors. Required anchors: ${requiredSourceAnchors.join(", ")}.`,
+      `Citation requirement: citations must include the exact workspace path '${contextPackPath}'.`,
+      workflowDomainInstructionForStage(request.stage, contextPackPath, requiredSourceAnchors),
+      "Set requiredAnchor to the first requiredSourceAnchors phrase exactly as written so verification can prove workflow data reached the model.",
       "Evidence requirement: this workflow stage is not semantically complete until this task result.json is updated to status completed by agent run --runtime pi."
     ].join("\n"),
     inputJson: stableJson({
@@ -1485,9 +1548,11 @@ async function createAndRunWorkflowAgentTask(request: {
       ...request.input,
       requiredSourceAnchors
     }),
-    ...(request.contextPackPath === undefined ? {} : { contextPackPath: request.contextPackPath }),
+    contextPackPath,
     allowedCommands: request.allowedCommands,
-    outputSchemaJson: stableJson(workflowAgentOutputSchema(requiredSourceAnchors)),
+    outputSchemaJson: stableJson(
+      workflowAgentOutputSchema(request.stage, requiredSourceAnchors, contextPackPath)
+    ),
     reason: `workflow ${request.stage} agent task create`
   });
   const run = await runAgentTask({
@@ -1552,12 +1617,17 @@ async function deriveRequiredSourceAnchors(
   );
 }
 
-function workflowAgentOutputSchema(requiredSourceAnchors: readonly string[]): JsonObject {
+function workflowAgentOutputSchema(
+  stage: WorkflowStageId,
+  requiredSourceAnchors: readonly string[],
+  requiredCitationPath: string | undefined
+): JsonObject {
   const firstAnchor = requiredSourceAnchors[0];
   const sourceAnchorSchema: JsonObject = {
     type: "array",
-    minItems: Math.max(1, Math.min(2, requiredSourceAnchors.length)),
+    minItems: requiredSourceAnchors.length,
     containsAllText: requiredSourceAnchors,
+    containsOnlyText: requiredSourceAnchors,
     items: { type: "string", minLength: 2 }
   };
   const requiredAnchorSchema: JsonObject = {
@@ -1565,18 +1635,215 @@ function workflowAgentOutputSchema(requiredSourceAnchors: readonly string[]): Js
     minLength: 2,
     ...(firstAnchor === undefined ? {} : { containsText: firstAnchor })
   };
+  const stageSpecific = workflowOutputStageSchema(stage);
+  const citationsSchema: JsonObject = {
+    type: "array",
+    minItems: 1,
+    ...(requiredCitationPath === undefined ? {} : { containsText: requiredCitationPath }),
+    items: { type: "string", minLength: 1 }
+  };
   return {
     type: "object",
-    required: ["kind", "version", "citations", "summary", "sourceAnchors", "requiredAnchor"],
+    required: [
+      "kind",
+      "version",
+      "citations",
+      "summary",
+      "sourceAnchors",
+      "requiredAnchor",
+      ...stageSpecific.requiredFields
+    ],
     properties: {
-      kind: { type: "string", minLength: 1 },
+      kind: { type: "string", containsText: stageSpecific.kind },
       version: { type: "number" },
       summary: { type: "string", minLength: 24 },
-      citations: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+      citations: citationsSchema,
       sourceAnchors: sourceAnchorSchema,
-      requiredAnchor: requiredAnchorSchema
+      requiredAnchor: requiredAnchorSchema,
+      ...stageSpecific.properties
     }
   };
+}
+
+function workflowOutputKindForStage(stage: WorkflowStageId): string {
+  switch (stage) {
+    case "swarm.task.create":
+      return "novelfabric.workflow.swarm-output";
+    case "report.task.create":
+      return "novelfabric.workflow.report-output";
+    case "writing.draft":
+      return "novelfabric.workflow.writing-output";
+    default:
+      throw new CommandFailure(
+        "workflow_stage_not_pi_task",
+        `Workflow stage '${stage}' does not have a domain output kind.`
+      );
+  }
+}
+
+function workflowOutputStageSchema(stage: WorkflowStageId): {
+  readonly kind: string;
+  readonly requiredFields: readonly string[];
+  readonly properties: JsonObject;
+} {
+  const markdownSchema: JsonObject = { type: "string", minLength: 24 };
+  const actionTextSchema: JsonObject = { type: "string", minLength: 24 };
+  switch (stage) {
+    case "swarm.task.create":
+      return {
+        kind: workflowOutputKindForStage(stage),
+        requiredFields: ["actionText"],
+        properties: { actionText: actionTextSchema }
+      };
+    case "report.task.create":
+      return {
+        kind: workflowOutputKindForStage(stage),
+        requiredFields: ["markdown"],
+        properties: { markdown: markdownSchema }
+      };
+    case "writing.draft":
+      return {
+        kind: workflowOutputKindForStage(stage),
+        requiredFields: ["markdown"],
+        properties: { title: { type: "string", minLength: 2 }, markdown: markdownSchema }
+      };
+    default:
+      throw new CommandFailure(
+        "workflow_stage_not_pi_task",
+        `Workflow stage '${stage}' does not have a domain output schema.`
+      );
+  }
+}
+
+function workflowDomainInstructionForStage(
+  stage: WorkflowStageId,
+  contextPackPath: string,
+  requiredSourceAnchors: readonly string[]
+): string {
+  const anchorsList = requiredSourceAnchors.map((anchor) => `- ${anchor}`).join("\n");
+  switch (stage) {
+    case "swarm.task.create":
+      return [
+        "Domain output requirement: include actionText with the StorySwarm proposed action text.",
+        "actionText must be grounded in the required source anchors."
+      ].join("\n");
+    case "report.task.create":
+      return [
+        "Domain output requirement: produce a ReportAgent JSON object for novelfabric.workflow.report-output.",
+        "Required exact fields: kind='novelfabric.workflow.report-output', version=1, summary, citations, sourceAnchors, requiredAnchor, markdown.",
+        `citations must include exactly this context pack path: ${contextPackPath}`,
+        "sourceAnchors must include every required source anchor exactly as listed here:",
+        anchorsList,
+        "markdown must be a substantive citation-backed report body of at least 24 characters and must reference the cited context/source facts.",
+        "Do not return a novelfabric.report.artifact object; return the workflow report-output object required by OUTPUT_SCHEMA_JSON."
+      ].join("\n");
+    case "writing.draft":
+      return [
+        "Domain output requirement: include title and markdown for the writing draft.",
+        "markdown must be grounded in sourceAnchors and citations."
+      ].join("\n");
+    default:
+      throw new CommandFailure(
+        "workflow_stage_not_pi_task",
+        `Workflow stage '${stage}' does not require domain materialization.`
+      );
+  }
+}
+
+async function materializeWorkflowDomainArtifact(request: {
+  readonly workspacePath: string;
+  readonly actor: string;
+  readonly stage: WorkflowStageId;
+  readonly jobId: string;
+  readonly taskId: string;
+  readonly session?: string;
+  readonly round?: number;
+  readonly agent?: string;
+  readonly outputPath?: string;
+}): Promise<WorkflowArtifactItem> {
+  switch (request.stage) {
+    case "swarm.task.create": {
+      if (
+        request.session === undefined ||
+        request.round === undefined ||
+        request.agent === undefined
+      ) {
+        throw new CommandFailure(
+          "workflow_domain_materialization_input_missing",
+          "Swarm materialization requires session, round, and agent."
+        );
+      }
+      const result = await materializeSwarmOutputFromAgentTask({
+        workspacePath: request.workspacePath,
+        actor: request.actor,
+        taskId: request.taskId,
+        session: request.session,
+        round: request.round,
+        agent: request.agent,
+        ...(request.outputPath === undefined ? {} : { outputPath: request.outputPath }),
+        reason: "workflow swarm domain materialize"
+      });
+      return artifactFromWrite(
+        request.stage,
+        "swarm-output",
+        result.write,
+        workflowDomainArtifactDefinition(request.stage).kind
+      );
+    }
+    case "report.task.create": {
+      const result = await materializeReportArtifactFromAgentTask({
+        workspacePath: request.workspacePath,
+        actor: request.actor,
+        taskId: request.taskId,
+        reportKind: "consistency",
+        session: request.session ?? request.jobId,
+        ...(request.outputPath === undefined ? {} : { outputPath: request.outputPath }),
+        reason: "workflow report domain materialize"
+      });
+      return artifactFromWrite(
+        request.stage,
+        "report-artifact",
+        result.write,
+        workflowDomainArtifactDefinition(request.stage).kind
+      );
+    }
+    case "writing.draft": {
+      const result = await materializeWritingDraftFromAgentTask({
+        workspacePath: request.workspacePath,
+        actor: request.actor,
+        taskId: request.taskId,
+        ...(request.outputPath === undefined ? {} : { outputPath: request.outputPath }),
+        reason: "workflow writing domain materialize"
+      });
+      return artifactFromWrite(
+        request.stage,
+        "writing-draft",
+        result.write,
+        workflowDomainArtifactDefinition(request.stage).kind
+      );
+    }
+    default:
+      throw new CommandFailure(
+        "workflow_stage_not_pi_task",
+        `Workflow stage '${request.stage}' cannot materialize a domain artifact.`
+      );
+  }
+}
+
+function workflowDomainArtifactDefinition(stage: WorkflowStageId): WorkflowDomainArtifactSpec {
+  switch (stage) {
+    case "swarm.task.create":
+      return { name: "swarm-output", kind: "novelfabric.swarm.output" };
+    case "report.task.create":
+      return { name: "report-artifact", kind: "novelfabric.report.artifact" };
+    case "writing.draft":
+      return { name: "writing-draft", kind: "novelfabric.writing.draft" };
+    default:
+      throw new CommandFailure(
+        "workflow_stage_not_pi_task",
+        `Workflow stage '${stage}' does not have a domain artifact definition.`
+      );
+  }
 }
 
 function agentTaskEvidenceArtifact(
@@ -1708,6 +1975,203 @@ async function verifyPiTaskEvidence(request: {
       message:
         error instanceof Error ? error.message : `Cannot read pi task evidence '${evidence.path}'.`
     };
+  }
+}
+
+async function verifyDomainArtifactEvidence(request: {
+  readonly workspacePath: string;
+  readonly artifacts: WorkflowArtifactsArtifact;
+  readonly jobId: string;
+  readonly stage: WorkflowStageId;
+}): Promise<WorkflowVerifyIssue | null> {
+  const definition = workflowDomainArtifactDefinition(request.stage);
+  const evidence = request.artifacts.items.find(
+    (item) =>
+      item.stage === request.stage &&
+      item.name === definition.name &&
+      item.artifactKind === definition.kind
+  );
+  if (evidence === undefined) {
+    return {
+      severity: "error",
+      code: "workflow_domain_artifact_missing",
+      path: request.stage,
+      message: `Workflow pi-task stage '${request.stage}' completed without '${definition.name}' domain artifact evidence.`
+    };
+  }
+  if (evidence.hash === undefined) {
+    return {
+      severity: "error",
+      code: "workflow_domain_artifact_hash_missing",
+      path: evidence.path,
+      message: `Workflow domain artifact '${evidence.path}' must record a content hash.`
+    };
+  }
+  const expectedTaskId = `workflow-${request.jobId}-${request.stage}`;
+  const expectedResultPath = `.novelfabric/tasks/${expectedTaskId}/result.json`;
+  const expectedResultHash = await expectedAgentResultHash({
+    workspacePath: request.workspacePath,
+    artifacts: request.artifacts,
+    stage: request.stage,
+    expectedResultPath
+  });
+  if (expectedResultHash === null) {
+    return {
+      severity: "error",
+      code: "workflow_domain_artifact_evidence_mismatch",
+      path: evidence.path,
+      message: `Workflow domain artifact '${evidence.path}' cannot be bound to current pi result '${expectedResultPath}'.`
+    };
+  }
+  try {
+    const read = await readWorkspaceFile({
+      workspacePath: request.workspacePath,
+      path: evidence.path
+    });
+    if (read.hash !== evidence.hash) {
+      return {
+        severity: "error",
+        code: "workflow_domain_artifact_hash_mismatch",
+        path: evidence.path,
+        message: `Workflow domain artifact '${evidence.path}' changed after workflow recorded it.`
+      };
+    }
+    const validation = await validateWorkflowDomainArtifact({
+      workspacePath: request.workspacePath,
+      stage: request.stage,
+      path: evidence.path
+    });
+    if (!validation.valid) {
+      return {
+        severity: "error",
+        code: "workflow_domain_artifact_invalid",
+        path: evidence.path,
+        message: `Workflow domain artifact '${evidence.path}' failed validation: ${validation.issues.join("; ")}`
+      };
+    }
+    const parsed = parseJson(read.content, read.path);
+    if (
+      !domainArtifactBindsCurrentResult({
+        stage: request.stage,
+        artifact: parsed,
+        expectedResultPath,
+        expectedResultHash
+      })
+    ) {
+      return {
+        severity: "error",
+        code: "workflow_domain_artifact_evidence_mismatch",
+        path: evidence.path,
+        message: `Workflow domain artifact '${evidence.path}' must cite current pi result '${expectedResultPath}' with hash '${expectedResultHash}'.`
+      };
+    }
+    return null;
+  } catch (error) {
+    return {
+      severity: "error",
+      code: "workflow_domain_artifact_invalid",
+      path: evidence.path,
+      message: error instanceof Error ? error.message : `Cannot validate '${evidence.path}'.`
+    };
+  }
+}
+
+async function expectedAgentResultHash(request: {
+  readonly workspacePath: string;
+  readonly artifacts: WorkflowArtifactsArtifact;
+  readonly stage: WorkflowStageId;
+  readonly expectedResultPath: string;
+}): Promise<string | null> {
+  const evidence = request.artifacts.items.find(
+    (item) =>
+      item.stage === request.stage &&
+      item.name === "agent-task-result" &&
+      item.artifactKind === "novelfabric.agent.task.result" &&
+      item.path === request.expectedResultPath
+  );
+  if (evidence?.hash !== undefined) return evidence.hash;
+  try {
+    const read = await readWorkspaceFile({
+      workspacePath: request.workspacePath,
+      path: request.expectedResultPath
+    });
+    return read.hash;
+  } catch {
+    return null;
+  }
+}
+
+function domainArtifactBindsCurrentResult(request: {
+  readonly stage: WorkflowStageId;
+  readonly artifact: unknown;
+  readonly expectedResultPath: string;
+  readonly expectedResultHash: string;
+}): boolean {
+  if (!isRecord(request.artifact)) return false;
+  switch (request.stage) {
+    case "swarm.task.create":
+      return (
+        request.artifact["createdFromTask"] === request.expectedResultPath &&
+        citationRecordsContain(request.artifact["citationHashes"], {
+          path: request.expectedResultPath,
+          hash: request.expectedResultHash
+        })
+      );
+    case "report.task.create":
+    case "writing.draft":
+      return citationRecordsContain(request.artifact["citations"], {
+        path: request.expectedResultPath,
+        hash: request.expectedResultHash
+      });
+    default:
+      throw new CommandFailure(
+        "workflow_stage_not_pi_task",
+        `Workflow stage '${request.stage}' does not have domain provenance rules.`
+      );
+  }
+}
+
+function citationRecordsContain(
+  value: unknown,
+  expected: { readonly path: string; readonly hash: string }
+): boolean {
+  return (
+    Array.isArray(value) &&
+    value.some(
+      (item) => isRecord(item) && item["path"] === expected.path && item["hash"] === expected.hash
+    )
+  );
+}
+
+async function validateWorkflowDomainArtifact(request: {
+  readonly workspacePath: string;
+  readonly stage: WorkflowStageId;
+  readonly path: string;
+}): Promise<{ readonly valid: boolean; readonly issues: readonly string[] }> {
+  switch (request.stage) {
+    case "swarm.task.create": {
+      const result = await validateSwarmOutput({
+        workspacePath: request.workspacePath,
+        artifactPath: request.path
+      });
+      return { valid: result.valid, issues: result.issues.map((issue) => issue.message) };
+    }
+    case "report.task.create": {
+      const result = await validateReportArtifact({
+        workspacePath: request.workspacePath,
+        artifactPath: request.path
+      });
+      return { valid: result.valid, issues: result.issues.map((issue) => issue.message) };
+    }
+    case "writing.draft": {
+      const result = await validateWritingDraftArtifact(request.workspacePath, request.path);
+      return { valid: result.valid, issues: result.issues.map((issue) => issue.message) };
+    }
+    default:
+      throw new CommandFailure(
+        "workflow_stage_not_pi_task",
+        `Workflow stage '${request.stage}' does not have a domain artifact validator.`
+      );
   }
 }
 
