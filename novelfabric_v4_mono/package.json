@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
-    "format:check": "prettier --check package.json tsconfig.json tsconfig.build.json tsconfig.web.json eslint.config.js vite.config.ts vitest.config.ts index.html \"src/**/*.{ts,vue,css}\" \"test/**/*.ts\" \"docs/**/*.md\" \"scripts/**/*.mjs\" *.md",
+    "format:check": "prettier --check package.json tsconfig.json tsconfig.build.json tsconfig.web.json eslint.config.js vite.config.ts vitest.config.ts playwright.config.ts index.html \"src/**/*.{ts,vue,css}\" \"test/**/*.ts\" \"docs/**/*.md\" \"scripts/**/*.mjs\" *.md",
     "test": "vitest run --passWithNoTests",
     "test:runtime": "vitest run --passWithNoTests test/runtime test/commands/runtime.test.ts test/cli/agent-task.test.ts",
     "test:contracts": "vitest run --passWithNoTests test/acceptance",
