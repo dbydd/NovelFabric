@@ -7,6 +7,13 @@ import {
   chapterizeImportSource,
   normalizeImportSource
 } from "../import/source.js";
+import type { ImportContextPack } from "../import/source.js";
+import type {
+  KnowledgeCitation,
+  KnowledgeSource,
+  KnowledgeSourceKind,
+  NovelFabricContextPack
+} from "../knowledge/index.js";
 import { buildContextPack, rebuildKnowledgeIndex } from "../knowledge/index.js";
 import {
   createReportTask,
@@ -1045,18 +1052,33 @@ async function executeStage(request: {
       const result = await buildImportContextPack({
         workspacePath: request.workspacePath,
         actor: request.actor,
+        sourcePath: request.plan.sourcePath,
         chapterManifestPath: manifestPath,
         outputPath: `simulation/context-packs/import-${sessionId}.json`,
         reason: "workflow import.context-pack"
       });
+      const canonicalWrite = await writeCanonicalImportContextPack({
+        workspacePath: request.workspacePath,
+        actor: request.actor,
+        importContextPackPath: result.write.path,
+        sessionId,
+        roleAgent,
+        reason: "workflow canonical import context-pack"
+      });
       return {
-        output: objectFromResult(result),
+        output: { ...objectFromResult(result), canonicalContextPackPath: canonicalWrite.path },
         artifacts: [
           artifactFromWrite(
             request.stage,
             "import-context-pack",
             result.write,
             "novelfabric.import.context-pack"
+          ),
+          artifactFromWrite(
+            request.stage,
+            "context-pack",
+            canonicalWrite,
+            "novelfabric.context-pack"
           )
         ]
       };
@@ -1065,7 +1087,7 @@ async function executeStage(request: {
       const contextPackPath = requiredArtifactPath(
         request.artifacts,
         "import.context-pack",
-        "import-context-pack"
+        "context-pack"
       );
       const result = await proposeCards({
         workspacePath: request.workspacePath,
@@ -1493,6 +1515,81 @@ async function writeTextArtifact(request: {
     bytes: write.bytes,
     auditPath: write.auditPath
   };
+}
+
+async function writeCanonicalImportContextPack(request: {
+  readonly workspacePath: string;
+  readonly actor: string;
+  readonly importContextPackPath: string;
+  readonly sessionId: string;
+  readonly roleAgent: string;
+  readonly reason: string;
+}): Promise<WorkflowWriteSummary> {
+  const importPackRead = await readWorkspaceFile({
+    workspacePath: request.workspacePath,
+    path: request.importContextPackPath
+  });
+  const importPack = parseJson(importPackRead.content, importPackRead.path);
+  if (!isImportContextPack(importPack)) {
+    throw new CommandFailure(
+      "workflow_import_context_pack_invalid",
+      `Import context pack '${importPackRead.path}' has an invalid shape.`
+    );
+  }
+
+  const sourceRead = await readWorkspaceFile({
+    workspacePath: request.workspacePath,
+    path: importPack.sourcePath
+  });
+  if (sourceRead.hash !== importPack.sourceHash) {
+    throw new CommandFailure(
+      "workflow_import_context_source_hash_mismatch",
+      `Import context pack '${importPackRead.path}' cites source '${sourceRead.path}' with stale hash.`
+    );
+  }
+  const excerpt =
+    importPack.sourceExcerpt.trim().length > 0
+      ? importPack.sourceExcerpt
+      : sourceRead.content.slice(0, 2000);
+  const citation: KnowledgeCitation = {
+    sourcePath: sourceRead.path,
+    hash: sourceRead.hash,
+    lineRange: { start: 1, end: Math.max(1, excerpt.split(/\r?\n/u).length) },
+    excerpt
+  };
+  const source: KnowledgeSource = {
+    path: sourceRead.path,
+    kind: knowledgeSourceKindForPath(sourceRead.path),
+    title: sourceRead.path.split("/").at(-1) ?? sourceRead.path,
+    hash: sourceRead.hash,
+    bytes: sourceRead.bytes,
+    lineCount: Math.max(1, sourceRead.content.split(/\r?\n/u).length),
+    protected: sourceRead.protected
+  };
+  const canonicalPack: NovelFabricContextPack = {
+    kind: "novelfabric.context-pack",
+    version: 1,
+    packKind: "import-source",
+    query: `Import source '${sourceRead.path}' for ${request.roleAgent}`,
+    agent: request.roleAgent,
+    session: request.sessionId,
+    timeline: null,
+    citations: [citation],
+    recall: {
+      quick: [],
+      panorama: [],
+      insight: []
+    },
+    sources: [source]
+  };
+
+  return writeTextArtifact({
+    workspacePath: request.workspacePath,
+    path: `simulation/context-packs/${request.sessionId}.json`,
+    actor: request.actor,
+    reason: request.reason,
+    content: stableJson(canonicalPack)
+  });
 }
 
 function artifactFromWrite(
@@ -2258,6 +2355,28 @@ function normalizeNonEmpty(value: string, label: string): string {
 function objectFromResult(result: unknown): Record<string, unknown> {
   if (isRecord(result)) return result;
   return { value: result };
+}
+
+function isImportContextPack(value: unknown): value is ImportContextPack {
+  return (
+    isRecord(value) &&
+    value["kind"] === "novelfabric.import.context-pack" &&
+    value["version"] === 1 &&
+    typeof value["sourcePath"] === "string" &&
+    typeof value["sourceHash"] === "string" &&
+    typeof value["sourceExcerpt"] === "string" &&
+    (value["chapterManifestPath"] === null || typeof value["chapterManifestPath"] === "string") &&
+    Array.isArray(value["chapters"])
+  );
+}
+
+function knowledgeSourceKindForPath(pathValue: string): KnowledgeSourceKind {
+  const lower = pathValue.toLowerCase();
+  if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "markdown";
+  if (lower.endsWith(".json")) return "json";
+  if (lower.endsWith(".jsonl")) return "jsonl";
+  if (lower.endsWith(".toml")) return "toml";
+  return "text";
 }
 
 function parseJson(content: string, artifactPath: string): unknown {

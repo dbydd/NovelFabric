@@ -17,11 +17,11 @@ export const test = base.extend<{
   readonly bridgePort: number;
   readonly baseURL: string;
 }>({
-  bridgePort: async ({}, use) => {
+  bridgePort: async (_fixtures, use) => {
     const port = await allocateNovelFabricPort();
     await use(port);
   },
-  workspacePath: async ({}, use) => {
+  workspacePath: async (_fixtures, use) => {
     const workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-e2e-workspace-"));
     await fs.cp(fixtureWorkspacePath(), workspacePath, { recursive: true });
     await fs.writeFile(
@@ -73,9 +73,13 @@ async function allocateNovelFabricPort(): Promise<number> {
 async function canListen(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = createServer();
-    server.once("error", () => resolve(false));
+    server.once("error", () => {
+      resolve(false);
+    });
     server.listen(port, "127.0.0.1", () => {
-      server.close(() => resolve(true));
+      server.close(() => {
+        resolve(true);
+      });
     });
   });
 }
@@ -116,7 +120,9 @@ function startWebBridge(options: {
 async function stopWebBridge(child: ChildProcessWithoutNullStreams): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   await new Promise<void>((resolve) => {
-    child.once("exit", () => resolve());
+    child.once("exit", () => {
+      resolve();
+    });
     if (child.pid === undefined) {
       resolve();
       return;

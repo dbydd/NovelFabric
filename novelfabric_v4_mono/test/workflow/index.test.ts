@@ -954,6 +954,92 @@ describe("workflow acceptance state machine", () => {
     expect(verified.issues).toEqual([]);
   }, 120000);
 
+  it("builds canonical import context pack before proposing cards", async () => {
+    const planned = await planWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      sourcePath: "imports/source/acceptance-novel.txt",
+      role: "main_agent",
+      planId: `canonical-import-${process.pid.toString()}-${Date.now().toString(36)}`
+    });
+    const started = await startWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      planId: planned.planId
+    });
+
+    const normalizeStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId: started.jobId,
+      input: { stage: "import.normalize" }
+    });
+    expect(normalizeStep.stageStatus).toBe("completed");
+
+    const chapterizeStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId: started.jobId,
+      input: { stage: "import.chapterize" }
+    });
+    expect(chapterizeStep.stageStatus).toBe("completed");
+
+    const contextStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId: started.jobId,
+      input: { stage: "import.context-pack" }
+    });
+    expect(contextStep.stageStatus).toBe("completed");
+    expect(contextStep.executedStage).toBe("import.context-pack");
+    const importContextArtifact = contextStep.artifacts.find(
+      (artifact) =>
+        artifact.name === "import-context-pack" &&
+        artifact.artifactKind === "novelfabric.import.context-pack"
+    );
+    const canonicalContextArtifact = contextStep.artifacts.find(
+      (artifact) =>
+        artifact.name === "context-pack" && artifact.artifactKind === "novelfabric.context-pack"
+    );
+    expect(importContextArtifact).toBeDefined();
+    expect(canonicalContextArtifact).toBeDefined();
+    if (canonicalContextArtifact === undefined) {
+      throw new Error("Missing canonical context-pack artifact.");
+    }
+
+    const canonicalRead = await readWorkspaceFile({
+      workspacePath,
+      path: canonicalContextArtifact.path
+    });
+    const canonical = parseJsonRecord(canonicalRead.content, "canonical import context-pack");
+    expect(canonical["kind"]).toBe("novelfabric.context-pack");
+    expect(canonical["version"]).toBe(1);
+    expect(canonical["packKind"]).toBe("import-source");
+    expect(canonical["agent"]).toBe("main_agent");
+    expect(canonical["session"]).toBe(started.jobId);
+    expect(canonical["query"]).toContain("imports/source/acceptance-novel.txt");
+    expect(Array.isArray(canonical["citations"])).toBe(true);
+    expect(Array.isArray(canonical["sources"])).toBe(true);
+    expect(canonicalRead.content).toContain("叶小伟醒来");
+    expect(canonicalRead.content).toContain("城市边缘传来钟声");
+
+    const cardsStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId: started.jobId,
+      input: { stage: "cards.propose" }
+    });
+    expect(cardsStep.stageStatus).toBe("completed");
+    expect(cardsStep.executedStage).toBe("cards.propose");
+    expect(
+      cardsStep.artifacts.some(
+        (artifact) =>
+          artifact.name === "card-proposal" &&
+          artifact.artifactKind === "novelfabric.cards.proposal"
+      )
+    ).toBe(true);
+  });
+
   it("plans, starts, steps deterministic stages, verifies artifacts, and can be cancelled", async () => {
     const planned = await planWorkflow({
       workspacePath,
