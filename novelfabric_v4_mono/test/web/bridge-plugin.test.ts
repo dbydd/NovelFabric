@@ -12,7 +12,10 @@ import {
   createAgentTask,
   setAgentTaskPiSdkModuleForTesting
 } from "../../src/agent-runtime/tasks.js";
-import { handleBridgeRequest } from "../../src/web/bridge-plugin.js";
+import {
+  getActiveAgentTaskStreamCountForTesting,
+  handleBridgeRequest
+} from "../../src/web/bridge-plugin.js";
 import { writeWorkspaceFile } from "../../src/workspace/files.js";
 
 type BridgeEnvelope =
@@ -744,6 +747,116 @@ describe("NovelFabric web bridge agent task routes", () => {
     expect(originalAfter).toBe(originalBefore);
   });
 
+  it("streams an initial snapshot and cleans up when the request closes", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    process.env["NOVELFABRIC_WEB_BRIDGE_STREAM_POLL_MS"] = "25";
+    process.env["NOVELFABRIC_WEB_BRIDGE_STREAM_MAX_MS"] = "500";
+    await createAgentTask({
+      workspacePath,
+      actor: "main_agent",
+      title: "Pending stream task",
+      instruction: "Return JSON.",
+      taskId: "pending-stream-task",
+      outputSchemaJson: JSON.stringify({ type: "object" })
+    });
+
+    const stream = await postBridgeStreamUntil(
+      "/api/bridge/agent/tasks/stream",
+      {
+        workspacePath,
+        actor: "main_agent",
+        task: "pending-stream-task"
+      },
+      (body) => body.includes("event: snapshot"),
+      { abortOnMatch: true }
+    );
+
+    expect(stream.status).toBe(200);
+    expect(stream.contentType).toContain("text/event-stream");
+    expect(stream.body).toContain("event: snapshot");
+    const snapshot = parseStreamFrame(stream.body, "snapshot");
+    expect(snapshot.ok).toBe(true);
+    if (snapshot.ok) {
+      expect(snapshot.data).toMatchObject({
+        taskId: "pending-stream-task",
+        cursor: 0,
+        nextCursor: 1
+      });
+    }
+    await waitForActiveStreams(0);
+    expect(getActiveAgentTaskStreamCountForTesting()).toBe(0);
+    expectNoInternalTaskPaths(stream.body, workspacePath);
+  });
+
+  it("keeps a stream open and emits terminal after async completion", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    process.env["NOVELFABRIC_WEB_BRIDGE_STREAM_POLL_MS"] = "25";
+    process.env["NOVELFABRIC_WEB_BRIDGE_STREAM_MAX_MS"] = "3000";
+    await writeTestRuntimeSettings(workspacePath);
+    const restoreSdkModule = setAgentTaskPiSdkModuleForTesting(
+      fakePiSdkModuleForWebTest({
+        outputText:
+          '{"kind":"novelfabric.web.persistent-stream","version":1,"summary":"persistent stream completed"}',
+        delayMs: 100
+      })
+    );
+    try {
+      await createAgentTask({
+        workspacePath,
+        actor: "main_agent",
+        title: "Persistent stream task",
+        instruction: "Return persistent stream JSON.",
+        taskId: "persistent-stream-task",
+        outputSchemaJson: JSON.stringify({
+          type: "object",
+          required: ["kind", "version", "summary"],
+          properties: {
+            kind: { type: "string" },
+            version: { type: "number" },
+            summary: { type: "string", containsText: "persistent stream completed" }
+          }
+        })
+      });
+
+      const streamPromise = postBridgeStreamUntil(
+        "/api/bridge/agent/tasks/stream",
+        {
+          workspacePath,
+          actor: "main_agent",
+          task: "persistent-stream-task"
+        },
+        (body) => body.includes("event: task.terminal")
+      );
+      const run = await postBridge("/api/bridge/agent/tasks/run", {
+        workspacePath,
+        actor: "main_agent",
+        task: "persistent-stream-task"
+      });
+      expect(run.status).toBe(202);
+      const stream = await streamPromise;
+
+      expect(stream.status).toBe(200);
+      expect(stream.body).toContain("event: snapshot");
+      expect(stream.body).toContain("event: events");
+      expect(stream.body).toContain("event: task.terminal");
+      const terminal = parseStreamFrame(stream.body, "task.terminal");
+      expect(terminal.ok).toBe(true);
+      if (terminal.ok) {
+        expect(terminal.data).toMatchObject({
+          taskId: "persistent-stream-task",
+          status: "completed"
+        });
+      }
+      expect(stream.body).not.toContain("persistent stream completed");
+      expectNoInternalTaskPaths(stream.body, workspacePath);
+      await waitForActiveStreams(0);
+    } finally {
+      restoreSdkModule();
+    }
+  });
+
   it("streams structured runtime subtypes, supports cursor, and emits terminal task events", async () => {
     const workspacePath = await tempWorkspace();
     configureBridge({ workspacePath, actor: "main_agent" });
@@ -954,11 +1067,16 @@ describe("NovelFabric web bridge agent task routes", () => {
       ].join(" | ")
     );
 
-    const stream = await postBridgeText("/api/bridge/agent/tasks/stream", {
-      workspacePath,
-      actor: "main_agent",
-      task: "stream-web-task"
-    });
+    const stream = await postBridgeStreamUntil(
+      "/api/bridge/agent/tasks/stream",
+      {
+        workspacePath,
+        actor: "main_agent",
+        task: "stream-web-task"
+      },
+      (body) => body.includes("event: snapshot") && body.includes("stream-web-task"),
+      { abortOnMatch: true }
+    );
 
     expect(stream.status).toBe(200);
     expect(stream.contentType).toContain("text/event-stream");
@@ -971,6 +1089,61 @@ describe("NovelFabric web bridge agent task routes", () => {
     expect(stream.body).not.toContain("/tmp/novelfabric-sdk-session.jsonl");
     expect(stream.body).not.toContain(workspacePath);
     expect(stream.body).not.toContain(".novelfabric/tasks/");
+  });
+
+  it("sanitizes structured event fields before SSE emission", async () => {
+    const workspacePath = await tempWorkspace();
+    configureBridge({ workspacePath, actor: "main_agent" });
+    await createAgentTask({
+      workspacePath,
+      actor: "main_agent",
+      title: "Structured leak stream task",
+      instruction: "Return JSON.",
+      taskId: "structured-leak-stream-task",
+      outputSchemaJson: JSON.stringify({ type: "object" })
+    });
+    await writeSyntheticEvent(
+      workspacePath,
+      "structured-leak-stream-task",
+      "structured fields should be sanitized",
+      {
+        runtimeEventType: "session.failed:/tmp/novelfabric-session.jsonl",
+        toolName: `novelfabric_read_file ${path.join(
+          workspacePath,
+          ".novelfabric",
+          "tasks",
+          "structured-leak-stream-task",
+          "result.json"
+        )} Bearer secret-token sk-structured-secret`,
+        denialCode: "secret=internal-secret-token /tmp/novelfabric-denial-session.jsonl"
+      }
+    );
+
+    const stream = await postBridgeStreamUntil(
+      "/api/bridge/agent/tasks/stream",
+      {
+        workspacePath,
+        actor: "main_agent",
+        task: "structured-leak-stream-task"
+      },
+      (body) => body.includes("event: snapshot") && body.includes("structured-leak-stream-task"),
+      { abortOnMatch: true }
+    );
+
+    expect(stream.status).toBe(200);
+    expect(stream.contentType).toContain("text/event-stream");
+    expect(stream.body).toContain("event: snapshot");
+    expect(stream.body).toContain("toolName");
+    expect(stream.body).toContain("denialCode");
+    expect(stream.body).not.toContain("runtimeEventType");
+    expect(stream.body).not.toContain(workspacePath);
+    expect(stream.body).not.toContain(".novelfabric/tasks/");
+    expect(stream.body).not.toContain("result.json");
+    expect(stream.body).not.toContain("secret-token");
+    expect(stream.body).not.toContain("structured-secret");
+    expect(stream.body).not.toContain("internal-secret-token");
+    expect(stream.body).not.toContain("/tmp/novelfabric-session.jsonl");
+    expect(stream.body).not.toContain("/tmp/novelfabric-denial-session.jsonl");
   });
 });
 
@@ -1238,7 +1411,8 @@ async function writeSyntheticCompletedResult(workspacePath: string, taskId: stri
 async function writeSyntheticEvent(
   workspacePath: string,
   taskId: string,
-  message: string
+  message: string,
+  fields: Record<string, unknown> = {}
 ): Promise<void> {
   await fs.appendFile(
     path.join(workspacePath, ".novelfabric", "tasks", taskId, "events.jsonl"),
@@ -1249,7 +1423,8 @@ async function writeSyntheticEvent(
       type: "pi-sdk-event",
       actor: "main_agent",
       timestamp: new Date().toISOString(),
-      message
+      message,
+      ...fields
     })}\n`,
     "utf8"
   );
@@ -1341,6 +1516,79 @@ async function postBridgeText(
   } finally {
     await closeServer(server);
   }
+}
+
+function requireReadableResponseBody(
+  body: ReadableStream<Uint8Array> | null
+): ReadableStream<Uint8Array> {
+  if (body === null) throw new Error("Expected bridge stream response body to be readable.");
+  return body;
+}
+
+async function postBridgeStreamUntil(
+  routePath: string,
+  body: Record<string, unknown>,
+  predicate: (body: string) => boolean,
+  options: { readonly abortOnMatch?: boolean; readonly timeoutMs?: number } = {}
+): Promise<{ readonly status: number; readonly body: string; readonly contentType: string }> {
+  const server = await listenBridgeServer();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, options.timeoutMs ?? 5000);
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected bridge test server to listen on a TCP port.");
+    }
+    const response = await fetch(`http://127.0.0.1:${address.port.toString()}${routePath}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+    const reader: ReadableStreamDefaultReader<Uint8Array> = requireReadableResponseBody(
+      response.body
+    ).getReader();
+    const decoder = new TextDecoder();
+    let buffered = "";
+    for (;;) {
+      const chunk = await reader.read();
+      if (!chunk.done) {
+        buffered += decoder.decode(chunk.value, { stream: true });
+      }
+      if (predicate(buffered)) {
+        if (options.abortOnMatch === true) controller.abort();
+        break;
+      }
+      if (chunk.done) break;
+    }
+    return {
+      status: response.status,
+      body: buffered,
+      contentType: response.headers.get("content-type") ?? ""
+    };
+  } catch (error: unknown) {
+    if (controller.signal.aborted && error instanceof Error && error.name === "AbortError") {
+      throw new Error("Bridge stream aborted before the expected frame was observed.", {
+        cause: error
+      });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+    await closeServer(server);
+  }
+}
+
+async function waitForActiveStreams(expectedCount: number, timeoutMs = 1000): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (getActiveAgentTaskStreamCountForTesting() === expectedCount) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  expect(getActiveAgentTaskStreamCountForTesting()).toBe(expectedCount);
 }
 
 async function postRuntimePrepare(body: {

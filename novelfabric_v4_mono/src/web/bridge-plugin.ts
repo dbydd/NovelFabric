@@ -85,6 +85,15 @@ const agentTaskLifecycleRequestSchema = agentTaskReadRequestSchema.extend({
   reason: z.string().min(1).optional()
 });
 
+const DEFAULT_AGENT_TASK_STREAM_POLL_MS = 1000;
+const DEFAULT_AGENT_TASK_STREAM_MAX_MS = 5 * 60 * 1000;
+
+let activeAgentTaskStreamCount = 0;
+
+export function getActiveAgentTaskStreamCountForTesting(): number {
+  return activeAgentTaskStreamCount;
+}
+
 export function novelFabricBridgePlugin(): Plugin {
   return {
     name: "novelfabric-local-file-bridge",
@@ -350,12 +359,14 @@ export async function handleBridgeRequest(
       assertBridgeWorkspaceMatches(body.workspacePath, workspacePath);
       assertBridgeActorMatches(body.actor, bridgeActor());
       assertBridgeAgentTaskIdSafe(body.task);
-      const inspected = await inspectAgentTask({ workspacePath, task: body.task });
-      writeAgentTaskEventStream(
+      await inspectAgentTask({ workspacePath, task: body.task });
+      writeAgentTaskEventStream({
+        request,
         response,
-        summarizeAgentTaskEventsResult(inspected, body.cursor ?? 0),
-        inspected.result.status
-      );
+        workspacePath,
+        task: body.task,
+        cursor: body.cursor ?? 0
+      });
       return;
     }
 
@@ -535,21 +546,118 @@ function agentTaskBridgePaths(taskId: string): { readonly contextPack: string } 
   return { contextPack: `.novelfabric/tasks/${taskId}/context-pack.json` };
 }
 
-function writeAgentTaskEventStream(
-  response: ServerResponse,
-  data: ReturnType<typeof summarizeAgentTaskEventsResult>,
-  status: string
-): void {
+function writeAgentTaskEventStream(input: {
+  readonly request: IncomingMessage;
+  readonly response: ServerResponse;
+  readonly workspacePath: string;
+  readonly task: string;
+  readonly cursor: number;
+}): void {
+  const { request, response, workspacePath, task } = input;
+  let cursor = input.cursor;
+  let closed = false;
+  let polling = false;
+  let terminalEmitted = false;
+  let firstPoll = true;
+  const timers: { interval?: NodeJS.Timeout; maxTimer?: NodeJS.Timeout } = {};
+
+  activeAgentTaskStreamCount += 1;
   response.statusCode = 200;
   response.setHeader("content-type", "text/event-stream; charset=utf-8");
-  response.setHeader("cache-control", "no-cache");
-  const frames = [`event: snapshot\ndata: ${JSON.stringify({ ok: true, data })}\n\n`];
-  if (isTerminalAgentTaskStatus(status)) {
-    frames.push(
-      `event: task.terminal\ndata: ${JSON.stringify({ ok: true, data: { taskId: data.taskId, status } })}\n\n`
-    );
-  }
-  response.end(frames.join(""));
+  response.setHeader("cache-control", "no-cache, no-transform");
+  response.setHeader("connection", "keep-alive");
+  response.flushHeaders();
+
+  const cleanup = (): void => {
+    if (closed) return;
+    closed = true;
+    activeAgentTaskStreamCount = Math.max(0, activeAgentTaskStreamCount - 1);
+    if (timers.interval !== undefined) clearInterval(timers.interval);
+    if (timers.maxTimer !== undefined) clearTimeout(timers.maxTimer);
+  };
+
+  response.on("close", cleanup);
+  request.on("aborted", cleanup);
+
+  const end = (): void => {
+    cleanup();
+    if (!response.writableEnded) response.end();
+  };
+
+  const poll = async (): Promise<void> => {
+    if (closed || polling || response.writableEnded) return;
+    polling = true;
+    try {
+      const inspected = await inspectAgentTask({ workspacePath, task });
+      const data = summarizeAgentTaskEventsResult(inspected, cursor);
+      if (firstPoll) {
+        writeSseFrame(response, "snapshot", data);
+        firstPoll = false;
+      } else if (data.events.length > 0) {
+        writeSseFrame(response, "events", data);
+      }
+      cursor = data.nextCursor;
+      if (isTerminalAgentTaskStatus(inspected.result.status) && !terminalEmitted) {
+        terminalEmitted = true;
+        writeSseFrame(response, "task.terminal", {
+          taskId: inspected.taskId,
+          status: inspected.result.status,
+          nextCursor: cursor
+        });
+        end();
+      }
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Unexpected non-error agent task stream failure.";
+      writeSseFrame(response, "error", {
+        code:
+          error instanceof Error && isCommandFailure(error) ? error.code : "bridge_stream_error",
+        message: sanitizeBridgeErrorMessage(message)
+      });
+      end();
+    } finally {
+      polling = false;
+    }
+  };
+
+  void poll();
+  timers.interval = setInterval(() => {
+    void poll();
+  }, agentTaskStreamPollMs());
+  timers.maxTimer = setTimeout(() => {
+    if (closed || response.writableEnded) return;
+    writeSseFrame(response, "stream.timeout", {
+      taskId: task,
+      maxDurationMs: agentTaskStreamMaxMs()
+    });
+    end();
+  }, agentTaskStreamMaxMs());
+}
+
+function writeSseFrame(response: ServerResponse, event: string, data: unknown): void {
+  if (response.writableEnded) return;
+  response.write(`event: ${event}\ndata: ${JSON.stringify({ ok: true, data })}\n\n`);
+}
+
+function agentTaskStreamPollMs(): number {
+  return positiveIntegerEnvironment(
+    "NOVELFABRIC_WEB_BRIDGE_STREAM_POLL_MS",
+    DEFAULT_AGENT_TASK_STREAM_POLL_MS
+  );
+}
+
+function agentTaskStreamMaxMs(): number {
+  return positiveIntegerEnvironment(
+    "NOVELFABRIC_WEB_BRIDGE_STREAM_MAX_MS",
+    DEFAULT_AGENT_TASK_STREAM_MAX_MS
+  );
+}
+
+function positiveIntegerEnvironment(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function summarizePiSdkAvailability(piSdk: PiSdkAvailability): {
@@ -602,19 +710,59 @@ function summarizeAgentTaskEvent(event: AgentTaskEvent): {
   readonly terminal?: boolean;
   readonly sequence?: number;
 } {
+  const runtimeEventType = sanitizeRuntimeEventType(event.runtimeEventType);
+  const toolName = sanitizeStructuredEventField(event.toolName);
+  const denialCode = sanitizeStructuredEventField(event.denialCode);
   return {
     taskId: event.taskId,
     type: event.type,
     actor: event.actor,
     timestamp: event.timestamp,
-    ...(event.runtimeEventType === undefined ? {} : { runtimeEventType: event.runtimeEventType }),
-    ...(event.toolName === undefined ? {} : { toolName: event.toolName }),
-    ...(event.denialCode === undefined ? {} : { denialCode: event.denialCode }),
+    ...(runtimeEventType === undefined ? {} : { runtimeEventType }),
+    ...(toolName === undefined ? {} : { toolName }),
+    ...(denialCode === undefined ? {} : { denialCode }),
     ...(event.valid === undefined ? {} : { valid: event.valid }),
     ...(event.textBytes === undefined ? {} : { textBytes: event.textBytes }),
     ...(event.terminal === undefined ? {} : { terminal: event.terminal }),
     ...(event.sequence === undefined ? {} : { sequence: event.sequence })
   };
+}
+
+const SAFE_RUNTIME_EVENT_TYPES = new Set<AgentTaskEvent["runtimeEventType"]>([
+  "session.started",
+  "model.output",
+  "tool.requested",
+  "tool.denied",
+  "validation.completed",
+  "session.completed",
+  "session.failed"
+]);
+
+function sanitizeRuntimeEventType(
+  value: AgentTaskEvent["runtimeEventType"] | undefined
+): AgentTaskEvent["runtimeEventType"] | undefined {
+  if (value === undefined) return undefined;
+  return SAFE_RUNTIME_EVENT_TYPES.has(value) ? value : undefined;
+}
+
+function sanitizeStructuredEventField(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const sanitized = stripControlCharacters(sanitizeBridgeErrorMessage(value))
+    .replace(/\s+/gu, " ")
+    .trim();
+  if (sanitized.length === 0) return undefined;
+  const maxLength = 96;
+  return sanitized.length <= maxLength ? sanitized : `${sanitized.slice(0, maxLength - 1)}…`;
+}
+
+function stripControlCharacters(value: string): string {
+  return Array.from(value)
+    .map((character) => {
+      const codePoint = character.codePointAt(0);
+      if (codePoint === undefined) return "";
+      return codePoint < 0x20 || codePoint === 0x7f ? " " : character;
+    })
+    .join("");
 }
 
 function bridgeWorkspacePath(): string {
