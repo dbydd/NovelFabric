@@ -36,6 +36,8 @@ import { CommandFailure, isCommandFailure } from "../errors.js";
 import {
   createOrGetExternalSwarmInference,
   getExternalSwarmInference,
+  requireExternalSwarmContext,
+  toMcpStructuredResult,
   type ExternalEntityCard,
   type ExternalSwarmInferenceRequest,
   type ExternalSwarmItem
@@ -181,6 +183,15 @@ const externalSwarmInferenceRequestSchema = z.object({
   rounds: z.number().int().positive().optional()
 });
 
+const mcpToolCallSchema = z.object({
+  name: z.string().min(1),
+  arguments: z.record(z.string(), z.unknown()).optional()
+});
+
+const externalSwarmGetToolArgumentsSchema = z.object({
+  inference_id: z.string().min(1)
+});
+
 type ParsedExternalSwarmInferenceRequest = z.infer<typeof externalSwarmInferenceRequestSchema>;
 
 type ParsedExternalSwarmItem = ParsedExternalSwarmInferenceRequest["items"][number];
@@ -284,6 +295,16 @@ export async function handleBridgeRequest(
 
   try {
     const workspacePath = bridgeWorkspacePath();
+
+    if (request.method === "POST" && routePath === "/mcp") {
+      await handleMcpRequest({
+        request,
+        response,
+        workspacePath,
+        actor: bridgeActor()
+      });
+      return;
+    }
 
     if (request.method === "POST" && routePath === "/api/external/swarm-inferences") {
       const body = externalSwarmInferenceRequestSchema.parse(await readJsonBody(request));
@@ -693,6 +714,7 @@ function isBridgeRoute(routePath: string): boolean {
     routePath === "/api/bridge/runtime/session/prepare" ||
     routePath.startsWith("/api/bridge/agent/tasks/") ||
     routePath.startsWith("/api/bridge/workflow/") ||
+    routePath === "/mcp" ||
     isExternalSwarmRoute(routePath)
   );
 }
@@ -702,6 +724,276 @@ function isExternalSwarmRoute(routePath: string): boolean {
     routePath === "/api/external/swarm-inferences" ||
     externalSwarmInferenceIdPattern.test(routePath)
   );
+}
+
+type McpRequestContext = {
+  readonly request: IncomingMessage;
+  readonly response: ServerResponse;
+  readonly workspacePath: string;
+  readonly actor: string;
+};
+
+type JsonRpcRequest = {
+  readonly jsonrpc: "2.0";
+  readonly id?: string | number | null;
+  readonly method: string;
+  readonly params?: unknown;
+};
+
+async function handleMcpRequest(input: McpRequestContext): Promise<void> {
+  let id: string | number | null = null;
+  try {
+    const body = await readJsonBody(input.request);
+    const rpc = parseJsonRpcRequest(body);
+    id = rpc.id ?? null;
+    const result = await dispatchMcpRequest({
+      rpc,
+      workspacePath: input.workspacePath,
+      actor: input.actor
+    });
+    writeJson(input.response, 200, { jsonrpc: "2.0", id, result });
+  } catch (error: unknown) {
+    writeMcpError(input.response, id, error);
+  }
+}
+
+function parseJsonRpcRequest(value: unknown): JsonRpcRequest {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new CommandFailure("mcp_invalid_request", "MCP request must be a JSON-RPC object.", 400);
+  }
+  const record = value as Record<string, unknown>;
+  if (record["jsonrpc"] !== "2.0" || typeof record["method"] !== "string") {
+    throw new CommandFailure(
+      "mcp_invalid_request",
+      "MCP request requires jsonrpc '2.0' and a string method.",
+      400
+    );
+  }
+  const id = record["id"];
+  if (id !== undefined && id !== null && typeof id !== "string" && typeof id !== "number") {
+    throw new CommandFailure(
+      "mcp_invalid_request",
+      "MCP request id must be string, number, or null.",
+      400
+    );
+  }
+  return {
+    jsonrpc: "2.0",
+    ...(id === undefined ? {} : { id }),
+    method: record["method"],
+    ...(record["params"] === undefined ? {} : { params: record["params"] })
+  };
+}
+
+async function dispatchMcpRequest(input: {
+  readonly rpc: JsonRpcRequest;
+  readonly workspacePath: string;
+  readonly actor: string;
+}): Promise<unknown> {
+  switch (input.rpc.method) {
+    case "initialize":
+      return {
+        protocolVersion: "2024-11-05",
+        capabilities: { tools: {} },
+        serverInfo: { name: "novelfabric", title: "NovelFabric", version: "v4-mono" }
+      };
+    case "ping":
+      return {};
+    case "tools/list":
+      return { tools: externalSwarmMcpTools() };
+    case "tools/call":
+      return callExternalSwarmMcpTool({
+        params: input.rpc.params,
+        workspacePath: input.workspacePath,
+        actor: input.actor
+      });
+    default:
+      throw new CommandFailure(
+        "mcp_method_not_found",
+        `Unsupported MCP method '${input.rpc.method}'.`,
+        404
+      );
+  }
+}
+
+async function callExternalSwarmMcpTool(input: {
+  readonly params: unknown;
+  readonly workspacePath: string;
+  readonly actor: string;
+}): Promise<unknown> {
+  const parsed = mcpToolCallSchema.safeParse(input.params ?? {});
+  if (!parsed.success) {
+    throw new CommandFailure(
+      "mcp_invalid_tool_arguments",
+      `Invalid MCP tools/call params: ${z.prettifyError(parsed.error)}`,
+      400
+    );
+  }
+  const toolArguments = parsed.data.arguments ?? {};
+  switch (parsed.data.name) {
+    case "external_swarm_infer": {
+      const args = parseExternalSwarmToolArguments(toolArguments);
+      const result = await createOrGetExternalSwarmInference({
+        workspacePath: input.workspacePath,
+        actor: input.actor,
+        request: toExternalSwarmInferenceRequest(args),
+        reason: "external swarm MCP inference"
+      });
+      return toMcpStructuredResult(result);
+    }
+    case "external_swarm_require_context": {
+      const args = parseExternalSwarmToolArguments(toolArguments);
+      const result = await requireExternalSwarmContext({
+        workspacePath: input.workspacePath,
+        actor: input.actor,
+        request: toExternalSwarmInferenceRequest(args),
+        reason: "external swarm MCP context requirements"
+      });
+      return toMcpStructuredResult(result);
+    }
+    case "external_swarm_get": {
+      const getArgs = externalSwarmGetToolArgumentsSchema.safeParse(toolArguments);
+      if (!getArgs.success) {
+        throw new CommandFailure(
+          "mcp_invalid_tool_arguments",
+          `Invalid external_swarm_get arguments: ${z.prettifyError(getArgs.error)}`,
+          400
+        );
+      }
+      const result = await getExternalSwarmInference({
+        workspacePath: input.workspacePath,
+        actor: input.actor,
+        inferenceId: getArgs.data.inference_id
+      });
+      return toMcpStructuredResult(result);
+    }
+    default:
+      throw new CommandFailure(
+        "mcp_unknown_tool",
+        `Unknown MCP external swarm tool '${parsed.data.name}'.`,
+        404
+      );
+  }
+}
+
+function parseExternalSwarmToolArguments(value: unknown): ParsedExternalSwarmInferenceRequest {
+  const parsed = externalSwarmInferenceRequestSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new CommandFailure(
+      "mcp_invalid_tool_arguments",
+      `Invalid external swarm MCP tool arguments: ${z.prettifyError(parsed.error)}`,
+      400
+    );
+  }
+  return parsed.data;
+}
+
+function externalSwarmMcpTools(): readonly Record<string, unknown>[] {
+  return [
+    {
+      name: "external_swarm_infer",
+      description: "Run NovelFabric external swarm inference over caller-provided items.",
+      inputSchema: externalSwarmMcpInferenceInputSchema()
+    },
+    {
+      name: "external_swarm_require_context",
+      description: "Inspect context requirements before running external swarm inference.",
+      inputSchema: externalSwarmMcpInferenceInputSchema()
+    },
+    {
+      name: "external_swarm_get",
+      description: "Read a persisted NovelFabric external swarm inference.",
+      inputSchema: {
+        type: "object",
+        required: ["inference_id"],
+        properties: { inference_id: { type: "string", minLength: 1 } },
+        additionalProperties: false
+      }
+    }
+  ];
+}
+
+function externalSwarmMcpInferenceInputSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    required: ["domain", "title", "summary", "items", "questions"],
+    properties: {
+      client_request_id: { type: "string", minLength: 1 },
+      domain: { type: "string", minLength: 1 },
+      title: { type: "string", minLength: 1 },
+      summary: { type: "string", minLength: 1 },
+      items: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          required: ["title", "content"],
+          properties: {
+            id: { type: "string", minLength: 1 },
+            title: { type: "string", minLength: 1 },
+            content: { type: "string", minLength: 1 },
+            published_at: { type: "string", minLength: 1 },
+            source: { type: "string", minLength: 1 },
+            url: { type: "string", minLength: 1 },
+            metadata: { type: "object" }
+          }
+        }
+      },
+      questions: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+      context: {
+        type: "object",
+        properties: {
+          entity_cards: { type: "array", items: { type: "object" } },
+          background: { type: "string", minLength: 1 },
+          worldview: { type: "string", minLength: 1 },
+          research_notes: { type: "array", items: { type: "string", minLength: 1 } }
+        }
+      },
+      rounds: { type: "integer", minimum: 1 }
+    },
+    additionalProperties: false
+  };
+}
+
+function writeMcpError(response: ServerResponse, id: string | number | null, error: unknown): void {
+  const mapped = mcpErrorFor(error);
+  writeJson(response, 200, {
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code: mapped.code,
+      message: sanitizeBridgeErrorMessage(mapped.message),
+      data: mapped.data
+    }
+  });
+}
+
+function mcpErrorFor(error: unknown): {
+  readonly code: number;
+  readonly message: string;
+  readonly data: { readonly code: string };
+} {
+  if (error instanceof z.ZodError) {
+    return {
+      code: -32602,
+      message: z.prettifyError(error),
+      data: { code: "mcp_invalid_tool_arguments" }
+    };
+  }
+  if (error instanceof Error && isCommandFailure(error)) {
+    if (error.code === "mcp_method_not_found" || error.code === "mcp_unknown_tool") {
+      return { code: -32601, message: error.message, data: { code: error.code } };
+    }
+    if (error.exitCode === 3 || error.code === "capability_denied") {
+      return { code: -32003, message: error.message, data: { code: error.code } };
+    }
+    if (error.code.startsWith("mcp_invalid") || error.code === "invalid_external_swarm_request") {
+      return { code: -32602, message: error.message, data: { code: error.code } };
+    }
+    return { code: -32000, message: error.message, data: { code: error.code } };
+  }
+  const message = error instanceof Error ? error.message : "Unexpected MCP bridge failure.";
+  return { code: -32603, message, data: { code: "mcp_internal_error" } };
 }
 
 function summarizeWorkflowPlanResult(result: WorkflowPlanResult): {

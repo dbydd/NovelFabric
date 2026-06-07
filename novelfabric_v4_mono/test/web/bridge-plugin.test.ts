@@ -149,6 +149,187 @@ describe("external swarm REST adapter", () => {
   });
 });
 
+describe("external swarm MCP adapter", () => {
+  it("initialize returns NovelFabric server info", async () => {
+    const workspacePath = await tempExternalSwarmWorkspace("main_agent");
+    configureBridge({ workspacePath, actor: "main_agent" });
+
+    const response = await postMcp({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+
+    expect(response.status).toBe(200);
+    expect(requireRecord(response.body)["jsonrpc"]).toBe("2.0");
+    expect(requireRecord(response.body)["id"]).toBe(1);
+    const result = requireRecord(requireRecord(response.body)["result"]);
+    expect(result["serverInfo"]).toMatchObject({ name: "novelfabric" });
+    expect(result["capabilities"]).toMatchObject({ tools: {} });
+  });
+
+  it("ping returns an empty JSON-RPC result", async () => {
+    const workspacePath = await tempExternalSwarmWorkspace("main_agent");
+    configureBridge({ workspacePath, actor: "main_agent" });
+
+    const response = await postMcp({ jsonrpc: "2.0", id: "ping-1", method: "ping" });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ jsonrpc: "2.0", id: "ping-1", result: {} });
+  });
+
+  it("tools/list exposes the three frozen external swarm tools", async () => {
+    const workspacePath = await tempExternalSwarmWorkspace("main_agent");
+    configureBridge({ workspacePath, actor: "main_agent" });
+
+    const response = await postMcp({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+
+    expect(response.status).toBe(200);
+    const result = requireRecord(requireRecord(response.body)["result"]);
+    const tools = result["tools"];
+    expect(Array.isArray(tools)).toBe(true);
+    if (!Array.isArray(tools)) throw new Error("Expected MCP tools array.");
+    expect(tools.map((tool) => requireRecord(tool)["name"])).toEqual([
+      "external_swarm_infer",
+      "external_swarm_require_context",
+      "external_swarm_get"
+    ]);
+    const inferTool = requireRecord(tools[0]);
+    const inputSchema = requireRecord(inferTool["inputSchema"]);
+    const properties = requireRecord(inputSchema["properties"]);
+    expect(properties["context"]).toBeDefined();
+  });
+
+  it("tools/call external_swarm_infer returns the frozen MCP structured shape", async () => {
+    const workspacePath = await tempExternalSwarmWorkspace("main_agent");
+    configureBridge({ workspacePath, actor: "main_agent" });
+
+    const response = await postMcp({
+      jsonrpc: "2.0",
+      id: "infer-1",
+      method: "tools/call",
+      params: { name: "external_swarm_infer", arguments: externalSwarmRequest() }
+    });
+
+    expect(response.status).toBe(200);
+    const result = requireRecord(requireRecord(response.body)["result"]);
+    assertMcpStructuredResult(result);
+    const structured = requireRecord(result["structuredContent"]);
+    expect(structured["inference_id"]).toEqual(
+      expect.stringMatching(/^external-caller-stable-id-/u)
+    );
+    expect(structured["project_slug"]).toBe("external-market-impact");
+    expect(structured["domain"]).toBe("market-impact");
+    expect(structured["title"]).toBe("Hermes market-impact fixture");
+    expect(requireRecord(structured["artifact_paths"])["context"]).toEqual(
+      expect.stringContaining("projects/external-market-impact/external/context/")
+    );
+    expect(Array.isArray(structured["role_reasoning"])).toBe(true);
+    const text = requireRecord((result["content"] as readonly unknown[])[0])["text"];
+    expect(typeof text).toBe("string");
+    expect(text).toContain("Hermes market-impact fixture");
+  });
+
+  it("tools/call external_swarm_get returns a persisted inference", async () => {
+    const workspacePath = await tempExternalSwarmWorkspace("main_agent");
+    configureBridge({ workspacePath, actor: "main_agent" });
+    const created = await postMcp({
+      jsonrpc: "2.0",
+      id: "infer-then-get",
+      method: "tools/call",
+      params: { name: "external_swarm_infer", arguments: externalSwarmRequest() }
+    });
+    const inferenceId = String(
+      requireRecord(requireRecord(requireRecord(created.body)["result"])["structuredContent"])[
+        "inference_id"
+      ]
+    );
+
+    const fetched = await postMcp({
+      jsonrpc: "2.0",
+      id: "get-1",
+      method: "tools/call",
+      params: { name: "external_swarm_get", arguments: { inference_id: inferenceId } }
+    });
+
+    expect(fetched.status).toBe(200);
+    const fetchedResult = requireRecord(requireRecord(fetched.body)["result"]);
+    assertMcpStructuredResult(fetchedResult);
+    expect(requireRecord(fetchedResult["structuredContent"])["inference_id"]).toBe(inferenceId);
+    expect(fetchedResult["structuredContent"]).toEqual(
+      requireRecord(requireRecord(created.body)["result"])["structuredContent"]
+    );
+  });
+
+  it("tools/call external_swarm_require_context returns missing context requirements", async () => {
+    const workspacePath = await tempExternalSwarmWorkspace("main_agent");
+    configureBridge({ workspacePath, actor: "main_agent" });
+    const underspecified = { ...externalSwarmRequest() };
+    delete underspecified["context"];
+
+    const response = await postMcp({
+      jsonrpc: "2.0",
+      id: "require-context-1",
+      method: "tools/call",
+      params: { name: "external_swarm_require_context", arguments: underspecified }
+    });
+
+    expect(response.status).toBe(200);
+    const result = requireRecord(requireRecord(response.body)["result"]);
+    assertMcpStructuredResult(result);
+    const structured = requireRecord(result["structuredContent"]);
+    expect(structured["is_ready"]).toBe(false);
+    expect(structured["missing_required_keys"]).toEqual(["entity_cards", "background"]);
+  });
+
+  it("unknown MCP tools return JSON-RPC errors", async () => {
+    const workspacePath = await tempExternalSwarmWorkspace("main_agent");
+    configureBridge({ workspacePath, actor: "main_agent" });
+
+    const response = await postMcp({
+      jsonrpc: "2.0",
+      id: "unknown-tool",
+      method: "tools/call",
+      params: { name: "external_swarm_missing", arguments: {} }
+    });
+
+    expect(response.status).toBe(200);
+    const error = requireRecord(requireRecord(response.body)["error"]);
+    expect(error["code"]).toBe(-32601);
+    expect(requireRecord(error["data"])["code"]).toBe("mcp_unknown_tool");
+  });
+
+  it("invalid MCP tool arguments return JSON-RPC errors", async () => {
+    const workspacePath = await tempExternalSwarmWorkspace("main_agent");
+    configureBridge({ workspacePath, actor: "main_agent" });
+
+    const response = await postMcp({
+      jsonrpc: "2.0",
+      id: "bad-args",
+      method: "tools/call",
+      params: { name: "external_swarm_infer", arguments: { ...externalSwarmRequest(), items: [] } }
+    });
+
+    expect(response.status).toBe(200);
+    const error = requireRecord(requireRecord(response.body)["error"]);
+    expect(error["code"]).toBe(-32602);
+    expect(requireRecord(error["data"])["code"]).toBe("mcp_invalid_tool_arguments");
+  });
+
+  it("capability denials return JSON-RPC errors", async () => {
+    const workspacePath = await tempExternalSwarmWorkspace("role_agent");
+    configureBridge({ workspacePath, actor: "role_agent" });
+
+    const response = await postMcp({
+      jsonrpc: "2.0",
+      id: "denied",
+      method: "tools/call",
+      params: { name: "external_swarm_infer", arguments: externalSwarmRequest() }
+    });
+
+    expect(response.status).toBe(200);
+    const error = requireRecord(requireRecord(response.body)["error"]);
+    expect(error["code"]).toBe(-32003);
+    expect(requireRecord(error["data"])["code"]).toBe("capability_denied");
+  });
+});
+
 describe("NovelFabric web bridge agent task routes", () => {
   it("returns bridge_disabled when bridge is not enabled", async () => {
     delete process.env["NOVELFABRIC_WEB_BRIDGE"];
@@ -2062,6 +2243,36 @@ function configureBridge(input: { readonly workspacePath: string; readonly actor
   process.env["NOVELFABRIC_WEB_BRIDGE"] = "1";
   process.env["NOVELFABRIC_WEB_BRIDGE_WORKSPACE"] = input.workspacePath;
   process.env["NOVELFABRIC_WEB_BRIDGE_ACTOR"] = input.actor;
+}
+
+function assertMcpStructuredResult(result: Record<string, unknown>): void {
+  expect(Array.isArray(result["content"])).toBe(true);
+  const content = result["content"];
+  if (!Array.isArray(content)) throw new Error("Expected MCP content array.");
+  expect(content).toHaveLength(1);
+  expect(requireRecord(content[0])["type"]).toBe("text");
+  expect(typeof requireRecord(content[0])["text"]).toBe("string");
+  expect(isRecord(result["structuredContent"])).toBe(true);
+}
+
+async function postMcp(
+  body: Record<string, unknown>
+): Promise<{ readonly status: number; readonly body: unknown }> {
+  const server = await listenBridgeServer();
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("Expected bridge test server to listen on a TCP port.");
+    }
+    const response = await fetch(`http://127.0.0.1:${address.port.toString()}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    return { status: response.status, body: await response.json() };
+  } finally {
+    await closeServer(server);
+  }
 }
 
 async function postExternalSwarm(
