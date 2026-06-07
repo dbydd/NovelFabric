@@ -8,6 +8,7 @@ import {
   buildWebSafePiSessionOptions,
   inspectPiSdkAvailability,
   normalizePiSdkEvent,
+  piAgentRuntimeAdapter,
   piSdkAvailabilityDiagnostic,
   resolveNovelFabricPiRuntimeRoot,
   runPiSdkAgentTask,
@@ -60,6 +61,14 @@ describe("pi SDK adapter skeleton", () => {
     expect(resolved.runtimeRoot).toBe(path.join(home, ".config", "novelfabric", "pi"));
     expect(resolved.globalPiAgentRoot).toBe(path.join(home, ".pi", "agent"));
     expect(resolved.usesGlobalPiAgentRoot).toBe(false);
+  });
+
+  it("describes the pi SDK bridge as partial after opt-in AgentSession execution landed", () => {
+    const plan = piAgentRuntimeAdapter.describeLaunchPlan("/tmp/workspace");
+
+    expect(plan.status).toBe("partial");
+    expect(plan.notes.join("\n")).toContain("Opt-in pi SDK AgentSession execution is implemented");
+    expect(plan.notes.join("\n")).toContain("Web-safe NovelFabric extensions");
   });
 
   it("builds a web-safe policy that denies raw tools and allows only NovelFabric adapters", () => {

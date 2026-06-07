@@ -1,4 +1,4 @@
-export type AgentRuntimeBridgeStatus = "planned" | "disabled" | "available";
+export type AgentRuntimeBridgeStatus = "planned" | "partial" | "disabled" | "available";
 
 export type AgentRuntimeCapability =
   | "project.manage"

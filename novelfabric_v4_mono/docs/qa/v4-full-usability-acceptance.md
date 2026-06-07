@@ -40,7 +40,7 @@ Current strengths:
 
 Current non-negotiable gaps, in next-iteration order:
 
-1. **Web-safe pi SDK runtime** — `agent run --runtime pi` now launches the NovelFabric-owned pi CLI with `generic-writer` and records completed result/domain evidence, but Web runtime sessions still need a Web-safe pi SDK `AgentSession` wrapper, event stream, runtime trace, and enforced tool policy.
+1. **Web-safe runtime extensions and Web bridge orchestration** — `agent run --runtime pi` launches the NovelFabric-owned pi CLI with `generic-writer`; `agent run --runtime pi-sdk` is an opt-in SDK AgentSession path covered by hard acceptance. Web runtime sessions still need NovelFabric-controlled SDK extensions/tools, event stream, runtime trace, bridge lifecycle controls, and enforced Web-safe tool policy.
 2. **Web full workflow binding** — Web workflow controls are not yet bound to upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through the full workflow/agent runtime path.
 3. **Semantic import/materialization** — deterministic import exists, but source text still needs pi-backed chapter/card/world/rule/timeline/memory/context-pack generation with content-quality validation.
 4. **External swarm REST/MCP adapters** — adapters still need to call the shared external-swarm service and pass golden fixture tests for the frozen compatibility contract.
@@ -52,16 +52,17 @@ Current non-negotiable gaps, in next-iteration order:
 
 The next iteration is not accepted until these tests exist and pass for each implemented gap:
 
-Completed domain artifact materialization tests are archived in `../architecture/archive/v4-domain-artifact-materialization-archive.md`. The active gap-specific gates begin at SDK runtime.
+Completed domain artifact materialization tests are archived in `../architecture/archive/v4-domain-artifact-materialization-archive.md`; completed opt-in SDK AgentSession execution is archived in `../architecture/archive/v4-sdk-agent-session-opt-in-archive.md`. The active gap-specific gates begin at Web-safe runtime orchestration.
 
-#### Gap 1 — SDK AgentSession / Web-Safe Runtime
+#### Gap 1 — Web-Safe Runtime Extensions And Web Bridge Session Orchestration
 
 Required tests:
 
-- runtime service test instantiates the pi SDK bridge with a temp NovelFabric config root;
-- event-stream test asserts stable event types for session started, model output, tool request/denial, validation, completion, and failure;
+- runtime service test instantiates the SDK bridge with a temp NovelFabric config root and NovelFabric extension set;
+- extension/tool tests prove NovelFabric SDK tools route reads/writes/context/validate/apply/report through CLI/shared services rather than raw filesystem mutation;
+- event-stream test asserts stable browser-visible event types for session started, model output, tool request/denial, validation, completion, cancellation, retry, and failure;
 - policy tests prove Web sessions deny raw `bash`, raw `write`, raw `edit`, arbitrary network, and arbitrary paths;
-- compatibility test proves CLI process bridge and SDK bridge produce equivalent task evidence envelopes where applicable.
+- bridge lifecycle tests prove start/status/stream/cancel/retry cleanup semantics and comparable task evidence envelopes.
 
 #### Gap 2 — Web Full Workflow Binding
 
@@ -176,7 +177,7 @@ test/acceptance/v4-full-usability.contract.test.ts
 
 They cover:
 
-- real pi AgentSession execution;
+- opt-in pi AgentSession execution is archived; active contracts now target Web-safe extensions and Web bridge orchestration;
 - nontechnical Web workflow with no dangerous tool exposure;
 - pi-backed semantic拆书;
 - pi-backed role reasoning and StorySwarm;

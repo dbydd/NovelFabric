@@ -47,4 +47,4 @@ Representative test coverage includes:
 
 ## Important Boundary
 
-This archive proves that workflow pi-task output can become validated domain artifacts. It still does not complete the full product/business loop. Active gaps remain: SDK `AgentSession` / Web-safe runtime, browser full workflow binding, semantic import/materialization, external swarm REST/MCP adapters, and domain-specific capabilities.
+This archive proves that workflow pi-task output can become validated domain artifacts. It still does not complete the full product/business loop. Opt-in SDK AgentSession execution has since been completed and archived in `v4-sdk-agent-session-opt-in-archive.md`. Active gaps remain: Web-safe runtime extensions and Web bridge session orchestration, browser full workflow binding, semantic import/materialization, external swarm REST/MCP adapters, and domain-specific capabilities.

@@ -227,12 +227,13 @@ export const piAgentRuntimeAdapter: AgentRuntimeAdapter = {
   describeLaunchPlan(cwd: string): AgentRuntimeLaunchPlan {
     return {
       bridge: PI_PACKAGE_NAME,
-      status: "planned",
+      status: "partial",
       cwd,
       sessionMode: "workspace-persistent",
       cliGuardrail: "required",
       notes: [
-        "The mono app embeds the pi SDK as a future runtime bridge, not as a direct file mutator.",
+        "Opt-in pi SDK AgentSession execution is implemented for agent tasks and hard acceptance.",
+        "Web-safe NovelFabric extensions, browser session orchestration, and UI-visible event streaming remain active gaps.",
         "NovelFabric-managed writes must route through protected CLI primitives and capability manifests.",
         "Role agents remain deny-by-default for protected files, other profiles' memory, and external swarm."
       ]

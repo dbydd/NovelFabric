@@ -21,12 +21,13 @@ Completed pi-evidence hardening and domain artifact materialization are archived
 
 - `docs/architecture/archive/v4-pi-evidence-loop-archive.md`
 - `docs/architecture/archive/v4-domain-artifact-materialization-archive.md`
+- `docs/architecture/archive/v4-sdk-agent-session-opt-in-archive.md`
 
 Active handoff should stay focused on unfinished gaps, not repeat completed history.
 
 Next iteration gap order:
 
-1. **SDK/Web runtime bridge**: replace or wrap the CLI process bridge with the planned pi SDK `AgentSession` bridge, event stream, and Web-safe tool policy enforcement.
+1. **Web-safe runtime extensions and Web bridge session orchestration**: build on the opt-in `agent run --runtime pi-sdk` path; add NovelFabric-controlled SDK tools/extensions, event stream, Web bridge lifecycle controls, and Web-safe policy enforcement.
 2. **Web full workflow path**: browser controls must execute upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → role reasoning/StorySwarm → ReportAgent → chapter generation → editor review/save through CLI-backed services.
 3. **Semantic import/materialization**: source text must be pi-backed into chapters, cards, world/rule assets, timeline, memory, and context packs, with content-quality validation.
 4. **External swarm compatibility**: land frozen REST/MCP adapters and golden tests for existing external swarm inference contracts.

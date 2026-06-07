@@ -6,7 +6,7 @@ V4 TypeScript mono app — next iteration planning for full business-loop closur
 
 ## Current cycle
 
-Archive completed pi-evidence and domain artifact work → keep active docs focused on unfinished gaps → next implementation starts with SDK `AgentSession` / Web-safe runtime.
+Archive completed pi-evidence, domain artifact, and opt-in SDK AgentSession work → keep active docs focused on unfinished gaps → next implementation starts with Web-safe runtime extensions and Web bridge session orchestration.
 
 ## Current V4 status
 
@@ -14,8 +14,9 @@ Archive completed pi-evidence and domain artifact work → keep active docs focu
 - Broad CLI command families are available: `config`, `workspace`, `project`, `files`, `runtime`, `agents`, `agent`, `skills`, `import`, `cards`, `memory`, `knowledge`, `recall`, `context-pack`, `simulation`, `swarm`, `report`, `writing`, `workflow`, `external-swarm`, and `web`.
 - Completed pi-backed semantic evidence hardening is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-pi-evidence-loop-archive.md`.
 - Completed domain artifact materialization is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-domain-artifact-materialization-archive.md`.
+- Completed opt-in SDK AgentSession execution is archived at `novelfabric_v4_mono/docs/architecture/archive/v4-sdk-agent-session-opt-in-archive.md`.
 - Workflow pi-task stages now require pi evidence and domain artifact evidence for StorySwarm, ReportAgent, and writing outputs.
-- Active planning now starts at **SDK AgentSession / Web-safe runtime**. The full product/business loop is still incomplete until Web workflow, semantic import, external swarm REST/MCP, and domain-specific capabilities are finished.
+- Active planning now starts at **Web-safe runtime extensions and Web bridge session orchestration**. The full product/business loop is still incomplete until Web workflow, semantic import, external swarm REST/MCP, and domain-specific capabilities are finished.
 - Detailed active gap ledger and test standards live in:
   - `novelfabric_v4_mono/docs/architecture/v4-cli-workspace-harness-plan.md`
   - `novelfabric_v4_mono/docs/architecture/v4-cli-command-contract.md`
@@ -24,7 +25,7 @@ Archive completed pi-evidence and domain artifact work → keep active docs focu
 
 ## Active next-iteration gaps
 
-1. **SDK AgentSession / Web-safe runtime** — replace or wrap the current CLI process bridge with pi SDK `AgentSession`, event streaming, Web-safe tool policy enforcement, and browser-visible runtime trace.
+1. **Web-safe runtime extensions and Web bridge session orchestration** — build on the opt-in `agent run --runtime pi-sdk` path; add NovelFabric-controlled SDK tools/extensions, event streaming, Web bridge lifecycle controls, Web-safe tool policy enforcement, and browser-visible runtime trace.
 2. **Web full workflow binding** — source upload/import → semantic拆书 → cards/memory/timeline → StoryRAG/context → StorySwarm → ReportAgent → chapter generation → editor review/save through CLI-backed services.
 3. **Semantic import/materialization** — pi-backed generation of chapters, cards, world/rule assets, timeline, memory, and context packs with content-quality validation and reversible/conflict-safe apply.
 4. **External swarm REST/MCP adapters** — preserve the frozen external swarm inference REST/MCP contract with golden fixture tests.

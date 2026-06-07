@@ -1,8 +1,30 @@
-import { describe, it } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+import { describe, expect, it } from "vitest";
 
 describe("V4 full-usability acceptance contracts", () => {
+  it("exposes the opt-in pi SDK AgentSession acceptance surface", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts?: Record<string, string>;
+    };
+    const archivePath = path.join(
+      "docs",
+      "architecture",
+      "archive",
+      "v4-sdk-agent-session-opt-in-archive.md"
+    );
+
+    expect(packageJson.scripts?.["test:pi-sdk-acceptance"]).toBe(
+      "node scripts/pi-sdk-acceptance.mjs"
+    );
+    const archive = readFileSync(archivePath, "utf8");
+    expect(archive).toContain("opt-in SDK AgentSession execution surface");
+    expect(archive).toContain("Web-safe runtime extensions and Web bridge session orchestration");
+  });
+
   it.todo(
-    "runs a real NovelFabric-wrapped pi AgentSession with NovelFabric-owned config, extensions, tool policy, and event trace"
+    "orchestrates Web-safe pi SDK sessions with NovelFabric extensions, denied raw tools, browser-visible event trace, and bridge lifecycle controls"
   );
 
   it.todo(
