@@ -15,10 +15,12 @@ import {
   peekWorkflow,
   planWorkflow,
   startWorkflow,
+  retryWorkflow,
   stepWorkflow,
   verifyWorkflow,
   workflowStages
 } from "../../src/workflow/index.js";
+import type { WorkflowStageId } from "../../src/workflow/index.js";
 import { readWorkspaceFile, writeWorkspaceFile } from "../../src/workspace/files.js";
 import { validateWritingDraftArtifact } from "../../src/writing/index.js";
 
@@ -91,6 +93,69 @@ function parseWorkflowArtifacts(content: string): {
     return itemRecord as { readonly name: string; readonly [key: string]: unknown };
   });
   return { ...record, items: narrowedItems };
+}
+
+const REAL_LLM_STAGE_ATTEMPTS = 3;
+const RETRYABLE_REAL_LLM_FAILURE_CODES = new Set([
+  "agent_task_output_schema_mismatch",
+  "pi_runtime_failed",
+  "pi_sdk_empty_output",
+  "workflow_pi_task_output_invalid",
+  "workflow_agent_task_result_missing"
+]);
+
+function isRetryableRealLlmFailure(step: { readonly output: Record<string, unknown> }): boolean {
+  const code = step.output["code"];
+  if (typeof code === "string" && RETRYABLE_REAL_LLM_FAILURE_CODES.has(code)) return true;
+  const message = typeof step.output["message"] === "string" ? step.output["message"] : "";
+  return (
+    message.includes("output.schema.json") ||
+    message.includes("schema") ||
+    message.includes("ETIMEDOUT") ||
+    message.includes("timeout") ||
+    message.includes("upstream") ||
+    message.includes("status=400") ||
+    message.includes("status=429") ||
+    message.includes("status=500") ||
+    message.includes("status=502") ||
+    message.includes("status=503") ||
+    message.includes("status=504")
+  );
+}
+
+async function stepWorkflowWithRealLlmRetry(request: {
+  readonly workspacePath: string;
+  readonly actor: string;
+  readonly jobId: string;
+  readonly stage: WorkflowStageId;
+  readonly attempts?: number;
+}) {
+  const attempts = request.attempts ?? REAL_LLM_STAGE_ATTEMPTS;
+  const diagnostics: string[] = [];
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const step = await stepWorkflow({
+      workspacePath: request.workspacePath,
+      actor: request.actor,
+      jobId: request.jobId,
+      input: { stage: request.stage },
+      reason: `workflow real LLM test stage ${request.stage} attempt ${attempt.toString()}`
+    });
+    if (step.stageStatus === "completed") return step;
+    const code = typeof step.output["code"] === "string" ? step.output["code"] : "unknown";
+    const message = typeof step.output["message"] === "string" ? step.output["message"] : "";
+    diagnostics.push(`attempt ${attempt.toString()}: ${code}: ${message}`);
+    if (!isRetryableRealLlmFailure(step) || attempt >= attempts) break;
+    await retryWorkflow({
+      workspacePath: request.workspacePath,
+      actor: request.actor,
+      jobId: request.jobId,
+      stage: request.stage,
+      reason: `workflow real LLM test retry ${request.stage} after ${code}`
+    });
+  }
+  throw new Error(
+    `Workflow real LLM stage '${request.stage}' did not complete after ${attempts.toString()} attempts. ${diagnostics.join(" | ")}`
+  );
 }
 
 describe("workflow acceptance state machine", () => {
@@ -551,11 +616,11 @@ describe("workflow acceptance state machine", () => {
     expect(planStep.stageStatus).toBe("completed");
     expect(planStep.executedStage).toBe("swarm.plan");
 
-    const swarmStep = await stepWorkflow({
+    const swarmStep = await stepWorkflowWithRealLlmRetry({
       workspacePath,
       actor: "main_agent",
       jobId,
-      input: { stage: "swarm.task.create" }
+      stage: "swarm.task.create"
     });
     expect(swarmStep.stageStatus).toBe("completed");
     expect(swarmStep.executedStage).toBe("swarm.task.create");
@@ -722,7 +787,7 @@ describe("workflow acceptance state machine", () => {
         path: evidenceArtifact.path
       })
     );
-  }, 60000);
+  }, 180000);
 
   it("executes generated report context through a workflow pi-task stage", async () => {
     const jobId = `workflow-report-step-${process.pid.toString()}-${Date.now().toString(36)}`;
@@ -768,20 +833,20 @@ describe("workflow acceptance state machine", () => {
     expect(planStep.stageStatus).toBe("completed");
     expect(planStep.executedStage).toBe("swarm.plan");
 
-    const swarmStep = await stepWorkflow({
+    const swarmStep = await stepWorkflowWithRealLlmRetry({
       workspacePath,
       actor: "main_agent",
       jobId,
-      input: { stage: "swarm.task.create" }
+      stage: "swarm.task.create"
     });
     expect(swarmStep.stageStatus).toBe("completed");
     expect(swarmStep.executedStage).toBe("swarm.task.create");
 
-    const reportStep = await stepWorkflow({
+    const reportStep = await stepWorkflowWithRealLlmRetry({
       workspacePath,
       actor: "main_agent",
       jobId,
-      input: { stage: "report.task.create" }
+      stage: "report.task.create"
     });
     expect(reportStep.stageStatus).toBe("completed");
     expect(reportStep.executedStage).toBe("report.task.create");
@@ -819,7 +884,7 @@ describe("workflow acceptance state machine", () => {
     });
     expect(validation.valid).toBe(true);
     expect(validation.issues).toEqual([]);
-  }, 60000);
+  }, 180000);
 
   it("executes generated writing context through a workflow pi-task stage", async () => {
     const jobId = `workflow-writing-step-${process.pid.toString()}-${Date.now().toString(36)}`;
@@ -864,20 +929,20 @@ describe("workflow acceptance state machine", () => {
     expect(planStep.stageStatus).toBe("completed");
     expect(planStep.executedStage).toBe("swarm.plan");
 
-    const swarmStep = await stepWorkflow({
+    const swarmStep = await stepWorkflowWithRealLlmRetry({
       workspacePath,
       actor: "main_agent",
       jobId,
-      input: { stage: "swarm.task.create" }
+      stage: "swarm.task.create"
     });
     expect(swarmStep.stageStatus).toBe("completed");
     expect(swarmStep.executedStage).toBe("swarm.task.create");
 
-    const reportStep = await stepWorkflow({
+    const reportStep = await stepWorkflowWithRealLlmRetry({
       workspacePath,
       actor: "main_agent",
       jobId,
-      input: { stage: "report.task.create" }
+      stage: "report.task.create"
     });
     expect(reportStep.stageStatus).toBe("completed");
     expect(reportStep.executedStage).toBe("report.task.create");
@@ -901,11 +966,11 @@ describe("workflow acceptance state machine", () => {
     expect(writingContextRead.content).toContain("叶小伟");
     expect(writingContextRead.content).toContain("钟声");
 
-    const draftStep = await stepWorkflow({
+    const draftStep = await stepWorkflowWithRealLlmRetry({
       workspacePath,
       actor: "main_agent",
       jobId,
-      input: { stage: "writing.draft" }
+      stage: "writing.draft"
     });
     expect(draftStep.stageStatus).toBe("completed");
     expect(draftStep.executedStage).toBe("writing.draft");
@@ -942,7 +1007,7 @@ describe("workflow acceptance state machine", () => {
     });
     expect(validation.valid).toBe(true);
     expect(validation.issues).toEqual([]);
-  }, 120000);
+  }, 240000);
 
   it("builds canonical import context pack before proposing cards", async () => {
     const planned = await planWorkflow({
@@ -1013,11 +1078,11 @@ describe("workflow acceptance state machine", () => {
     expect(canonicalRead.content).toContain("叶小伟醒来");
     expect(canonicalRead.content).toContain("城市边缘传来钟声");
 
-    const semanticStep = await stepWorkflow({
+    const semanticStep = await stepWorkflowWithRealLlmRetry({
       workspacePath,
       actor: "main_agent",
       jobId: started.jobId,
-      input: { stage: "import.semantic" }
+      stage: "import.semantic"
     });
     expect(semanticStep.stageStatus).toBe("completed");
     expect(semanticStep.executedStage).toBe("import.semantic");
@@ -1053,7 +1118,7 @@ describe("workflow acceptance state machine", () => {
           artifact.artifactKind === "novelfabric.cards.proposal"
       )
     ).toBe(true);
-  }, 120000);
+  }, 180000);
 
   it("plans, starts, steps deterministic stages, verifies artifacts, and can be cancelled", async () => {
     const planned = await planWorkflow({
