@@ -937,6 +937,10 @@ describe("workflow acceptance state machine", () => {
     });
     expect(swarmStep.stageStatus).toBe("completed");
     expect(swarmStep.executedStage).toBe("swarm.task.create");
+    expect(swarmStep.output["turnCount"]).toBe(5);
+    expect(
+      swarmStep.artifacts.filter((artifact) => artifact.name.startsWith("simulation-turn-")).length
+    ).toBe(5);
 
     const reportStep = await stepWorkflowWithRealLlmRetry({
       workspacePath,
@@ -1111,11 +1115,69 @@ describe("workflow acceptance state machine", () => {
     });
     expect(cardsStep.stageStatus).toBe("completed");
     expect(cardsStep.executedStage).toBe("cards.propose");
+    const cardProposalArtifact = cardsStep.artifacts.find(
+      (artifact) =>
+        artifact.name === "card-proposal" && artifact.artifactKind === "novelfabric.cards.proposal"
+    );
+    expect(cardProposalArtifact).toBeDefined();
+    if (cardProposalArtifact === undefined) throw new Error("Missing card proposal artifact.");
+    const proposalRead = await readWorkspaceFile({
+      workspacePath,
+      path: cardProposalArtifact.path
+    });
+    expect(proposalRead.content).toContain("cards/characters");
+    expect(proposalRead.content).toContain("cards/world");
+    expect(proposalRead.content).toContain("cards/scenes");
+    expect(proposalRead.content).not.toContain("Source Card");
+
+    const applyStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId: started.jobId,
+      input: { stage: "cards.apply" }
+    });
+    expect(applyStep.stageStatus).toBe("completed");
+    expect(applyStep.artifacts.map((artifact) => artifact.name)).toEqual(
+      expect.arrayContaining(["card-character", "card-world", "card-scene"])
+    );
+
+    const memoryStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId: started.jobId,
+      input: { stage: "memory.materialize" }
+    });
+    expect(memoryStep.stageStatus).toBe("completed");
     expect(
-      cardsStep.artifacts.some(
-        (artifact) =>
-          artifact.name === "card-proposal" &&
-          artifact.artifactKind === "novelfabric.cards.proposal"
+      memoryStep.artifacts.some((artifact) => artifact.path.startsWith("memory/global/"))
+    ).toBe(true);
+
+    const timelineStep = await stepWorkflow({
+      workspacePath,
+      actor: "main_agent",
+      jobId: started.jobId,
+      input: { stage: "timeline.materialize" }
+    });
+    expect(timelineStep.stageStatus).toBe("completed");
+    const timelineRead = await readWorkspaceFile({ workspacePath, path: "timeline/index.json" });
+    expect(timelineRead.content).toContain("novelfabric.timeline.index");
+    expect(timelineRead.content).toContain("events");
+
+    const verification = await verifyWorkflow({ workspacePath, jobId: started.jobId });
+    expect(verification.valid).toBe(true);
+    expect(verification.checked).toEqual(expect.arrayContaining(["timeline/index.json"]));
+
+    const sceneArtifact = applyStep.artifacts.find((artifact) => artifact.name === "card-scene");
+    expect(sceneArtifact).toBeDefined();
+    if (sceneArtifact === undefined) throw new Error("Missing scene card artifact.");
+    await fs.rm(path.join(workspacePath, sceneArtifact.path));
+    const brokenVerification = await verifyWorkflow({ workspacePath, jobId: started.jobId });
+    expect(brokenVerification.valid).toBe(false);
+    expect(
+      brokenVerification.issues.some(
+        (issue) =>
+          issue.code === "workflow_artifact_unreadable" ||
+          issue.code === "canonical_scene_card_missing"
       )
     ).toBe(true);
   }, 180000);
@@ -1175,6 +1237,171 @@ describe("workflow acceptance state machine", () => {
     });
     expect(cancelled.status).toBe("cancelled");
     expect((await peekWorkflow({ workspacePath, jobId: started.jobId })).status).toBe("cancelled");
+  });
+
+  it("does not fail mutable workflow artifacts when canonical log and session content grow", async () => {
+    const jobId = `mutable-artifact-${process.pid.toString()}-${Date.now().toString(36)}`;
+    const now = new Date().toISOString();
+    const stages = workflowStages();
+    const reportIndex = stages.findIndex((stage) => stage.id === "report.task.create");
+    expect(reportIndex).toBeGreaterThan(0);
+
+    await writeWorkspaceFile({
+      workspacePath,
+      path: "simulation/logs/mutable-session.jsonl",
+      actor: "main_agent",
+      content: `${stableJson({ kind: "novelfabric.simulation.log-entry", version: 1, sessionId: jobId })}\n`,
+      reason: "seed mutable canonical log"
+    });
+    await writeWorkspaceFile({
+      workspacePath,
+      path: "simulation/sessions/mutable-session/session.json",
+      actor: "main_agent",
+      content: stableJson({ kind: "novelfabric.simulation.session", id: jobId }),
+      reason: "seed mutable canonical session"
+    });
+    const reportPath = `reports/${jobId}-consistency.json`;
+    await writeWorkspaceFile({
+      workspacePath,
+      path: reportPath,
+      actor: "main_agent",
+      content: stableJson({ kind: "novelfabric.report.artifact", version: 1 }),
+      reason: "seed immutable report artifact"
+    });
+
+    await writeWorkspaceFile({
+      workspacePath,
+      path: `.novelfabric/jobs/${jobId}/plan.json`,
+      actor: "main_agent",
+      content: stableJson({
+        kind: "novelfabric.workflow.plan",
+        version: 1,
+        planId: jobId,
+        createdAt: now,
+        sourcePath: "imports/source/acceptance-novel.txt",
+        role: "main_agent",
+        stages
+      }),
+      reason: "mutable artifact test plan"
+    });
+    await writeWorkspaceFile({
+      workspacePath,
+      path: `.novelfabric/jobs/${jobId}/job.json`,
+      actor: "main_agent",
+      content: stableJson({
+        kind: "novelfabric.workflow.job",
+        version: 1,
+        jobId,
+        planId: jobId,
+        actor: "main_agent",
+        sourcePath: "imports/source/acceptance-novel.txt",
+        role: "main_agent",
+        createdAt: now,
+        updatedAt: now
+      }),
+      reason: "mutable artifact test job"
+    });
+    await writeWorkspaceFile({
+      workspacePath,
+      path: `.novelfabric/jobs/${jobId}/state.json`,
+      actor: "main_agent",
+      content: stableJson({
+        kind: "novelfabric.workflow.state",
+        version: 1,
+        jobId,
+        status: "running",
+        nextStageIndex: reportIndex + 1,
+        completedStages: stages
+          .slice(0, reportIndex + 1)
+          .map((stage) => ({ stage: stage.id, completedAt: now })),
+        failedStage: null,
+        updatedAt: now,
+        cancelledAt: null
+      }),
+      reason: "mutable artifact test state"
+    });
+
+    const mutableLogRead = await readWorkspaceFile({
+      workspacePath,
+      path: "simulation/logs/mutable-session.jsonl"
+    });
+    const mutableSessionRead = await readWorkspaceFile({
+      workspacePath,
+      path: "simulation/sessions/mutable-session/session.json"
+    });
+    const immutableReportRead = await readWorkspaceFile({ workspacePath, path: reportPath });
+    await writeWorkspaceFile({
+      workspacePath,
+      path: `.novelfabric/jobs/${jobId}/artifacts.json`,
+      actor: "main_agent",
+      content: stableJson({
+        kind: "novelfabric.workflow.artifacts",
+        version: 1,
+        jobId,
+        items: [
+          {
+            stage: "swarm.task.create",
+            name: "simulation-session-main_agent",
+            path: mutableSessionRead.path,
+            hash: mutableSessionRead.hash,
+            artifactKind: "novelfabric.simulation.session"
+          },
+          {
+            stage: "swarm.task.create",
+            name: "simulation-log-main_agent",
+            path: mutableLogRead.path,
+            hash: mutableLogRead.hash,
+            artifactKind: "novelfabric.simulation.log"
+          },
+          {
+            stage: "report.task.create",
+            name: "report-artifact",
+            path: immutableReportRead.path,
+            hash: immutableReportRead.hash,
+            artifactKind: "novelfabric.report.artifact"
+          }
+        ]
+      }),
+      reason: "mutable artifact test artifacts"
+    });
+
+    await writeWorkspaceFile({
+      workspacePath,
+      path: "simulation/logs/mutable-session.jsonl",
+      actor: "main_agent",
+      content: `${mutableLogRead.content}${stableJson({ kind: "novelfabric.simulation.log-entry", version: 1, sessionId: jobId, appended: true })}`,
+      reason: "append mutable canonical log"
+    });
+    await writeWorkspaceFile({
+      workspacePath,
+      path: "simulation/sessions/mutable-session/session.json",
+      actor: "main_agent",
+      content: stableJson({ kind: "novelfabric.simulation.session", id: jobId, updatedAt: now }),
+      reason: "update mutable canonical session"
+    });
+    await writeWorkspaceFile({
+      workspacePath,
+      path: reportPath,
+      actor: "main_agent",
+      content: stableJson({ kind: "novelfabric.report.artifact", version: 1, tampered: true }),
+      reason: "tamper immutable report artifact"
+    });
+
+    const verification = await verifyWorkflow({ workspacePath, jobId });
+    expect(verification.valid).toBe(false);
+    expect(verification.issues).toContainEqual(
+      expect.objectContaining({
+        code: "workflow_artifact_hash_mismatch",
+        path: reportPath
+      })
+    );
+    expect(
+      verification.issues.some(
+        (issue) =>
+          issue.code === "workflow_artifact_hash_mismatch" &&
+          (issue.path === mutableSessionRead.path || issue.path === mutableLogRead.path)
+      )
+    ).toBe(false);
   });
 
   async function writeWorkflowRuntimeFixture(request: {

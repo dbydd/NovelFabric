@@ -19,6 +19,7 @@ import { addRuntimeCommands } from "./commands/runtime.js";
 import { addSimulationCommands } from "./commands/simulation.js";
 import { addSkillCommands } from "./commands/skills.js";
 import { addSwarmCommands } from "./commands/swarm.js";
+import { addTimelineCommands } from "./commands/timeline.js";
 import { addWebCommands } from "./commands/web.js";
 import { addWorkflowCommands } from "./commands/workflow.js";
 import { addWorkspaceCommands } from "./commands/workspace.js";
@@ -50,6 +51,7 @@ export function buildProgram(): Command {
   addContextPackCommands(program);
   addSimulationCommands(program);
   addSwarmCommands(program);
+  addTimelineCommands(program);
   addReportCommands(program);
   addWritingCommands(program);
   addWorkflowCommands(program);

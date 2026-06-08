@@ -1041,7 +1041,9 @@ describe("NovelFabric web-safe SDK custom tools", () => {
         kind: "novelfabric.writing.draft",
         version: 1,
         title: "Applied Web Safe Chapter",
-        markdown: "# Applied Web Safe Chapter\n\nChapter body from apply tool.",
+        markdown:
+          "# Applied Web Safe Chapter\n\nChapter body from apply tool cites the web safe source.",
+        sourceAnchors: ["web safe source"],
         citations: [{ path: source.path, hash: source.hash }]
       })
     });

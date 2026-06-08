@@ -13,7 +13,7 @@ import {
 } from "../../src/cards/proposals.js";
 import type { CommandFailure } from "../../src/errors.js";
 import { buildContextPack } from "../../src/knowledge/index.js";
-import { writeWorkspaceFile } from "../../src/workspace/files.js";
+import { readWorkspaceFile, writeWorkspaceFile } from "../../src/workspace/files.js";
 
 const VALID_FIXTURE = path.resolve(import.meta.dirname, "../../fixtures/workspaces/valid-basic");
 
@@ -79,6 +79,109 @@ describe("card proposal services", () => {
     expect(read.kind).toBe("world");
     expect(read.title).toBe("星门雨城");
     expect(read.content).toContain("钟楼规则");
+  });
+
+  it("materializes multiple canonical card kinds from semantic import evidence", async () => {
+    const sourceRead = await readWorkspaceFile({
+      workspacePath,
+      path: "imports/source/chapter-one.md"
+    });
+    const semanticPath = "imports/semantic/chapter-one.json";
+    await writeWorkspaceFile({
+      workspacePath,
+      path: semanticPath,
+      actor: "main_agent",
+      reason: "semantic card proposal test",
+      content: stableJson({
+        kind: "novelfabric.import.semantic",
+        version: 1,
+        sourcePath: sourceRead.path,
+        sourceHash: sourceRead.hash,
+        contextPackPath: sourceRead.path,
+        contextPackHash: sourceRead.hash,
+        summary:
+          "阿莉娅抵达星门雨城并发现钟楼规则，城市设定、场景行动与规则约束需要分别沉淀为卡片。",
+        chapters: [
+          {
+            title: "Chapter One",
+            summary: "阿莉娅进入雨城，钟楼规则第一次显露。",
+            sourceAnchors: ["阿莉娅抵达星门雨城", "钟楼规则"]
+          }
+        ],
+        characters: [
+          {
+            name: "阿莉娅",
+            summary: "阿莉娅是进入星门雨城的核心行动者，她发现钟楼规则并推动后续推演。",
+            sourceAnchors: ["阿莉娅抵达星门雨城"]
+          }
+        ],
+        events: [
+          {
+            title: "雨城入口",
+            summary: "阿莉娅抵达星门雨城，在入口处感知钟楼规则对城市秩序的影响。",
+            sourceAnchors: ["阿莉娅抵达星门雨城", "钟楼规则"]
+          }
+        ],
+        cardSeeds: [
+          {
+            kind: "world",
+            title: "星门雨城",
+            summary: "星门雨城是被钟楼规则维持秩序的城市舞台，后续世界设定必须引用该来源。",
+            sourceAnchors: ["星门雨城", "钟楼规则"]
+          },
+          {
+            kind: "other",
+            title: "钟楼规则",
+            summary: "钟楼规则约束城市行动，角色推演必须保持与该规则一致。",
+            sourceAnchors: ["钟楼规则"]
+          },
+          {
+            kind: "plot",
+            title: "雨城入口",
+            summary: "阿莉娅进入雨城并发现钟楼规则，是后续章节与推演的起始场景。",
+            sourceAnchors: ["阿莉娅抵达星门雨城"]
+          }
+        ],
+        sourceAnchors: ["阿莉娅抵达星门雨城", "钟楼规则"],
+        citations: [{ path: sourceRead.path, hash: sourceRead.hash }],
+        createdFromTask: {
+          taskId: "semantic-card-test",
+          resultPath: sourceRead.path,
+          resultHash: sourceRead.hash
+        },
+        materializedAt: new Date().toISOString()
+      })
+    });
+
+    const proposal = await proposeCards({
+      workspacePath,
+      actor: "main_agent",
+      semanticImportPath: semanticPath,
+      outputPath: "proposals/cards/chapter-one-canonical.json"
+    });
+    expect(proposal.cardCount).toBeGreaterThanOrEqual(4);
+
+    const validation = await validateCardProposal({
+      workspacePath,
+      proposalPath: proposal.proposalPath
+    });
+    expect(validation.valid).toBe(true);
+
+    const applied = await applyCardProposal({
+      workspacePath,
+      proposalPath: proposal.proposalPath,
+      actor: "main_agent"
+    });
+    expect(applied.applied.map((card) => card.kind).sort()).toEqual(
+      expect.arrayContaining(["character", "rule", "scene", "world"])
+    );
+    expect(applied.applied.some((card) => card.path === "cards/characters/阿莉娅.md")).toBe(true);
+
+    const character = await readCard({ workspacePath, path: "cards/characters/阿莉娅.md" });
+    expect(character.content).toContain("## Source Anchors");
+    expect(character.content).toContain("阿莉娅抵达星门雨城");
+    expect(character.content).toContain("imports/source/chapter-one.md");
+    expect(character.content).not.toContain("Source Card");
   });
 
   it("requires cards.propose instead of project.manage for proposals", async () => {
@@ -200,6 +303,10 @@ describe("card proposal services", () => {
     ).rejects.toMatchObject({ code: "invalid_card_proposal" } satisfies Partial<CommandFailure>);
   });
 });
+
+function stableJson(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
 
 async function writeCapabilities(
   workspacePath: string,

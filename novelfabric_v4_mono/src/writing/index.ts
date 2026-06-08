@@ -153,6 +153,7 @@ export type NovelFabricWritingDraft = {
   readonly version: 1;
   readonly title: string;
   readonly markdown: string;
+  readonly sourceAnchors?: readonly string[];
   readonly citations: readonly ArtifactCitation[];
 };
 
@@ -288,7 +289,7 @@ export async function applyWritingDraft(
   const outputPath =
     request.outputPath ??
     `writing/chapters/${safePathSegment(draft.title)}-${shortHash(draft.markdown)}.md`;
-  const content = `${draft.markdown.trimEnd()}\n\n---\nsource_draft: ${request.draftPath}\n`;
+  const content = renderAppliedChapterMarkdown(draft, request.draftPath);
   const write = await writeWorkspaceFile({
     workspacePath: request.workspacePath,
     path: outputPath,
@@ -321,7 +322,8 @@ export async function materializeWritingDraftFromAgentTask(
     kind: "novelfabric.writing.draft",
     version: 1,
     title: output.title ?? `Draft ${shortHash(output.resultHash)}`,
-    markdown: `${markdown}\n\n## Source anchors\n${output.sourceAnchors.map((anchor) => `- ${anchor}`).join("\n")}`,
+    markdown,
+    sourceAnchors: output.sourceAnchors,
     citations: [{ path: output.resultPath, hash: output.resultHash }, ...citationEvidence]
   };
   const draftPath =
@@ -427,6 +429,39 @@ export async function exportWriting(request: WritingExportRequest): Promise<Writ
   };
 }
 
+function renderAppliedChapterMarkdown(draft: NovelFabricWritingDraft, draftPath: string): string {
+  const title = normalizeChapterTitle(draft.title);
+  const body = stripAppliedMetadataSections(draft.markdown.trim());
+  const titledBody = body.replace(/^#\s+.+$/mu, `# ${title}`).startsWith("#")
+    ? body.replace(/^#\s+.+$/mu, `# ${title}`)
+    : `# ${title}\n\n${body}`;
+  const anchors = nonEmptyUnique(draft.sourceAnchors ?? extractAnchors(draft.markdown));
+  const anchorLines = anchors.map((anchor) => `- ${anchor}`);
+  const citationLines = draft.citations.map((citation) =>
+    citation.hash === undefined ? `- ${citation.path}` : `- ${citation.path} @ ${citation.hash}`
+  );
+  return `${titledBody.trimEnd()}\n\n## Source Anchors\n${anchorLines.join("\n")}\n\n## Citations\n${citationLines.join("\n")}\n\n## Provenance\n- source_draft: ${draftPath}\n`;
+}
+
+function stripAppliedMetadataSections(markdown: string): string {
+  return markdown
+    .replace(/\n## Source anchors\s+[\s\S]*?(?=\n## |\n---|$)/giu, "")
+    .replace(/\n## Citations\s+[\s\S]*?(?=\n## |\n---|$)/giu, "")
+    .replace(/\n## Provenance\s+[\s\S]*?(?=\n## |\n---|$)/giu, "")
+    .replace(/\n---\nsource_draft:[\s\S]*$/u, "")
+    .trim();
+}
+
+function normalizeChapterTitle(title: string): string {
+  const trimmed = title.trim();
+  if (/^chapter\s*\d+/iu.test(trimmed)) return "章节草稿";
+  return trimmed.length > 0 ? trimmed : "章节草稿";
+}
+
+function nonEmptyUnique(values: readonly string[]): readonly string[] {
+  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
+}
+
 async function validateDraftArtifact(
   workspacePath: string,
   draftPath: string
@@ -449,6 +484,14 @@ async function validateDraftArtifact(
       code: "empty_draft_markdown",
       path: draftPath,
       message: "Draft markdown is empty."
+    });
+  }
+  if ((draft.sourceAnchors ?? extractAnchors(draft.markdown)).length === 0) {
+    issues.push({
+      severity: "error",
+      code: "missing_draft_source_anchors",
+      path: draftPath,
+      message: "Draft artifact must provide source anchors for canonical chapter apply."
     });
   }
   for (const citation of draft.citations) {
@@ -560,6 +603,9 @@ function isWritingDraft(value: unknown): value is NovelFabricWritingDraft {
     value["version"] === 1 &&
     typeof value["title"] === "string" &&
     typeof value["markdown"] === "string" &&
+    (value["sourceAnchors"] === undefined ||
+      (Array.isArray(value["sourceAnchors"]) &&
+        value["sourceAnchors"].every((item) => typeof item === "string"))) &&
     Array.isArray(value["citations"]) &&
     value["citations"].every(isArtifactCitation)
   );

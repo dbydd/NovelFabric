@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { materializeCanonicalMemory } from "../canonical/materialization.js";
 import { CommandFailure } from "../errors.js";
 import {
   appendMemory,
@@ -116,6 +117,32 @@ export function addMemoryCommands(program: Command): void {
     });
 
   memory
+    .command("materialize")
+    .description("Materialize semantic import evidence into canonical memory files")
+    .requiredOption("--workspace <path>", "Workspace root path")
+    .requiredOption("--actor <actor>", "Capability manifest actor name")
+    .requiredOption("--semantic-import <path>", "Workspace semantic import artifact path")
+    .requiredOption("--session <id>", "Workflow or simulation session id")
+    .requiredOption("--role-agent <id>", "Role agent id for agent memory")
+    .option("--reason <reason>", "Audit log reason")
+    .option("--json", "Print machine-readable JSON")
+    .action(async (options: MemoryMaterializeOptions) => {
+      const result = await materializeCanonicalMemory({
+        workspacePath: options.workspace,
+        actor: options.actor,
+        semanticPath: options.semanticImport,
+        sessionId: options.session,
+        roleAgent: options.roleAgent,
+        ...(options.reason === undefined ? {} : { reason: options.reason })
+      });
+      writeJson({
+        ok: true,
+        command: "memory materialize",
+        data: { ...result, outputMode: resolveOutputMode(options) }
+      });
+    });
+
+  memory
     .command("apply-proposal")
     .description("Apply a validated shared memory proposal to memory/global")
     .requiredOption("--workspace <path>", "Workspace root path")
@@ -154,6 +181,15 @@ type MemoryAppendOptions = JsonOutputOptions & {
   readonly profile: string;
   readonly stdin?: boolean;
   readonly content?: string;
+  readonly reason?: string;
+};
+
+type MemoryMaterializeOptions = JsonOutputOptions & {
+  readonly workspace: string;
+  readonly actor: string;
+  readonly semanticImport: string;
+  readonly session: string;
+  readonly roleAgent: string;
   readonly reason?: string;
 };
 

@@ -228,6 +228,7 @@ novelfabric import extraction apply --workspace <workspace> --proposal <path> --
 novelfabric cards list --workspace <workspace> --kind character --json
 novelfabric cards read --workspace <workspace> --path cards/characters/<id>.md --json
 novelfabric cards propose --workspace <workspace> --context-pack <path> --actor <actor> --json
+novelfabric cards propose --workspace <workspace> --semantic-import imports/semantic/<id>.json --actor <actor> --json
 novelfabric cards validate --workspace <workspace> --proposal <path> --json
 novelfabric cards apply --workspace <workspace> --proposal <path> --actor <actor> --json
 
@@ -235,9 +236,12 @@ novelfabric memory recall --workspace <workspace> --actor <actor> --profile <pro
 novelfabric memory append --workspace <workspace> --actor <actor> --profile <profile> --stdin --json
 novelfabric memory propose-shared --workspace <workspace> --actor <actor> --stdin --json
 novelfabric memory apply-proposal --workspace <workspace> --proposal <path> --actor main_agent --json
+novelfabric memory materialize --workspace <workspace> --actor main_agent --semantic-import imports/semantic/<id>.json --session <id> --role-agent <agent> --json
+
+novelfabric timeline materialize --workspace <workspace> --actor main_agent --semantic-import imports/semantic/<id>.json --session <id> --json
 ```
 
-Card and memory apply commands must validate citations before writing.
+Card and memory apply commands must validate citations before writing. Workflow-driven `memory materialize` and `timeline materialize` are deterministic canonical-resource projections from a validated semantic import artifact; they must preserve source anchors, citations, and provenance in the written memory/timeline files.
 
 ## 12. Knowledge / StoryRAG Commands
 

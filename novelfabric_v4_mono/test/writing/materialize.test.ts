@@ -88,8 +88,48 @@ describe("writing agent result materialization", () => {
     const review = await reviewChapter({ workspacePath, chapterPath: applied.chapterPath });
     expect(review.valid).toBe(true);
     const chapter = await readWorkspaceFile({ workspacePath, path: applied.chapterPath });
+    expect(chapter.content).toContain("# 钟声之后");
+    expect(chapter.content).toContain("## Source Anchors");
+    expect(chapter.content).toContain("## Citations");
+    expect(chapter.content).toContain("## Provenance");
     expect(chapter.content).toContain("叶小伟");
     expect(chapter.content).toContain("第二章");
+  });
+
+  it("normalizes source anchors and title when applying legacy-shaped drafts", async () => {
+    await writeWorkspaceFile({
+      workspacePath,
+      path: "writing/context/legacy.md",
+      content: "# Source\n\n叶小伟醒来，城市边缘传来钟声。\n",
+      actor: "main_agent",
+      reason: "legacy draft source"
+    });
+    const citation = await readWorkspaceFile({ workspacePath, path: "writing/context/legacy.md" });
+    await writeWorkspaceFile({
+      workspacePath,
+      path: "writing/drafts/legacy.json",
+      actor: "main_agent",
+      reason: "legacy draft fixture",
+      content: stableJson({
+        kind: "novelfabric.writing.draft",
+        version: 1,
+        title: "Chapter 1: The Starting Point",
+        markdown: "叶小伟醒来时听见城市边缘传来钟声。",
+        sourceAnchors: ["叶小伟醒来", "城市边缘传来钟声"],
+        citations: [{ path: citation.path, hash: citation.hash }]
+      })
+    });
+
+    const applied = await applyWritingDraft({
+      workspacePath,
+      actor: "main_agent",
+      draftPath: "writing/drafts/legacy.json",
+      outputPath: "writing/chapters/legacy.md"
+    });
+    const chapter = await readWorkspaceFile({ workspacePath, path: applied.chapterPath });
+    expect(chapter.content).toContain("# 章节草稿");
+    expect(chapter.content).toContain("## Source Anchors\n- 叶小伟醒来");
+    expect(chapter.content).toContain(`${citation.path} @ ${citation.hash}`);
   });
 
   it("rejects placeholder markdown before writing draft artifacts", async () => {

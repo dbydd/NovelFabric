@@ -56,6 +56,7 @@ export function addCardCommands(program: Command): void {
     .requiredOption("--workspace <path>", "Workspace root path")
     .requiredOption("--actor <actor>", "Capability manifest actor name")
     .option("--context-pack <path>", "Workspace context-pack path")
+    .option("--semantic-import <path>", "Workspace semantic import artifact path")
     .option("--stdin", "Read proposed card markdown from stdin")
     .option("--content <content>", "Proposed card markdown content")
     .option(
@@ -74,6 +75,9 @@ export function addCardCommands(program: Command): void {
         workspacePath: options.workspace,
         actor: options.actor,
         ...(options.contextPack === undefined ? {} : { contextPackPath: options.contextPack }),
+        ...(options.semanticImport === undefined
+          ? {}
+          : { semanticImportPath: options.semanticImport }),
         ...(content === undefined ? {} : { content }),
         ...(options.citation === undefined ? {} : { citations: options.citation }),
         ...(options.kind === undefined ? {} : { kind: parseCardKind(options.kind) }),
@@ -144,6 +148,7 @@ type CardsProposeOptions = JsonOutputOptions & {
   readonly workspace: string;
   readonly actor: string;
   readonly contextPack?: string;
+  readonly semanticImport?: string;
   readonly stdin?: boolean;
   readonly content?: string;
   readonly citation?: readonly string[];

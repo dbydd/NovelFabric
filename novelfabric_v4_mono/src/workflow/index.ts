@@ -1,6 +1,12 @@
 import type { JsonObject } from "../output.js";
 import { CommandFailure } from "../errors.js";
 import { createAgentTask, runAgentTask, validateAgentOutput } from "../agent-runtime/tasks.js";
+import {
+  materializeCanonicalMemory,
+  materializeCanonicalTimeline,
+  verifyCanonicalWorkflowCompleteness,
+  writeCanonicalSimulationLog
+} from "../canonical/materialization.js";
 import { applyCardProposal, proposeCards } from "../cards/proposals.js";
 import {
   createSemanticImportTask,
@@ -26,21 +32,25 @@ import {
   validateReportArtifact
 } from "../report/index.js";
 import {
+  DEFAULT_SWARM_ROUND_ORDER,
   buildSimulationContextPack,
   createSimulationSession,
   safePathSegment,
   stableJson
 } from "../simulation/index.js";
 import {
+  applySwarmOutput,
   createSwarmTask,
   materializeSwarmOutputFromAgentTask,
   planSwarmRound,
   validateSwarmOutput
 } from "../swarm/index.js";
 import {
+  applyWritingDraft,
   buildWritingContextPack,
   createWritingDraftTask,
   materializeWritingDraftFromAgentTask,
+  reviewChapter,
   validateWritingDraftArtifact
 } from "../writing/index.js";
 import { contentHash, readWorkspaceFile, writeWorkspaceFile } from "../workspace/files.js";
@@ -54,6 +64,8 @@ export type WorkflowStageId =
   | "import.semantic"
   | "cards.propose"
   | "cards.apply"
+  | "memory.materialize"
+  | "timeline.materialize"
   | "knowledge.rebuild"
   | "context-pack.build"
   | "simulation.session.create"
@@ -62,7 +74,9 @@ export type WorkflowStageId =
   | "swarm.task.create"
   | "report.task.create"
   | "writing.context-pack"
-  | "writing.draft";
+  | "writing.draft"
+  | "writing.apply"
+  | "writing.review";
 
 export type WorkflowStageDefinition = {
   readonly id: WorkflowStageId;
@@ -338,6 +352,20 @@ const WORKFLOW_STAGES: readonly WorkflowStageDefinition[] = [
     semanticRuntime: "none"
   },
   {
+    id: "memory.materialize",
+    command: "novelfabric memory materialize",
+    family: "memory",
+    description: "Materialize semantic import evidence into canonical memory layers.",
+    semanticRuntime: "none"
+  },
+  {
+    id: "timeline.materialize",
+    command: "novelfabric timeline materialize",
+    family: "timeline",
+    description: "Materialize semantic events into canonical timeline files.",
+    semanticRuntime: "none"
+  },
+  {
     id: "knowledge.rebuild",
     command: "novelfabric knowledge rebuild",
     family: "knowledge",
@@ -399,6 +427,20 @@ const WORKFLOW_STAGES: readonly WorkflowStageDefinition[] = [
     family: "writing",
     description: "Create a chapter draft task artifact for the wrapped pi runtime.",
     semanticRuntime: "pi-task"
+  },
+  {
+    id: "writing.apply",
+    command: "novelfabric writing apply-draft",
+    family: "writing",
+    description: "Apply the validated draft to canonical writing/chapters.",
+    semanticRuntime: "none"
+  },
+  {
+    id: "writing.review",
+    command: "novelfabric writing review",
+    family: "writing",
+    description: "Review the canonical chapter after apply.",
+    semanticRuntime: "none"
   }
 ];
 
@@ -806,7 +848,11 @@ export async function verifyWorkflow(
         workspacePath: request.workspacePath,
         path: item.path
       });
-      if (item.hash !== undefined && read.hash !== item.hash) {
+      if (
+        !isMutableWorkflowArtifact(item.artifactKind, item.path) &&
+        item.hash !== undefined &&
+        read.hash !== item.hash
+      ) {
         issues.push({
           severity: "error",
           code: "workflow_artifact_hash_mismatch",
@@ -842,6 +888,21 @@ export async function verifyWorkflow(
     });
     if (domainArtifactIssue !== null) issues.push(domainArtifactIssue);
   }
+  const semanticPath = optionalArtifactPath(
+    runtime.artifacts,
+    "import.semantic",
+    "semantic-import"
+  );
+  if (semanticPath !== undefined) {
+    const canonical = await verifyCanonicalWorkflowCompleteness({
+      workspacePath: request.workspacePath,
+      semanticPath,
+      completedStageIds: runtime.state.completedStages.map((stage) => stage.stage),
+      requireAll: runtime.state.status === "completed"
+    });
+    checked.push(...canonical.checked);
+    issues.push(...canonical.issues);
+  }
   if (runtime.state.status === "failed" && runtime.state.failedStage === null) {
     issues.push({
       severity: "error",
@@ -861,6 +922,14 @@ export async function verifyWorkflow(
 
 export function workflowStages(): readonly WorkflowStageDefinition[] {
   return WORKFLOW_STAGES;
+}
+
+function isMutableWorkflowArtifact(artifactKind: string, path: string): boolean {
+  return (
+    (artifactKind === "novelfabric.simulation.session" &&
+      path.startsWith("simulation/sessions/")) ||
+    (artifactKind === "novelfabric.simulation.log" && path.startsWith("simulation/logs/"))
+  );
 }
 
 function missingCompletedStageIssues(
@@ -1159,13 +1228,17 @@ async function executeStage(request: {
         "import.context-pack",
         "context-pack"
       );
+      const semanticPath = requiredArtifactPath(
+        request.artifacts,
+        "import.semantic",
+        "semantic-import"
+      );
       const result = await proposeCards({
         workspacePath: request.workspacePath,
         actor: request.actor,
         contextPackPath,
-        kind: "character",
-        title: `${request.plan.role} Source Card`,
-        outputPath: `proposals/cards/${sessionId}-role-card.json`,
+        semanticImportPath: semanticPath,
+        outputPath: `proposals/cards/${sessionId}-canonical-cards.json`,
         reason: "workflow cards.propose"
       });
       return {
@@ -1202,6 +1275,57 @@ async function executeStage(request: {
           hash: write.hash,
           artifactKind: "text/markdown"
         }))
+      };
+    }
+    case "memory.materialize": {
+      const semanticPath = requiredArtifactPath(
+        request.artifacts,
+        "import.semantic",
+        "semantic-import"
+      );
+      const result = await materializeCanonicalMemory({
+        workspacePath: request.workspacePath,
+        actor: request.actor,
+        semanticPath,
+        sessionId,
+        roleAgent,
+        reason: "workflow memory.materialize"
+      });
+      return {
+        output: objectFromResult(result),
+        artifacts: result.writes.map((write) =>
+          artifactFromWrite(
+            request.stage,
+            `memory-${write.path.split("/").at(-1) ?? "artifact"}`,
+            write,
+            "text/markdown"
+          )
+        )
+      };
+    }
+    case "timeline.materialize": {
+      const semanticPath = requiredArtifactPath(
+        request.artifacts,
+        "import.semantic",
+        "semantic-import"
+      );
+      const result = await materializeCanonicalTimeline({
+        workspacePath: request.workspacePath,
+        actor: request.actor,
+        semanticPath,
+        sessionId,
+        reason: "workflow timeline.materialize"
+      });
+      return {
+        output: objectFromResult(result),
+        artifacts: result.writes.map((write) =>
+          artifactFromWrite(
+            request.stage,
+            `timeline-${write.path.split("/").at(-1) ?? "artifact"}`,
+            write,
+            "novelfabric.timeline"
+          )
+        )
       };
     }
     case "knowledge.rebuild": {
@@ -1258,12 +1382,12 @@ async function executeStage(request: {
       return {
         output: objectFromResult(result),
         artifacts: [
-          artifactFromWrite(
-            request.stage,
-            "simulation-session",
-            result.write,
-            "novelfabric.simulation.session"
-          )
+          {
+            stage: request.stage,
+            name: "simulation-session",
+            path: result.write.path,
+            artifactKind: "novelfabric.simulation.session"
+          }
         ]
       };
     }
@@ -1297,72 +1421,126 @@ async function executeStage(request: {
       return { output: objectFromResult(result), artifacts: [] };
     }
     case "swarm.task.create": {
-      const result = await createSwarmTask({
-        workspacePath: request.workspacePath,
-        actor: request.actor,
-        session: sessionId,
-        round: 1,
-        agent: roleAgent,
-        reason: "workflow swarm.task.create"
-      });
       const swarmContextPackPath = requiredArtifactPath(
         request.artifacts,
         "simulation.context-pack",
         "simulation-context-pack"
       );
-      const agentTask = await createAndRunWorkflowAgentTask({
-        workspacePath: request.workspacePath,
-        actor: request.actor,
-        jobId: sessionId,
-        stage: request.stage,
-        title: `StorySwarm role task for ${roleAgent}`,
-        instruction:
-          "Run the StorySwarm role reasoning through the NovelFabric-wrapped pi runtime, then write and validate the swarm output proposal.",
-        input: {
-          stage: request.stage,
+      const artifacts: WorkflowArtifactItem[] = [];
+      const outputs: Record<string, unknown>[] = [];
+      const primaryAgent = roleAgent;
+      for (const [index, stageAgent] of DEFAULT_SWARM_ROUND_ORDER.entries()) {
+        const agent = index === 0 ? primaryAgent : stageAgent;
+        const result = await createSwarmTask({
+          workspacePath: request.workspacePath,
+          actor: request.actor,
           session: sessionId,
-          agent: roleAgent,
+          round: 1,
+          agent,
+          reason: `workflow swarm.task.create ${agent}`
+        });
+        const agentTask = await createAndRunWorkflowAgentTask({
+          workspacePath: request.workspacePath,
+          actor: request.actor,
+          jobId: sessionId,
+          stage: request.stage,
+          ...(index === 0 ? {} : { taskIdSuffix: safePathSegment(agent) }),
+          title: `StorySwarm ${stageAgent} task for ${agent}`,
+          instruction:
+            "Run the StorySwarm role reasoning through the NovelFabric-wrapped pi runtime, then write and validate the swarm output proposal.",
+          input: {
+            stage: request.stage,
+            session: sessionId,
+            agent,
+            roundStage: stageAgent,
+            taskPath: result.taskPath,
+            expectedOutputPath: result.proposalPath
+          },
+          contextPackPath: swarmContextPackPath,
+          allowedCommands: [
+            "novelfabric files read",
+            "novelfabric files write",
+            "novelfabric swarm output validate",
+            "novelfabric swarm output apply"
+          ]
+        });
+        const swarmOutputArtifact = await materializeWorkflowDomainArtifact({
+          workspacePath: request.workspacePath,
+          actor: request.actor,
+          stage: request.stage,
+          jobId: sessionId,
+          taskId: agentTask.taskId,
+          session: sessionId,
+          round: 1,
+          agent
+        });
+        const appliedTurn = await applySwarmOutput({
+          workspacePath: request.workspacePath,
+          actor: request.actor,
+          artifactPath: swarmOutputArtifact.path,
+          reason: `workflow swarm output apply ${agent}`
+        });
+        const simulationLog = await writeCanonicalSimulationLog({
+          workspacePath: request.workspacePath,
+          actor: request.actor,
+          sessionId,
+          turnPath: appliedTurn.turnPath,
+          turnHash: appliedTurn.turnWrite.hash,
+          summary: appliedTurn.turn.summary,
+          reason: `workflow simulation log materialize ${agent}`
+        });
+        outputs.push({
+          agent,
+          roundStage: stageAgent,
           taskPath: result.taskPath,
-          expectedOutputPath: result.proposalPath
-        },
-        contextPackPath: swarmContextPackPath,
-        allowedCommands: [
-          "novelfabric files read",
-          "novelfabric files write",
-          "novelfabric swarm output validate",
-          "novelfabric swarm output apply"
-        ]
-      });
-      return {
-        output: {
-          ...objectFromResult(result),
+          proposalPath: result.proposalPath,
+          turnPath: appliedTurn.turnPath,
+          logPath: simulationLog.path,
           agentTaskEvidence: agentTaskOutput(agentTask)
-        },
-        artifacts: [
+        });
+        artifacts.push(
           artifactFromWrite(
             request.stage,
-            "swarm-task",
+            `swarm-task-${safePathSegment(agent)}`,
             result.taskWrite,
             "novelfabric.swarm.task"
           ),
           artifactFromWrite(
             request.stage,
-            "swarm-output-template",
+            `swarm-output-template-${safePathSegment(agent)}`,
             result.proposalWrite,
             "novelfabric.swarm.output"
           ),
           agentTaskEvidenceArtifact(request.stage, agentTask),
-          await materializeWorkflowDomainArtifact({
-            workspacePath: request.workspacePath,
-            actor: request.actor,
+          swarmOutputArtifact,
+          artifactFromWrite(
+            request.stage,
+            `simulation-turn-${safePathSegment(agent)}`,
+            appliedTurn.turnWrite,
+            "novelfabric.simulation.turn"
+          ),
+          {
             stage: request.stage,
-            jobId: sessionId,
-            taskId: agentTask.taskId,
-            session: sessionId,
-            round: 1,
-            agent: roleAgent
-          })
-        ]
+            name: `simulation-session-${safePathSegment(agent)}`,
+            path: appliedTurn.sessionWrite.path,
+            artifactKind: "novelfabric.simulation.session"
+          },
+          artifactFromWrite(
+            request.stage,
+            `simulation-log-${safePathSegment(agent)}`,
+            simulationLog,
+            "novelfabric.simulation.log"
+          )
+        );
+      }
+      return {
+        output: {
+          sessionId,
+          round: 1,
+          turnCount: outputs.length,
+          outputs
+        },
+        artifacts
       };
     }
     case "report.task.create": {
@@ -1497,6 +1675,46 @@ async function executeStage(request: {
             taskId: agentTask.taskId,
             outputPath: result.expectedDraftPath
           })
+        ]
+      };
+    }
+    case "writing.apply": {
+      const draftPath = requiredArtifactPath(request.artifacts, "writing.draft", "writing-draft");
+      const result = await applyWritingDraft({
+        workspacePath: request.workspacePath,
+        actor: request.actor,
+        draftPath,
+        outputPath: `writing/chapters/${sessionId}.md`,
+        reason: "workflow writing.apply"
+      });
+      return {
+        output: objectFromResult(result),
+        artifacts: [
+          artifactFromWrite(request.stage, "writing-chapter", result.write, "text/markdown")
+        ]
+      };
+    }
+    case "writing.review": {
+      const chapterPath = requiredArtifactPath(
+        request.artifacts,
+        "writing.apply",
+        "writing-chapter"
+      );
+      const result = await reviewChapter({
+        workspacePath: request.workspacePath,
+        chapterPath
+      });
+      const write = await writeJsonArtifact({
+        workspacePath: request.workspacePath,
+        path: `writing/review-notes/${sessionId}.json`,
+        actor: request.actor,
+        reason: "workflow writing.review",
+        value: result
+      });
+      return {
+        output: objectFromResult(result),
+        artifacts: [
+          artifactFromWrite(request.stage, "writing-review", write, "novelfabric.writing.review")
         ]
       };
     }
@@ -1681,8 +1899,9 @@ async function createAndRunWorkflowAgentTask(request: {
   readonly input: Record<string, unknown>;
   readonly contextPackPath?: string | undefined;
   readonly allowedCommands: readonly string[];
+  readonly taskIdSuffix?: string;
 }): Promise<AgentTaskEvidence> {
-  const taskId = `workflow-${request.jobId}-${request.stage}`;
+  const taskId = `workflow-${request.jobId}-${request.stage}${request.taskIdSuffix === undefined ? "" : `-${request.taskIdSuffix}`}`;
   if (request.contextPackPath === undefined) {
     throw new CommandFailure(
       "workflow_context_pack_required",

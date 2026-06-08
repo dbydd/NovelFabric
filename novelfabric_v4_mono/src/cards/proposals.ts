@@ -1,3 +1,9 @@
+import {
+  buildCanonicalCardDrafts,
+  cardKindDirectory,
+  readSemanticImportArtifact,
+  renderCanonicalCardMarkdown
+} from "../canonical/materialization.js";
 import { CommandFailure } from "../errors.js";
 import { actorHasCapability, readCapabilityManifest } from "../workspace/capabilities.js";
 import {
@@ -45,6 +51,7 @@ export type CardsProposeRequest = {
   readonly workspacePath: string;
   readonly actor: string;
   readonly contextPackPath?: string;
+  readonly semanticImportPath?: string;
   readonly content?: string;
   readonly citations?: readonly string[];
   readonly kind?: CardKind;
@@ -186,28 +193,28 @@ export async function proposeCards(request: CardsProposeRequest): Promise<CardsP
     contextPack,
     explicitCitationPaths: request.citations ?? []
   });
-  if (citations.length === 0) {
+  const cards =
+    request.semanticImportPath === undefined
+      ? null
+      : await proposedCardsFromSemanticImport({
+          workspacePath: request.workspacePath,
+          semanticImportPath: request.semanticImportPath
+        });
+  if (cards === null && citations.length === 0) {
     throw new CommandFailure(
       "proposal_missing_citation",
-      "Card proposals require at least one citation from --context-pack or --citation."
+      "Card proposals require at least one citation from --context-pack, --semantic-import, or --citation."
     );
   }
 
-  const cardKind = request.kind ?? cardKindFromContextPack(contextPack) ?? "world";
-  const title = normalizeTitle(
-    request.title ?? titleFromContextPack(contextPack) ?? "Workspace Card"
-  );
-  const targetPath =
-    request.targetPath ?? `${CARD_DIRECTORIES[cardKind]}/${safePathSegment(title)}.md`;
-  assertCardTarget(targetPath, cardKind);
-  const content = request.content ?? deterministicCardContent(cardKind, title, citations);
+  const proposalCards = cards ?? [singleProposedCard(request, contextPack, citations)];
   const proposal: CardProposalArtifact = {
     kind: "novelfabric.cards.proposal",
     version: 1,
     actor: request.actor,
     createdAt: new Date().toISOString(),
     sourceContextPack: request.contextPackPath ?? null,
-    cards: [{ kind: cardKind, title, targetPath, content, citations }]
+    cards: proposalCards
   };
   const serialized = stableJson(proposal);
   const outputPath = request.outputPath ?? `proposals/cards/card-${shortHash(serialized)}.json`;
@@ -295,6 +302,58 @@ export async function applyCardProposal(request: CardsApplyRequest): Promise<Car
     applied.push({ ...summarizeWrite(write), kind: card.kind, title: card.title });
   }
   return { proposalPath: request.proposalPath, applied, appliedCount: applied.length };
+}
+
+async function proposedCardsFromSemanticImport(request: {
+  readonly workspacePath: string;
+  readonly semanticImportPath: string;
+}): Promise<readonly ProposedCard[]> {
+  const semantic = await readSemanticImportArtifact({
+    workspacePath: request.workspacePath,
+    semanticPath: request.semanticImportPath
+  });
+  return Promise.all(
+    buildCanonicalCardDrafts(semantic).map(async (draft) => {
+      const targetPath = `${cardKindDirectory(draft.kind)}/${safePathSegment(draft.title)}.md`;
+      const citations = await Promise.all(
+        draft.citations.map(async (citation) => {
+          const read = await readWorkspaceFile({
+            workspacePath: request.workspacePath,
+            path: citation.path
+          });
+          return {
+            sourcePath: read.path,
+            hash: read.hash,
+            lineRange: { start: 1, end: Math.max(1, draft.sourceAnchors.length) },
+            excerpt: draft.sourceAnchors.join("\n").slice(0, 500)
+          } satisfies KnowledgeCitation;
+        })
+      );
+      return {
+        kind: draft.kind,
+        title: draft.title,
+        targetPath,
+        content: renderCanonicalCardMarkdown(draft),
+        citations
+      } satisfies ProposedCard;
+    })
+  );
+}
+
+function singleProposedCard(
+  request: CardsProposeRequest,
+  contextPack: NovelFabricContextPack | null,
+  citations: readonly KnowledgeCitation[]
+): ProposedCard {
+  const cardKind = request.kind ?? cardKindFromContextPack(contextPack) ?? "world";
+  const title = normalizeTitle(
+    request.title ?? titleFromContextPack(contextPack) ?? "Workspace Card"
+  );
+  const targetPath =
+    request.targetPath ?? `${CARD_DIRECTORIES[cardKind]}/${safePathSegment(title)}.md`;
+  assertCardTarget(targetPath, cardKind);
+  const content = request.content ?? deterministicCardContent(cardKind, title, citations);
+  return { kind: cardKind, title, targetPath, content, citations };
 }
 
 function summaryFromRead(read: WorkspaceFileReadResult, kind: CardKind): CardSummary {
