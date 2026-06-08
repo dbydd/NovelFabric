@@ -11,8 +11,9 @@ Read first:
 ## Evidence Notes
 
 - `browser-ui-persistence-smoke-2026-06-05.md` records the browser UI/file-persistence smoke that used Playwright and `test_novel.txt`.
+- `../architecture/archive/v4-real-path-partial-coverage-2026-06-08.md` records the latest `test_novel.txt` real-path run, which proved the CLI workflow spine plus pi-backed domain artifacts but did **not** prove full canonical business completeness.
 
-That smoke is retained only as evidence for UI controls, bridge writes, file visibility, and audit plumbing. It is not real business workflow acceptance.
+The browser UI smoke is retained only as evidence for UI controls, bridge writes, file visibility, and audit plumbing. The 2026-06-08 real-path archive is retained only as evidence that the workflow spine succeeded while canonical card/memory/timeline/simulation/chapter coverage remained incomplete. Neither archive is real business workflow acceptance.
 
 ## Templates
 

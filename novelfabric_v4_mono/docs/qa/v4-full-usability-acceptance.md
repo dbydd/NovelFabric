@@ -47,7 +47,25 @@ The previous non-negotiable next-iteration gaps are now archived as completed fo
 3. External swarm REST/MCP adapters — `../architecture/archive/v4-external-swarm-adapters-archive.md`.
 4. Domain-specific capabilities — `../architecture/archive/v4-domain-capabilities-archive.md`.
 
-There are currently no open gaps from that ledger. Future gaps must be added here with explicit content/evidence tests before implementation.
+There are currently no open gaps from the **previous** ledger. However, the latest `test_novel.txt` real-path run proved only a workflow spine plus pi-backed domain artifacts, not full canonical business completeness. Future gaps must be added here with explicit content/evidence tests before implementation.
+
+## 8. Fresh Active Gap: Canonical Project Resource Materialization
+
+Fresh active gap opened after the 2026-06-08 `test_novel.txt` real-path run:
+
+- `cards/rules`, `cards/scenes`, and `cards/world` remained empty after import/workflow completion.
+- `memory/**`, `timeline/branches`, `simulation/turns`, `simulation/logs`, and `writing/chapters` remained empty or incomplete.
+- the applied character card used a generic role-title shape (`aria Source Card`) instead of protagonist-backed extracted character content.
+
+This gap must stay open until a real-path run produces canonical workspace resources with substantive content and source citations. A passing `workflow verify` alone is not sufficient evidence for product completeness.
+
+Representative acceptance tests for closing this gap:
+
+- a novel import must produce character/world/scene/rule cards from semantic import evidence;
+- memory and timeline materialization must be exercised for at least one path each;
+- simulation work must leave turn/log evidence;
+- writing must reach canonical chapter apply, not only draft;
+- Playwright and CLI acceptance must check workspace completeness, not only job/task status.
 
 ## 3. Test Layers
 

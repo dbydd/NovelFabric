@@ -274,12 +274,29 @@ novelfabric-timeline-branch-proposal
 
 ### 11.1 当前活跃 Gap Ledger
 
-当前没有来自上一轮 ledger 的未完成 gap。任何新工作必须先新增 fresh gap entry，再进入实现，包括：
+当前没有来自上一轮 ledger 的未完成 gap。但 2026-06-08 的 `test_novel.txt` 真实路径跑完后，已产生一个新的 business-completeness gap：workflow spine 与 pi-backed domain artifacts 跑通了，但 canonical project resources 没有完整落盘。任何新工作必须先新增 fresh gap entry，再进入实现，包括：
 
 - 影响的 CLI/Web/runtime family；
 - 预期 workspace artifacts 与 audit/evidence paths；
 - 验证内容有效性的 acceptance tests，而不是只检查文件存在；
 - reviewer/verifier 用来判断能否归档的标准。
+
+## 12. 新增活跃 Gap：Canonical Project Resource Materialization
+
+在 `test_novel.txt` 真实路径测试后新增以下活跃 gap：
+
+- **Gap 名称：** Canonical project resource materialization and validation
+- **可观测失败：** workflow 15/15 完成，并产出了 semantic import、card proposal、knowledge indexes、swarm/report/writing artifacts，但 canonical workspace 目录不完整：`cards/rules`、`cards/scenes`、`cards/world` 为空；`memory/**`、`timeline/branches`、`simulation/turns`、`simulation/logs`、`writing/chapters` 为空或不完整；仅生成了一张使用通用 role title 的 character card（`aria Source Card`），而非以 protagonist-backed extracted character 内容为主。
+- **关闭前必须完成的验收测试：**
+  1. 真实路径测试证明拆书后会产出 `cards/characters`、`cards/rules`、`cards/scenes`、`cards/world`，且内容是 substantive、source-cited 的；
+  2. semantic `cardSeeds` 会映射到 canonical card kinds，而不是坍缩成单一 character card；
+  3. memory artifacts 至少在 global/chapter/agent 中有一路被 materialize，并带 source anchors；
+  4. timeline artifacts 从 extracted events/chapters materialize；
+  5. 已完成 simulation 工作会留下 simulation turns/logs evidence；
+  6. writing 路径证明 draft → review/audit → canonical chapter apply，而不只是 `writing/drafts`；
+  7. `workflow verify` 在 semantic evidence 指示应存在 canonical resource 时，能拒绝缺失该类别资源；
+  8. Playwright 与 CLI acceptance 检查 workspace completeness，而不只是 job/task completion。
+- **reviewer/verifier 归档标准：** 只有在真实路径跑完后 canonical resource directories 带有 content-quality evidence，且上述 acceptance tests 全部保持绿色，才可关闭此 gap。
 
 ### 11.2 已归档工作的回归门槛
 

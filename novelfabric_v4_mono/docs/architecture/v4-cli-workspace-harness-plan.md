@@ -305,12 +305,29 @@ Do not keep re-litigating archived work in the active plan. The prior next-itera
 
 ### 11.1 Active Gap Ledger
 
-There are currently **no open gaps from the previous V4 next-iteration ledger**. New work must create a fresh gap entry before implementation, including:
+There are currently **no open gaps from the previous V4 next-iteration ledger**. However, the latest `test_novel.txt` real-path run reopened a fresh business-completeness gap: the workflow spine and pi-backed domain artifacts succeeded, but canonical project resources were incomplete. New work must create a fresh gap entry before implementation, including:
 
 - the affected CLI/Web/runtime families;
 - expected workspace artifacts and audit/evidence paths;
 - acceptance tests that validate content, not only file existence;
 - reviewer/verifier criteria for archiving the gap once complete.
+
+## 12. Fresh Active Gap: Canonical Project Resource Materialization
+
+Fresh active gap opened after the 2026-06-08 `test_novel.txt` real-path run:
+
+- **Gap name:** Canonical project resource materialization and validation.
+- **Observable failure:** workflow completed 15/15 and produced semantic import, card proposal, knowledge indexes, swarm/report/writing artifacts, but canonical workspace directories remained incomplete. `cards/rules`, `cards/scenes`, and `cards/world` were empty; `memory/**`, `timeline/branches`, `simulation/turns`, `simulation/logs`, and `writing/chapters` were empty or incomplete; the single applied character card used a generic role-title card (`aria Source Card`) instead of protagonist-backed extracted character content.
+- **Acceptance tests required before closing:**
+  1. a real-path test proves that a novel import produces `cards/characters`, `cards/rules`, `cards/scenes`, and `cards/world` with substantive, source-cited content;
+  2. semantic `cardSeeds` map to canonical card kinds instead of collapsing into one generic character card;
+  3. memory artifacts are materialized for at least one of global/chapter/agent memory with source anchors;
+  4. timeline artifacts are materialized from extracted events/chapters;
+  5. simulation turns/logs evidence exists for completed simulation work;
+  6. writing path proves draft → review/audit → canonical chapter apply, not only `writing/drafts`;
+  7. `workflow verify` rejects missing canonical resource categories when semantic evidence says those resources should exist;
+  8. Playwright and CLI acceptance check workspace completeness, not only job/task completion.
+- **Reviewer/verifier archival criteria:** close this gap only after the real-path run produces non-empty canonical resource directories with content-quality evidence and the acceptance tests above remain green.
 
 ### 11.2 Regression Gate For Archived Work
 
@@ -399,6 +416,8 @@ A future business-flow test is successful only if:
 - semantic work was executed by the NovelFabric pi SDK runtime wrapper under NovelFabric skills;
 - raw dangerous tools were not exposed to nontechnical Web sessions;
 - cards, context packs, role actions, swarm outputs, reports, and chapter drafts are real artifacts, not UI templates;
+- canonical workspace resources were materially populated, including at least one `cards/world`, `cards/rules`, `cards/scenes`, memory, and timeline path when semantic evidence indicates those resource types should exist;
+- writing reached canonical chapter apply instead of remaining in draft/task-only evidence;
 - every applied write went through `novelfabric` CLI/shared services;
 - all key outputs cite workspace evidence;
 - capability/protected path rules were enforced;

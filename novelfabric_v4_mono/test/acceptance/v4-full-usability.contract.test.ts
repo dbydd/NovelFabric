@@ -89,4 +89,18 @@ describe("V4 full-usability acceptance contracts", () => {
     expect(cardTest).toContain("requires cards.propose instead of project.manage");
     expect(memoryTest).toContain("capability_denied");
   });
+
+  it("records the latest real-path partial coverage evidence", () => {
+    const archive = readArchive("v4-real-path-partial-coverage-2026-06-08.md");
+    const acceptanceDoc = readFileSync(
+      path.join("docs", "qa", "v4-full-usability-acceptance.md"),
+      "utf8"
+    );
+
+    expect(archive).toContain("CLI pi-backed workflow spine smoke: PASS");
+    expect(archive).toContain("Canonical NovelFabric business workspace coverage: incomplete");
+    expect(archive).toContain("cards/rules");
+    expect(archive).toContain("writing/chapters");
+    expect(acceptanceDoc.toLowerCase()).toContain("canonical project resource materialization");
+  });
 });

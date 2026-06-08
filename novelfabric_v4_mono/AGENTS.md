@@ -21,6 +21,8 @@ Completed V4 foundations are archived in `docs/architecture/archive/`, including
 
 The previous next-iteration gap ledger is closed. Do not re-list those items as active gaps. Any new implementation phase must first add a fresh active gap with explicit test standards to `docs/architecture/v4-cli-workspace-harness-plan.md` and `docs/qa/v4-full-usability-acceptance.md`.
 
+The latest `test_novel.txt` real-path run reopened a fresh canonical-completeness gap: workflow spine and pi-backed domain artifacts passed, but canonical project resources were incomplete. Treat canonical resource materialization as an active gap until a real-path run proves `cards/rules`, `cards/scenes`, `cards/world`, `memory/**`, `timeline/**`, `simulation/turns/logs`, and `writing/chapters` are substantively populated with source-cited content.
+
 Regression gates for archived work remain mandatory: Playwright workflow UI-only tests, semantic import validation, external swarm REST/MCP golden tests, domain capability denial/success/audit tests, workflow pi+domain artifact verification, and hard pi content acceptance.
 
 Detailed regression standards live in `docs/architecture/v4-cli-workspace-harness-plan.md` and `docs/qa/v4-full-usability-acceptance.md`.
