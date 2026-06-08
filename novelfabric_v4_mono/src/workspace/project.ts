@@ -433,7 +433,7 @@ function defaultFileContent(
     case ".novelfabric/template-manifest.json":
       return `${JSON.stringify({ schemaVersion: "v4", templates: [] }, null, 2)}\n`;
     case ".novelfabric/capabilities.toml":
-      return `[${options.capabilityActor}]\nallow = ["project.manage", "workspace.materialize", "files.write", "knowledge.query"]\n`;
+      return defaultCapabilityManifest(options.capabilityActor);
     case "timeline/index.json":
       return `${JSON.stringify({ schemaVersion: "v4", branches: [] }, null, 2)}\n`;
     case "simulation/active-session.txt":
@@ -441,6 +441,66 @@ function defaultFileContent(
     default:
       return "";
   }
+}
+
+function defaultCapabilityManifest(capabilityActor: string): string {
+  const mainAgentCapabilities = [
+    "project.manage",
+    "workspace.materialize",
+    "files.write",
+    "files.patch_protected",
+    "import.add",
+    "import.normalize",
+    "cards.propose",
+    "cards.apply",
+    "knowledge.rebuild",
+    "knowledge.query",
+    "memory.recall",
+    "memory.write_own",
+    "memory.propose_shared",
+    "memory.apply_shared",
+    "simulation.create",
+    "simulation.append_turn",
+    "swarm.run",
+    "external_swarm.run",
+    "report.render",
+    "report.apply",
+    "writing.draft",
+    "writing.apply",
+    "writing.export",
+    "runtime.manage",
+    "runtime.extension.manage",
+    "agent.task.run"
+  ];
+  const roleAgentCapabilities = ["memory.recall", "simulation.append_turn"];
+  const roleAgentDenials = [
+    "files.patch_protected",
+    "external_swarm.run",
+    "project.manage",
+    "workspace.materialize",
+    "cards.apply",
+    "memory.apply_shared",
+    "swarm.run",
+    "report.apply",
+    "writing.apply",
+    "runtime.manage",
+    "runtime.extension.manage",
+    "agent.task.run"
+  ];
+
+  const sections = [
+    `[${capabilityActor}]`,
+    `allow = ${tomlStringArray(mainAgentCapabilities)}`,
+    "",
+    "[role_agent]",
+    `allow = ${tomlStringArray(roleAgentCapabilities)}`,
+    `deny = ${tomlStringArray(roleAgentDenials)}`
+  ];
+  return `${sections.join("\n")}\n`;
+}
+
+function tomlStringArray(values: readonly string[]): string {
+  return `[${values.map((value) => `"${value}"`).join(", ")}]`;
 }
 
 function makeProjectMetadata(name: string, slug?: string): ProjectMetadata {

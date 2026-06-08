@@ -1122,7 +1122,7 @@ function runPiProcess(request: {
         PI_CODING_AGENT_DIR: request.runtime.runtimeRoot,
         PI_SKIP_VERSION_CHECK: "1"
       },
-      timeout: Number(process.env["NOVELFABRIC_AGENT_RUN_TIMEOUT_MS"] ?? "180000"),
+      timeout: resolveAgentRunTimeoutMs(),
       maxBuffer: 1024 * 1024 * 8,
       encoding: "utf8"
     }
@@ -1142,6 +1142,16 @@ function runPiProcess(request: {
     throw new CommandFailure("pi_runtime_empty_output", "pi runtime returned empty output.", 2);
   }
   return { stdout, stderr, outputText };
+}
+
+export function resolveAgentRunTimeoutMs(
+  value: string | undefined = process.env["NOVELFABRIC_AGENT_RUN_TIMEOUT_MS"]
+): number {
+  const fallback = 600_000;
+  if (value === undefined || value.trim().length === 0) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 1_000) return fallback;
+  return Math.floor(parsed);
 }
 
 function writePiPromptFile(taskId: string, prompt: string): string {

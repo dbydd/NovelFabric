@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 
+import { actorHasCapability, readCapabilityManifest } from "../../src/workspace/capabilities.js";
 import {
   initProject,
   inspectProject,
@@ -45,6 +46,29 @@ describe("project and workspace materialization services", () => {
     const inspected = await inspectProject(workspacePath);
     expect(inspected.valid).toBe(true);
     expect(inspected.project?.slug).toBe("clockwork-city");
+
+    const manifest = await readCapabilityManifest(workspacePath);
+    for (const capability of [
+      "files.patch_protected",
+      "cards.propose",
+      "cards.apply",
+      "memory.write_own",
+      "memory.apply_shared",
+      "simulation.create",
+      "simulation.append_turn",
+      "swarm.run",
+      "external_swarm.run",
+      "report.render",
+      "report.apply",
+      "writing.draft",
+      "writing.apply",
+      "runtime.manage",
+      "agent.task.run"
+    ]) {
+      expect(actorHasCapability(manifest, "main_agent", capability), capability).toBe(true);
+    }
+    expect(actorHasCapability(manifest, "role_agent", "files.patch_protected")).toBe(false);
+    expect(actorHasCapability(manifest, "role_agent", "swarm.run")).toBe(false);
   });
 
   it("rejects init into a non-empty target", async () => {

@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import type { PiSdkAgentSessionModule } from "../../src/agent-runtime/pi-adapter.js";
-import { setAgentTaskPiSdkModuleForTesting } from "../../src/agent-runtime/tasks.js";
+import {
+  resolveAgentRunTimeoutMs,
+  setAgentTaskPiSdkModuleForTesting
+} from "../../src/agent-runtime/tasks.js";
 import { addAgentTaskCommands } from "../../src/commands/agent.js";
 import { readWorkspaceFile, writeWorkspaceFile } from "../../src/workspace/files.js";
 
@@ -39,6 +42,14 @@ type CliEnvelope = z.infer<typeof cliEnvelopeSchema>;
 
 describe("agent task command module", () => {
   let workspacePath: string;
+
+  it("uses a real-path-friendly pi runtime timeout while keeping invalid overrides safe", () => {
+    expect(resolveAgentRunTimeoutMs(undefined)).toBe(600_000);
+    expect(resolveAgentRunTimeoutMs("")).toBe(600_000);
+    expect(resolveAgentRunTimeoutMs("abc")).toBe(600_000);
+    expect(resolveAgentRunTimeoutMs("999")).toBe(600_000);
+    expect(resolveAgentRunTimeoutMs("1200000")).toBe(1_200_000);
+  });
 
   beforeEach(async () => {
     workspacePath = await fs.mkdtemp(path.join(os.tmpdir(), "nf-agent-task-test-"));

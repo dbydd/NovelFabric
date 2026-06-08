@@ -90,6 +90,69 @@ describe("project and workspace CLI commands", () => {
     }
   });
 
+  it("initializes a workspace whose main_agent can create protected workflow plans", async () => {
+    const workspacePath = path.join(tempRoot, "test-novel");
+
+    const init = await runMainCli([
+      "project",
+      "init",
+      "--path",
+      workspacePath,
+      "--name",
+      "Test Novel",
+      "--json"
+    ]);
+    expect(init.exitCode).toBe(0);
+    expect(init.envelope.ok).toBe(true);
+
+    const sourceWrite = await runMainCli([
+      "files",
+      "write",
+      "--workspace",
+      workspacePath,
+      "--path",
+      "imports/source/test_novel.txt",
+      "--actor",
+      "main_agent",
+      "--content",
+      "第一章 开端\n叶小伟醒来，城市边缘传来钟声。\n第二章 余波\n新的选择被摆在桌面。\n",
+      "--json"
+    ]);
+    expect(sourceWrite.exitCode).toBe(0);
+    expect(sourceWrite.envelope.ok).toBe(true);
+
+    const planned = await runMainCli([
+      "workflow",
+      "plan",
+      "--workspace",
+      workspacePath,
+      "--actor",
+      "main_agent",
+      "--source",
+      "imports/source/test_novel.txt",
+      "--role",
+      "Aria",
+      "--json"
+    ]);
+    expect(planned.exitCode).toBe(0);
+    expect(planned.envelope.ok).toBe(true);
+    if (planned.envelope.ok) {
+      expect(planned.envelope.command).toBe("workflow plan");
+      expect(planned.envelope.data["planPath"]).toEqual(
+        expect.stringMatching(/^\.novelfabric\/jobs\/.+\/plan\.json$/)
+      );
+    }
+
+    const caps = await fs.readFile(
+      path.join(workspacePath, ".novelfabric", "capabilities.toml"),
+      "utf8"
+    );
+    expect(caps).toContain('"files.patch_protected"');
+    expect(caps).toContain('"swarm.run"');
+    expect(caps).toContain("[role_agent]");
+    expect(caps).toContain("deny = ");
+  });
+
   it("runs project command module without requiring src/cli.ts integration", async () => {
     const workspacePath = path.join(tempRoot, "ember-archive");
 

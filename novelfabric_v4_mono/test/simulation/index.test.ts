@@ -21,7 +21,7 @@ import {
   planSwarmRound,
   validateSwarmOutput
 } from "../../src/swarm/index.js";
-import { writeWorkspaceFile } from "../../src/workspace/files.js";
+import { readWorkspaceFile, writeWorkspaceFile } from "../../src/workspace/files.js";
 
 const VALID_FIXTURE = path.resolve(import.meta.dirname, "../../fixtures/workspaces/valid-basic");
 
@@ -206,6 +206,46 @@ describe("deterministic simulation and swarm services", () => {
     });
     expect(validation.valid).toBe(false);
     expect(validation.issues.map((issue) => issue.code)).toContain("simulation_turn_hash_mismatch");
+  });
+
+  it("bounds simulation context-pack source evidence for large imported sources", async () => {
+    const largeSource = `${Array.from({ length: 60 }, (_, index) => `第${(index + 1).toString()}章 章节${(index + 1).toString()}\n调查员抵达旧港，蓝色信标照亮潮湿仓库，关键证词被记录下来。`).join("\n")}\n`;
+    await writeWorkspaceFile({
+      workspacePath,
+      path: "imports/source/large-source.txt",
+      actor: "main_agent",
+      content: largeSource,
+      reason: "test large source import"
+    });
+    await createSimulationSession({
+      workspacePath,
+      objective: "Bring main_agent through imports/source/large-source.txt.",
+      timeline: "main",
+      actor: "main_agent",
+      sessionId: "session-large-source"
+    });
+
+    const contextPack = await buildSimulationContextPack({
+      workspacePath,
+      session: "session-large-source",
+      agent: "kp",
+      actor: "main_agent"
+    });
+    const read = await readWorkspaceFile({ workspacePath, path: contextPack.outputPath });
+    const parsed = JSON.parse(read.content) as {
+      readonly sourceExcerpt: string;
+      readonly relevantEntities: readonly string[];
+    };
+    expect(parsed.sourceExcerpt.length).toBeLessThanOrEqual(2_000);
+    expect(parsed.sourceExcerpt).toContain("调查员抵达旧港");
+    expect(parsed.relevantEntities.length).toBeLessThanOrEqual(12);
+    expect(parsed.relevantEntities).toContain("第1章");
+    expect(parsed.relevantEntities).toContain("调查员抵达旧港");
+    expect(
+      parsed.relevantEntities.some(
+        (anchor) => !/^第[一二三四五六七八九十百千0-9]+章$/u.test(anchor)
+      )
+    ).toBe(true);
   });
 
   it("fails simulation context-pack creation when a referenced source cannot be read", async () => {

@@ -6,6 +6,8 @@ export const SIMULATION_SESSION_SCHEMA_VERSION = "novelfabric.simulation.session
 export const SIMULATION_CONTEXT_PACK_SCHEMA_VERSION = "novelfabric.simulation.context-pack.v1";
 export const SIMULATION_TURN_PROPOSAL_SCHEMA_VERSION = "novelfabric.swarm.turn-proposal.v1";
 export const SIMULATION_TURN_SCHEMA_VERSION = "novelfabric.simulation.turn.v1";
+export const SIMULATION_CONTEXT_SOURCE_EXCERPT_MAX_CHARS = 2_000;
+export const SIMULATION_CONTEXT_SOURCE_ANCHOR_MAX_ITEMS = 12;
 
 const SIMULATION_CREATE_CAPABILITY = "simulation.create";
 const SIMULATION_CONTEXT_PACK_CAPABILITY = "simulation.append_turn";
@@ -281,7 +283,10 @@ async function simulationAnchorSource(
   if (sourcePath !== undefined) {
     try {
       const read = await readWorkspaceFile({ workspacePath, path: sourcePath });
-      return { excerpt: read.content.slice(0, 500), anchors: extractAnchors(read.content) };
+      return {
+        excerpt: read.content.slice(0, SIMULATION_CONTEXT_SOURCE_EXCERPT_MAX_CHARS),
+        anchors: extractAnchors(read.content)
+      };
     } catch (error) {
       const detail = error instanceof Error ? error.message : "unknown read failure";
       throw new CommandFailure(
@@ -308,12 +313,35 @@ async function requireAnyCapability(
 }
 
 function extractAnchors(content: string): readonly string[] {
-  const chapterAnchors = content.match(/第[一二三四五六七八九十百千0-9]+章/gu) ?? [];
-  const phraseAnchors = content
-    .split(/[\n，。,.!?！？；;：:]+/u)
-    .map((item) => item.trim())
-    .filter((item) => item.length >= 3 && item.length <= 24);
-  return [...new Set([...chapterAnchors, ...phraseAnchors])];
+  const chapterAnchors = uniqueAnchors(content.match(/第[一二三四五六七八九十百千0-9]+章/gu) ?? []);
+  const factualAnchors = uniqueAnchors(
+    content
+      .split(/[\n，。,.!?！？；;：:]+/u)
+      .map((item) => item.trim())
+      .filter((item) => item.length >= 3 && item.length <= 24)
+      .filter((item) => !isChapterAnchor(item))
+  );
+  if (factualAnchors.length === 0) {
+    return chapterAnchors.slice(0, SIMULATION_CONTEXT_SOURCE_ANCHOR_MAX_ITEMS);
+  }
+
+  const chapterBudget = Math.min(
+    chapterAnchors.length,
+    Math.max(1, Math.floor(SIMULATION_CONTEXT_SOURCE_ANCHOR_MAX_ITEMS / 3))
+  );
+  return uniqueAnchors([
+    ...chapterAnchors.slice(0, chapterBudget),
+    ...factualAnchors,
+    ...chapterAnchors.slice(chapterBudget)
+  ]).slice(0, SIMULATION_CONTEXT_SOURCE_ANCHOR_MAX_ITEMS);
+}
+
+function uniqueAnchors(anchors: readonly string[]): readonly string[] {
+  return [...new Set(anchors)];
+}
+
+function isChapterAnchor(anchor: string): boolean {
+  return /^第[一二三四五六七八九十百千0-9]+章$/u.test(anchor);
 }
 
 export async function appendSimulationTurn(
