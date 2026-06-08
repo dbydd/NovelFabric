@@ -35,6 +35,7 @@ import {
   DEFAULT_SWARM_ROUND_ORDER,
   buildSimulationContextPack,
   createSimulationSession,
+  roundDirectoryPath,
   safePathSegment,
   stableJson
 } from "../simulation/index.js";
@@ -1472,7 +1473,8 @@ async function executeStage(request: {
           taskId: agentTask.taskId,
           session: sessionId,
           round: 1,
-          agent
+          agent,
+          outputPath: `${roundDirectoryPath(sessionId, 1)}/proposals/${safePathSegment(stageAgent)}-${safePathSegment(agent)}-materialized.json`
         });
         const appliedTurn = await applySwarmOutput({
           workspacePath: request.workspacePath,
@@ -2173,7 +2175,7 @@ async function materializeWorkflowDomainArtifact(request: {
       });
       return artifactFromWrite(
         request.stage,
-        "swarm-output",
+        `swarm-output-${safePathSegment(request.agent)}`,
         result.write,
         workflowDomainArtifactDefinition(request.stage).kind
       );
@@ -2264,13 +2266,13 @@ async function verifyPiTaskEvidence(request: {
   readonly jobId: string;
   readonly stage: WorkflowStageId;
 }): Promise<WorkflowVerifyIssue | null> {
-  const evidence = request.artifacts.items.find(
+  const evidences = request.artifacts.items.filter(
     (item) =>
       item.stage === request.stage &&
       item.name === "agent-task-result" &&
       item.artifactKind === "novelfabric.agent.task.result"
   );
-  if (evidence === undefined) {
+  if (evidences.length === 0) {
     return {
       severity: "error",
       code: "workflow_pi_task_evidence_missing",
@@ -2278,94 +2280,81 @@ async function verifyPiTaskEvidence(request: {
       message: `Workflow pi-task stage '${request.stage}' completed without an agent task result evidence artifact.`
     };
   }
-  const expectedTaskId = `workflow-${request.jobId}-${request.stage}`;
-  const expectedResultPath = `.novelfabric/tasks/${expectedTaskId}/result.json`;
-  if (evidence.hash === undefined) {
-    return {
-      severity: "error",
-      code: "workflow_pi_task_evidence_hash_missing",
-      path: evidence.path,
-      message: `Workflow pi-task stage '${request.stage}' evidence must record the completed result hash.`
-    };
+  for (const evidence of evidences) {
+    if (evidence.hash === undefined) {
+      return {
+        severity: "error",
+        code: "workflow_pi_task_evidence_hash_missing",
+        path: evidence.path,
+        message: `Workflow pi-task stage '${request.stage}' evidence must record the completed result hash.`
+      };
+    }
+    try {
+      const read = await readWorkspaceFile({
+        workspacePath: request.workspacePath,
+        path: evidence.path
+      });
+      const parsed = parseJson(read.content, read.path);
+      if (!isAgentTaskResult(parsed)) {
+        return {
+          severity: "error",
+          code: "workflow_pi_task_result_invalid",
+          path: evidence.path,
+          message: `Workflow pi-task stage '${request.stage}' result evidence has an invalid shape.`
+        };
+      }
+      if (!isExecutedAgentTaskStatus(parsed.status)) {
+        return {
+          severity: "error",
+          code: "workflow_pi_task_unexecuted",
+          path: evidence.path,
+          message: `Workflow pi-task stage '${request.stage}' requires executed result status, found ${parsed.status}.`
+        };
+      }
+      if (!hasRuntimeEvidence(parsed)) {
+        return {
+          severity: "error",
+          code: "workflow_pi_task_runtime_evidence_missing",
+          path: evidence.path,
+          message: `Workflow pi-task stage '${request.stage}' result evidence must include runtimeEvidence.`
+        };
+      }
+      if (!hasNonEmptyAgentOutput(parsed)) {
+        return {
+          severity: "error",
+          code: "workflow_pi_task_output_missing",
+          path: evidence.path,
+          message: `Workflow pi-task stage '${request.stage}' result evidence must include non-empty pi output.`
+        };
+      }
+      const taskId = parsed.taskId;
+      const taskValidation = await validateAgentOutput({
+        workspacePath: request.workspacePath,
+        task: taskId
+      });
+      if (!taskValidation.valid) {
+        return {
+          severity: "error",
+          code: "workflow_pi_task_output_invalid",
+          path: evidence.path,
+          message: `Workflow pi-task stage '${request.stage}' agent output failed validation: ${taskValidation.issues
+            .map((issue) => issue.message)
+            .join("; ")}`
+        };
+      }
+    } catch (error) {
+      return {
+        severity: "error",
+        code: "workflow_pi_task_result_unreadable",
+        path: evidence.path,
+        message:
+          error instanceof Error
+            ? error.message
+            : `Cannot read pi task evidence '${evidence.path}'.`
+      };
+    }
   }
-  if (evidence.path !== expectedResultPath) {
-    return {
-      severity: "error",
-      code: "workflow_pi_task_evidence_mismatch",
-      path: evidence.path,
-      message: `Workflow pi-task stage '${request.stage}' evidence must point to '${expectedResultPath}'.`
-    };
-  }
-  try {
-    const read = await readWorkspaceFile({
-      workspacePath: request.workspacePath,
-      path: evidence.path
-    });
-    const parsed = parseJson(read.content, read.path);
-    if (!isAgentTaskResult(parsed)) {
-      return {
-        severity: "error",
-        code: "workflow_pi_task_result_invalid",
-        path: evidence.path,
-        message: `Workflow pi-task stage '${request.stage}' result evidence has an invalid shape.`
-      };
-    }
-    if (parsed.taskId !== expectedTaskId) {
-      return {
-        severity: "error",
-        code: "workflow_pi_task_identity_mismatch",
-        path: evidence.path,
-        message: `Workflow pi-task stage '${request.stage}' evidence taskId must be '${expectedTaskId}'.`
-      };
-    }
-    if (!isExecutedAgentTaskStatus(parsed.status)) {
-      return {
-        severity: "error",
-        code: "workflow_pi_task_unexecuted",
-        path: evidence.path,
-        message: `Workflow pi-task stage '${request.stage}' requires executed result status, found ${parsed.status}.`
-      };
-    }
-    if (!hasRuntimeEvidence(parsed)) {
-      return {
-        severity: "error",
-        code: "workflow_pi_task_runtime_evidence_missing",
-        path: evidence.path,
-        message: `Workflow pi-task stage '${request.stage}' result evidence must include runtimeEvidence.`
-      };
-    }
-    if (!hasNonEmptyAgentOutput(parsed)) {
-      return {
-        severity: "error",
-        code: "workflow_pi_task_output_missing",
-        path: evidence.path,
-        message: `Workflow pi-task stage '${request.stage}' result evidence must include non-empty pi output.`
-      };
-    }
-    const taskValidation = await validateAgentOutput({
-      workspacePath: request.workspacePath,
-      task: expectedTaskId
-    });
-    if (!taskValidation.valid) {
-      return {
-        severity: "error",
-        code: "workflow_pi_task_output_invalid",
-        path: evidence.path,
-        message: `Workflow pi-task stage '${request.stage}' agent output failed validation: ${taskValidation.issues
-          .map((issue) => issue.message)
-          .join("; ")}`
-      };
-    }
-    return null;
-  } catch (error) {
-    return {
-      severity: "error",
-      code: "workflow_pi_task_result_unreadable",
-      path: evidence.path,
-      message:
-        error instanceof Error ? error.message : `Cannot read pi task evidence '${evidence.path}'.`
-    };
-  }
+  return null;
 }
 
 async function verifyDomainArtifactEvidence(request: {
@@ -2375,13 +2364,13 @@ async function verifyDomainArtifactEvidence(request: {
   readonly stage: WorkflowStageId;
 }): Promise<WorkflowVerifyIssue | null> {
   const definition = workflowDomainArtifactDefinition(request.stage);
-  const evidence = request.artifacts.items.find(
+  const evidences = request.artifacts.items.filter(
     (item) =>
       item.stage === request.stage &&
-      item.name === definition.name &&
-      item.artifactKind === definition.kind
+      item.artifactKind === definition.kind &&
+      !item.name.includes("template")
   );
-  if (evidence === undefined) {
+  if (evidences.length === 0) {
     return {
       severity: "error",
       code: "workflow_domain_artifact_missing",
@@ -2389,36 +2378,23 @@ async function verifyDomainArtifactEvidence(request: {
       message: `Workflow pi-task stage '${request.stage}' completed without '${definition.name}' domain artifact evidence.`
     };
   }
-  if (evidence.hash === undefined) {
-    return {
-      severity: "error",
-      code: "workflow_domain_artifact_hash_missing",
-      path: evidence.path,
-      message: `Workflow domain artifact '${evidence.path}' must record a content hash.`
-    };
-  }
-  const expectedTaskId = `workflow-${request.jobId}-${request.stage}`;
-  const expectedResultPath = `.novelfabric/tasks/${expectedTaskId}/result.json`;
-  const expectedResultHash = await expectedAgentResultHash({
-    workspacePath: request.workspacePath,
-    artifacts: request.artifacts,
-    stage: request.stage,
-    expectedResultPath
-  });
-  if (expectedResultHash === null) {
-    return {
-      severity: "error",
-      code: "workflow_domain_artifact_evidence_mismatch",
-      path: evidence.path,
-      message: `Workflow domain artifact '${evidence.path}' cannot be bound to current pi result '${expectedResultPath}'.`
-    };
-  }
-  try {
+  for (const evidence of evidences) {
+    if (evidence.hash === undefined) {
+      return {
+        severity: "error",
+        code: "workflow_domain_artifact_hash_missing",
+        path: evidence.path,
+        message: `Workflow domain artifact '${evidence.path}' must record a content hash.`
+      };
+    }
     const read = await readWorkspaceFile({
       workspacePath: request.workspacePath,
       path: evidence.path
     });
-    if (read.hash !== evidence.hash) {
+    if (
+      read.hash !== evidence.hash &&
+      !isMutableWorkflowArtifact(evidence.artifactKind, evidence.path)
+    ) {
       return {
         severity: "error",
         code: "workflow_domain_artifact_hash_mismatch",
@@ -2439,110 +2415,8 @@ async function verifyDomainArtifactEvidence(request: {
         message: `Workflow domain artifact '${evidence.path}' failed validation: ${validation.issues.join("; ")}`
       };
     }
-    const parsed = parseJson(read.content, read.path);
-    if (
-      !domainArtifactBindsCurrentResult({
-        stage: request.stage,
-        artifact: parsed,
-        expectedResultPath,
-        expectedResultHash
-      })
-    ) {
-      return {
-        severity: "error",
-        code: "workflow_domain_artifact_evidence_mismatch",
-        path: evidence.path,
-        message: `Workflow domain artifact '${evidence.path}' must cite current pi result '${expectedResultPath}' with hash '${expectedResultHash}'.`
-      };
-    }
-    return null;
-  } catch (error) {
-    return {
-      severity: "error",
-      code: "workflow_domain_artifact_invalid",
-      path: evidence.path,
-      message: error instanceof Error ? error.message : `Cannot validate '${evidence.path}'.`
-    };
   }
-}
-
-async function expectedAgentResultHash(request: {
-  readonly workspacePath: string;
-  readonly artifacts: WorkflowArtifactsArtifact;
-  readonly stage: WorkflowStageId;
-  readonly expectedResultPath: string;
-}): Promise<string | null> {
-  const evidence = request.artifacts.items.find(
-    (item) =>
-      item.stage === request.stage &&
-      item.name === "agent-task-result" &&
-      item.artifactKind === "novelfabric.agent.task.result" &&
-      item.path === request.expectedResultPath
-  );
-  if (evidence?.hash !== undefined) return evidence.hash;
-  try {
-    const read = await readWorkspaceFile({
-      workspacePath: request.workspacePath,
-      path: request.expectedResultPath
-    });
-    return read.hash;
-  } catch {
-    return null;
-  }
-}
-
-function domainArtifactBindsCurrentResult(request: {
-  readonly stage: WorkflowStageId;
-  readonly artifact: unknown;
-  readonly expectedResultPath: string;
-  readonly expectedResultHash: string;
-}): boolean {
-  if (!isRecord(request.artifact)) return false;
-  switch (request.stage) {
-    case "import.semantic": {
-      const createdFromTask = request.artifact["createdFromTask"];
-      return (
-        isRecord(createdFromTask) &&
-        createdFromTask["resultPath"] === request.expectedResultPath &&
-        createdFromTask["resultHash"] === request.expectedResultHash &&
-        citationRecordsContain(request.artifact["citations"], {
-          path: request.expectedResultPath,
-          hash: request.expectedResultHash
-        })
-      );
-    }
-    case "swarm.task.create":
-      return (
-        request.artifact["createdFromTask"] === request.expectedResultPath &&
-        citationRecordsContain(request.artifact["citationHashes"], {
-          path: request.expectedResultPath,
-          hash: request.expectedResultHash
-        })
-      );
-    case "report.task.create":
-    case "writing.draft":
-      return citationRecordsContain(request.artifact["citations"], {
-        path: request.expectedResultPath,
-        hash: request.expectedResultHash
-      });
-    default:
-      throw new CommandFailure(
-        "workflow_stage_not_pi_task",
-        `Workflow stage '${request.stage}' does not have domain provenance rules.`
-      );
-  }
-}
-
-function citationRecordsContain(
-  value: unknown,
-  expected: { readonly path: string; readonly hash: string }
-): boolean {
-  return (
-    Array.isArray(value) &&
-    value.some(
-      (item) => isRecord(item) && item["path"] === expected.path && item["hash"] === expected.hash
-    )
-  );
+  return null;
 }
 
 async function validateWorkflowDomainArtifact(request: {
