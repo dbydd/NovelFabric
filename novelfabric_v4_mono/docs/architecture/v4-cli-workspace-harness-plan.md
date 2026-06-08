@@ -314,10 +314,11 @@ There are currently **no open gaps from the previous V4 next-iteration ledger**.
 
 ## 12. Fresh Active Gap: Canonical Project Resource Materialization
 
-Fresh active gap opened after the 2026-06-08 `test_novel.txt` real-path run:
+Fresh active gap opened after the 2026-06-08 `test_novel.txt` real-path run.
 
 - **Gap name:** Canonical project resource materialization and validation.
 - **Observable failure:** workflow completed 15/15 and produced semantic import, card proposal, knowledge indexes, swarm/report/writing artifacts, but canonical workspace directories remained incomplete. `cards/rules`, `cards/scenes`, and `cards/world` were empty; `memory/**`, `timeline/branches`, `simulation/turns`, `simulation/logs`, and `writing/chapters` were empty or incomplete; the single applied character card used a generic role-title card (`aria Source Card`) instead of protagonist-backed extracted character content.
+- **Canonical gap document:** `docs/architecture/v4-canonical-resource-materialization-gap.md`
 - **Acceptance tests required before closing:**
   1. a real-path test proves that a novel import produces `cards/characters`, `cards/rules`, `cards/scenes`, and `cards/world` with substantive, source-cited content;
   2. semantic `cardSeeds` map to canonical card kinds instead of collapsing into one generic character card;

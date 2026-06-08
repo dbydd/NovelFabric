@@ -51,7 +51,11 @@ There are currently no open gaps from the **previous** ledger. However, the late
 
 ## 8. Fresh Active Gap: Canonical Project Resource Materialization
 
-Fresh active gap opened after the 2026-06-08 `test_novel.txt` real-path run:
+Fresh active gap opened after the 2026-06-08 `test_novel.txt` real-path run.
+
+Canonical gap document: `../architecture/v4-canonical-resource-materialization-gap.md`
+
+Observed failures from the latest real-path run:
 
 - `cards/rules`, `cards/scenes`, and `cards/world` remained empty after import/workflow completion.
 - `memory/**`, `timeline/branches`, `simulation/turns`, `simulation/logs`, and `writing/chapters` remained empty or incomplete.

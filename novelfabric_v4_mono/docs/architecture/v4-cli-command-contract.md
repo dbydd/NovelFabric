@@ -53,7 +53,7 @@ Completed pi-evidence hardening is archived in `archive/v4-pi-evidence-loop-arch
 - `archive/v4-external-swarm-adapters-archive.md`
 - `archive/v4-domain-capabilities-archive.md`
 
-There are currently **no open command-family gaps from the previous ledger**. Future command changes must add a new gap row and tests before implementation instead of reusing stale pending rows.
+There are currently **no open command-family gaps from the previous ledger**. The current open V4 work item is business completeness, not missing command families; see `v4-canonical-resource-materialization-gap.md`. Future command changes must add a new gap row and tests before implementation instead of reusing stale pending rows.
 
 ## 3. Error Codes
 
