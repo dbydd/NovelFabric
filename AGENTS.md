@@ -1,110 +1,123 @@
 # AGENTS.md
 
-> 给后续进入本仓库的 Hermes / coding agent 的项目级常驻约束。
-> 当前仓库处于 V5 完全重写准备阶段；这份文件的目标是避免后续 agent 把 `dev` 分支误读成可继续修补的旧实现仓库。
+> NovelFabric V5 的当前项目级常驻约束。
+> 本文件是当前仓库的 active source of truth。`archived_docs/` 仅供追溯，不再默认代表现行架构。
 
-## 1. 你现在接手的是什么
+## 1. 当前项目是什么
 
-NovelFabric 是一个**文本优先**的小说创作与推演平台。
+NovelFabric V5 是一个 **agent workspace harness** 项目。
 
-当前 `dev` 分支已经主动清空上一版实现，只保留项目文档、架构记录、QA 文档和历史归档资料，为 **V5 彻底重写** 做准备。
+当前主线不是：
 
-这意味着：
+- WebUI 产品
+- 前后端分离应用
+- NovelFabric 自有长驻 runtime
+- 内建 StorySwarm / StoryGraph / StoryRAG / ReportAgent 服务
+- 必须依赖自研 CLI / Rust 工具才能使用的系统
 
-- 当前仓库不是可运行产品
-- 当前仓库不是 V4 增量开发分支
-- 当前仓库的主要价值是约束、历史与 source of truth 文档
+当前主线是：
 
-## 2. 最高优先级文档读取顺序
+- 工作区模板
+- 约束文件
+- skill 注入
+- Bash + Git 操作约定
+- prompt engineering 相关本地 skills
+- 受保护文本修改与可重现审计
 
-进入仓库后，不要自行搜索猜测上下文，按下面顺序读：
+## 2. 最高优先级约束
 
-1. `PROJECT.md`
-2. `PRODUCT_SPEC.md`
-3. `PRODUCT_SPEC_2.md`
-4. `CODEX_INFO.md`
-5. `STATE.md`
-6. `AGENTS.md`
-7. `docs/architecture/mirofish-fusion-plan.md`
-8. `docs/architecture/story-graph-rag.md`
-9. `docs/architecture/story-swarm-runtime.md`
-10. `docs/architecture/implementation-roadmap-story-systems.md`
+1. V5 采用 `Workspace Only` 边界。
+2. V5 采用 `clean break`；V2/V4 的 Web、HTTP API、internal swarm、旧兼容承诺默认废弃。
+3. 一切能写进 `AGENTS.md`、`SOUL.md`、skill、模板与约束文件的内容，不写成代码。
+4. 默认优先 skill；当前阶段优先 Bash + Git + 文本协议，不优先自研工具面。
+5. 单个模板 fork 出来就是一个独立工作区；不以 `projects/*` 多项目管理器为默认根形态。
+6. 模板实例必须是 git 仓库；受保护文件更新必须自动 commit 或遵循模板声明的审计约束。
+7. `archived_docs/` 是历史输入，不是现行实现承诺。
 
-按任务再继续读：
+## 3. 当前内建范围
 
-- 涉及 v3/v4 历史方案、CLI/workspace harness、命令契约、gap ledger、Web shell、bridge、external swarm 兼容时，继续阅读 `docs/architecture/` 中相关 `v4-*`、`external-swarm-*`、archive 文档。
-- 涉及验收和回归门槛时，继续阅读 `docs/qa/`。
-- 涉及视觉风格时，阅读 `design-system/novelfabric/MASTER.md`。
+当前阶段只把下面这些内容视为 active 主线：
 
-## 3. 当前分支的硬约束
+- 内置 workspace templates
+- `template.json` 模板元信息规范
+- `.agents/skills/` 下的本地 prompt / workflow skills
+- 通过 bash + git 执行的工作区操作约定
+- 通过文本协议驱动的 commit message / context packing / review loop
 
-### 3.1 仓库状态约束
+不要默认内建：
 
-- `dev` 分支当前应保持**文档优先**；不要假设这里还存在活跃代码、测试、构建链或依赖清单。
-- 在没有先更新规划文档前，不要直接恢复大批旧文件或沿用旧目录结构。
-- 任何重新引入实现代码的工作，都应先把 V5 的 active architecture、目录布局、验证方式写清楚。
+- 自研 CLI
+- Rust 工具链
+- MiroFish adapter
+- StoryGraph / StoryRAG / StorySwarm / ReportAgent
+- 任意 Web shell
+- 任意内部 HTTP API
 
-### 3.2 产品高层约束
+## 4. 模板约束
 
-- NovelFabric 仍然必须遵守“文本优先、文件优先、可审计”。
-- 不允许把核心项目状态藏进不可追踪的黑盒数据库作为唯一真相源。
-- 即使引入索引、图谱、向量、RAG，也只能作为派生产物；源事实仍需落文本或结构化可审计文件。
-- 角色 agent 仍应被视为**受限文本智能体**，而不是默认拥有任意 shell / 网络 / 路径权限的系统 agent。
+首发模板当前已确定：
 
-### 3.3 融合边界约束
+- `blank-root`
+- `novel-basic`
+- `tooling-only`
+- `analysis-research`
 
-允许吸收：
+每个模板必须：
 
-- GraphRAG / Temporal GraphRAG 思路
-- 群体智能推演编排思路
-- ReportAgent / interview / insight_forge 这类高层工具形态
-- workspace-first / harness-first / text-artifact-first 的工程模式
+- 带 `AGENTS.md`
+- 带 `SOUL.md`
+- 带 `.agents/skills/`
+- 带 `template.json`
 
-不允许直接照搬为主线：
+每个模板可选：
 
-- 用 Python Flask + Zep Cloud + OASIS 取代 NovelFabric 主后端
-- 把 Twitter/Reddit 社媒模拟直接当作小说跑团内核
-- 在未厘清 AGPL 边界前复制 MiroFish 实现代码进主仓库
-- 因参考其它 workspace 项目而把 NovelFabric 核心改成通用 PTY 管理器
+- `.pi/`
+- 任意目录骨架，例如 `canon/`、`artifacts/`、`inbox/`
 
-### 3.4 历史文档使用约束
+模板与子目录都允许继续嵌套放置：
 
-- V4 文档是**历史输入**，不是必须继承的实现承诺。
-- `docs/architecture/archive/` 下的归档文档用于追溯已完成过什么，不等于 V5 必须原样复刻。
-- 若 V5 决定废弃某条 V4 路线，必须在新文档中明确写出废弃理由和替代方案。
+- `AGENTS.md`
+- `SOUL.md`
+- `.agents/skills/`
+- `.pi/`
 
-## 4. 后续开发默认顺序
+用于给 subagent 注入更局部的约束、角色设定与技能能力。
 
-涉及 V5 重写时，默认顺序是：
+## 5. `template.json` 当前要求
 
-1. 先补文档与边界
-2. 再定目录结构与实现语言
-3. 再实现最小可信执行面
-4. 再补测试与验收
-5. 最后再接用户界面或外部 adapter
+- 文件名固定为 `template.json`
+- 必填字段：`name`、`description`、`protectList`
+- `protectList` 同时支持相对路径与 glob
+- 模板变量首阶段仅支持简单 key-value 替换
+- 变量默认作用于文本文件内容以及文件/目录名，不处理二进制文件
 
-不要上来就：
+## 6. 历史文档使用方式
 
-- 把 V4 文件原样搬回
-- 直接恢复一套 CLI/Web/bridge 而不先重写契约
-- 把“能跑”当作“可用”
+如果需要参考历史文档，先看：
 
-## 5. 验收要求
+- `PROJECT.md`
+- `V5_PROJECT_PLAN.md`
+- `docs/architecture/v5-boundary.md`
+- `docs/architecture/v5-workspace-contract.md`
+- `docs/architecture/v5-template-spec.md`
+- `docs/architecture/v5-inheritance-matrix.md`
 
-宣称某个 V5 阶段完成前，至少给出：
+只有在需要追溯历史方案时，才进入 `archived_docs/`。
 
-1. 改了哪些文档 / 文件
-2. 哪些高层约束被继承、废弃或重写
-3. 数据结构、API、目录契约是否已明确落盘
-4. 如果已经重新引入代码，需要给出与该阶段相匹配的最新验证证据
-5. 如果还处于设计阶段，要明确写出尚未实现的边界
+## 7. 明确禁止的方向
 
-## 6. 文档维护规则
+- 不要把 `archived_docs/PRODUCT_SPEC.md` 的 Web/Vue/前后端分离要求带回 V5 最小版本。
+- 不要把 `archived_docs/docs/architecture/story-swarm-runtime.md` 的内建推演主循环继续实现成 NovelFabric 自有 runtime。
+- 不要按 `archived_docs/docs/architecture/implementation-roadmap-story-systems.md` 直接重建后端模块与 HTTP API。
+- 不要为了兼容历史而恢复 internal swarm、旧 MCP/REST 承诺。
+- 不要让工具替 agent 写死 markdown 组织形式；相关组织应尽量留给模板约束和 agent 自身。
+- 不要再把“必须先写 CLI/代码”当成当前阶段前提。
 
-凡是后续改变了以下任一内容，必须同步更新 `AGENTS.md` 与相关 `docs/architecture/*.md`：
+## 8. 完成门槛
 
-- 主实现语言与运行时边界
-- StoryGraph / StoryRAG / StorySwarm / ReportAgent 的职责划分
-- external swarm / MCP / HTTP adapter 的定位
-- workspace 能力边界与 agent 权限模型
-- V5 的目录布局、验证门槛与验收方式
+任何宣称完成的 V5 变更，至少要说明：
+
+1. 改了哪些 active 文档或模板
+2. 是否改变了 `template.json`、模板集合、skills 协议或 Bash/Git 工作流约定
+3. 是否影响 git 可重现性约束
+4. 哪些仍未实现，只是文档或模板决策

@@ -1,35 +1,65 @@
-# NovelFabric
+# NovelFabric V5
 
-NovelFabric 当前处于 **V5 完全重写准备阶段**。
+NovelFabric V5 当前是一个 **agent workspace harness** 项目，不是 WebUI 产品，也不是自有多智能体 runtime。
 
-`dev` 分支已经主动清空上一版实现，只保留项目文档、架构记录、验收标准和历史 handoff 资料，作为下一轮重写的约束输入。仓库当前不是可运行产品，也不承诺保留 V4 代码结构。
+## 当前主线
 
-## 当前仓库内容
+当前不是“先写 CLI/代码再用”，而是：
 
-- 根目录项目说明文档：`PROJECT.md`、`PRODUCT_SPEC.md`、`PRODUCT_SPEC_2.md`、`CODEX_INFO.md`、`STATE.md`、`ROADMAP.md`、`AGENTS.md`
-- `docs/` 下的架构、QA、研究与归档文档
-- `design-system/novelfabric/MASTER.md` 设计系统文档
+- 先设计 workspace templates
+- 先把约束写进 `AGENTS.md` / `SOUL.md` / `.agents/skills/`
+- 让 agent 在工作区内直接读取这些文件
+- 通过 Bash + Git 执行实际操作
 
-## 当前仓库不包含
+典型使用姿势：
 
-- 可运行的 CLI / Web / bridge 代码
-- 测试、构建脚本与依赖清单
-- 运行时产物、fixture、示例工作区与本地状态目录
+```bash
+cd workspace
+pi
+```
 
-## 使用方式
+随后 agent 读取：
 
-进入下一轮实现前，先读这些文档：
+- `AGENTS.md`
+- `SOUL.md`
+- `template.json`
+- `.agents/skills/**`
 
-1. `PROJECT.md`
-2. `PRODUCT_SPEC.md`
-3. `PRODUCT_SPEC_2.md`
-4. `CODEX_INFO.md`
-5. `STATE.md`
-6. `AGENTS.md`
+## 当前 active 文档入口
 
-再根据具体任务进入 `docs/architecture/`、`docs/qa/` 与 `docs/research/`。
+- [AGENTS.md](./AGENTS.md)
+- [PROJECT.md](./PROJECT.md)
+- [SOUL.md](./SOUL.md)
+- [V5_PROJECT_PLAN.md](./V5_PROJECT_PLAN.md)
+- [docs/architecture/v5-boundary.md](./docs/architecture/v5-boundary.md)
+- [docs/architecture/v5-workspace-contract.md](./docs/architecture/v5-workspace-contract.md)
+- [docs/architecture/v5-template-spec.md](./docs/architecture/v5-template-spec.md)
+- [docs/architecture/v5-inheritance-matrix.md](./docs/architecture/v5-inheritance-matrix.md)
 
-## 说明
+## 当前模板方向
 
-- `main` 分支上的最近提交保留了 V4 根目录翻转后的检查点，可用于追溯历史。
-- `dev` 分支是 V5 rewrite prep 分支，目标是从文档约束重新起盘，而不是在旧实现上继续修补。
+首发模板：
+
+- `blank-root`
+- `novel-basic`
+- `tooling-only`
+- `analysis-research`
+
+每个模板至少包含：
+
+- `AGENTS.md`
+- `SOUL.md`
+- `.agents/skills/`
+- `template.json`
+
+## 当前重点
+
+当前重点不是工具封装，而是：
+
+- 先利用已安装到 `~/.agents/skills/` 的全局 prompt engineering skills
+- 再在模板内补 NovelFabric 本地适配层 skills
+- bash + git 工作流约定
+- 模板内 few-shot / conventions 文件
+- 文本优先、约束优先、可重现优先
+
+历史资料已整体移入 `archived_docs/`，仅作追溯参考，不默认代表现行架构。
