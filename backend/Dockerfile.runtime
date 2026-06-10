@@ -1,7 +1,0 @@
-FROM debian:bookworm-slim
-WORKDIR /app
-COPY target/release/novelfabric-backend /usr/local/bin/novelfabric-backend
-ENV NOVELFABRIC_BACKEND_BIND_ADDRESS=0.0.0.0:50000
-ENV NOVELFABRIC_DATA_DIR=/app/data
-EXPOSE 50000
-CMD ["/usr/local/bin/novelfabric-backend"]

@@ -6,9 +6,9 @@ V4 TypeScript mono app — previous next-iteration gap ledger is closed and arch
 
 ## Current V4 status
 
-- `novelfabric_v4_mono/` is the active TypeScript mono app staging area for the CLI-first NovelFabric workspace harness.
+- The repository root is now the active V4 TypeScript mono app for the CLI-first NovelFabric workspace harness.
 - Broad CLI command families are available: `config`, `workspace`, `project`, `files`, `runtime`, `agents`, `agent`, `skills`, `import`, `cards`, `memory`, `knowledge`, `recall`, `context-pack`, `simulation`, `swarm`, `report`, `writing`, `workflow`, `external-swarm`, and `web`.
-- Completed V4 foundations are archived in `novelfabric_v4_mono/docs/architecture/archive/`:
+- Completed V4 foundations are archived in `docs/architecture/archive/`:
   - pi-backed semantic evidence loop;
   - domain artifact materialization;
   - opt-in SDK AgentSession execution;
@@ -25,7 +25,7 @@ V4 TypeScript mono app — previous next-iteration gap ledger is closed and arch
 
 ## Required V4 regression gates
 
-For V4 TypeScript changes under `novelfabric_v4_mono`, keep these gates green:
+For V4 TypeScript changes at the repository root, keep these gates green:
 
 ```bash
 npm run typecheck
@@ -46,7 +46,7 @@ For browser workflow changes, also run:
 npm run test:e2e
 ```
 
-For optional Web/layout changes, also run the Web-specific dry-run/smoke commands listed in `novelfabric_v4_mono/AGENTS.md`.
+For optional Web/layout changes, also run the Web-specific dry-run/smoke commands listed in `AGENTS.md`.
 
 ## Known environment notes
 

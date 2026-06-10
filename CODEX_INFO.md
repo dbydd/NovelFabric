@@ -8,7 +8,7 @@
 
 NovelFabric 是文本优先的小说创作与推演平台：
 
-- 旧主线为 Rust 后端 + Vue 前端；V4 新主线正在收束为 TypeScript `novelfabric_v4_mono`（旧 staging 名 `backend_v2`）CLI-first mono app + 可选 Vue Web shell。
+- 旧主线为 Rust 后端 + Vue 前端；当前主线已经切换为仓库根目录下的 V4 TypeScript CLI-first mono app + 可选 Vue Web shell。
 - 所有项目内可变资源以文本/结构化文件落盘。
 - 角色 agent 是受限文本智能体，不是完整 shell/coding agent。
 - 图谱、RAG、索引、报告都属于文本事实的派生层，不能替代源文件。
@@ -29,18 +29,18 @@ NovelFabric 是文本优先的小说创作与推演平台：
 
 ## 2. 当前真实状态摘要
 
-当前项目已经具备真实后端领域层与前端页面，不是纯壳：
+当前项目已经具备真实 V4 workspace harness，不是纯壳：
 
-- project / import / cards / memory / timeline / simulation / writing / agents / llm
-- 受限 runtime 的 read/glob/patch/write 方向已进入实现线
-- StoryGraph / StoryRAG / StorySwarm / ReportAgent 已有后端与前端闭环
+- 根目录 `novelfabric` CLI 与共享 TypeScript workspace services 已进入主线
+- 受限 runtime 的 read/glob/patch/write、workspace doctor、workflow、import、cards、memory、simulation、report、web 命令面已进入实现线
+- StoryGraph / StoryRAG / StorySwarm / ReportAgent 已有 V4 代码与验收文档闭环
 - `test_novel.txt` 是 canonical browser acceptance fixture
 
 最新一次实现与验证状态看 `STATE.md`。当前 `STATE.md` 已记录：
 
-- LLM endpoint/key 与 role model config 已拆分
-- GraphRAG 可视化已接入
-- strict browser acceptance 已用 `test_novel.txt` 跑通
+- V4 foundations 归档位置与当前 regression gates
+- GraphRAG / workflow / browser acceptance 相关门禁
+- 新阶段必须先补 fresh gap 再实现
 
 ---
 
@@ -54,9 +54,9 @@ NovelFabric 是文本优先的小说创作与推演平台：
 
 当前默认：
 
-- 后端：`127.0.0.1:50000`
-- Docker backend：`50000:50000`
-- Docker frontend：`50001:80`
+- `novelfabric web demo` 默认端口：`127.0.0.1:50021`
+- `novelfabric web bridge` 默认端口：`127.0.0.1:50021`
+- 任何需要服务监听的 NovelFabric 端口都必须显式落在 `50000+`
 
 注意：
 
@@ -121,7 +121,7 @@ config/roles.json
 
 - 默认本地写作模型使用 `generic-writer`，该模型存在且可用。
 - 角色覆盖 healthcheck 已通过 browser path 验证：保存 `kp` role override 后，浏览器可测试该 role 并在 reload 后看到覆盖配置仍存在。
-- `backend/src/llm.rs` 已支持 OpenAI Responses、OpenAI Chat Completions、Anthropic Messages。
+- 旧 `backend/src/llm.rs` 曾支持 OpenAI Responses、OpenAI Chat Completions、Anthropic Messages；该能力现在只作为历史迁移参考。
 - Responses 返回解析不能假设每个 `output[]` 都有 `content`；必须动态过滤 `output_text`。
 
 ---
@@ -208,58 +208,34 @@ test_novel.txt
 
 ## 7. 验证命令
 
-### Backend
-
-当前 Hermes profile 下建议显式指定用户 HOME / Rust 工具，避免 profile-local cargo registry 与 rustup wrapper 问题：
+### Root V4 mono app
 
 ```bash
-HOME=/Users/dbydd \
-CARGO_HOME=/Users/dbydd/.cargo \
-RUSTC=/opt/homebrew/bin/rustc \
-RUSTDOC=/opt/homebrew/bin/rustdoc \
-/opt/homebrew/bin/cargo test --manifest-path backend/Cargo.toml -q
-```
-
-```bash
-HOME=/Users/dbydd \
-CARGO_HOME=/Users/dbydd/.cargo \
-RUSTC=/opt/homebrew/bin/rustc \
-RUSTDOC=/opt/homebrew/bin/rustdoc \
-/opt/homebrew/bin/cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings
-```
-
-### Frontend
-
-```bash
-npm run test:unit -- --run
-npm run type-check
+npm run typecheck
+npm run lint
+npm test
 npm run build
+npm run web:build
 ```
 
-当前全量 frontend unit suite 已恢复通过：9 files / 24 tests。不要再把 Electron Vitest 环境问题当作当前 known issue；若后续复发，应以新的验证输出更新 `STATE.md`。
-
-### Full-stack browser acceptance
-
-首选使用 Playwright `webServer` 自动启动后端、Vite 与本地 LLM provider：
+必要 smoke：
 
 ```bash
-cd frontend && \
-HOME=/Users/dbydd \
-CARGO_HOME=/Users/dbydd/.cargo \
-RUSTC=/opt/homebrew/bin/rustc \
-RUSTDOC=/opt/homebrew/bin/rustdoc \
-NOVELFABRIC_CARGO=/opt/homebrew/bin/cargo \
-PLAYWRIGHT_BROWSERS_PATH=/Users/dbydd/Library/Caches/ms-playwright \
-npm run test:e2e:fullstack
+npm run cli -- config path --json
+npm run cli -- workspace doctor --path fixtures/workspaces/valid-basic --json
+npm run cli -- web demo --port 50021 --dry-run --json
 ```
 
-当前 fullstack suite 通过：8 specs using 1 worker。配置默认使用：
+### Browser acceptance
 
-- backend: `127.0.0.1:50003`
-- Vite frontend: `127.0.0.1:50004`
-- local LLM provider fixture: `127.0.0.1:50112`
+首选使用 Playwright 路径验证真实 UI 控件与 workflow：
 
-其中 browser-only acceptance specs 只能用真实 UI 操作作为成功证据；`story-systems.spec.ts` 是明确标注的 API-assisted fullstack coverage，不能算作 browser-only acceptance。当前错误报告窄切片覆盖 Settings healthcheck 的 auth / model_not_found / provider_5xx / network 可见错误、backend timeout 分类覆盖，以及 Import invalid-schema 可见失败报告。
+```bash
+npm run test:e2e
+npm run test:e2e:workflow
+```
+
+其中 browser-only acceptance 只能用真实 UI 操作作为成功证据，不能用 console 或 direct API 绕过界面。
 
 ---
 
@@ -275,7 +251,7 @@ npm run test:e2e:fullstack
 
 ## 9. V4 mono app staging
 
-- `novelfabric_v4_mono/` 已由旧 `backend_v2/` staging 改名而来。
+- 当前 V4 mono app 已从旧 `backend_v2/` / `novelfabric_v4_mono/` staging 形态翻转到仓库根目录。
 - 新 V4 代码仍坚持 TypeScript strict、文本优先、CLI 原语优先。
 - 可选 Web shell 位于同一包内，通过显式 CLI/script 启动，默认 50000+ 端口。
 - 当前 Web demo 仅用于布局评审，不连接后端 API，不承担 external swarm 兼容实现。
@@ -293,8 +269,8 @@ npm run test:e2e:fullstack
 
 ## 11. 继续开发时的优先级
 
-1. 继续推进 `novelfabric_v4_mono`：在当前 layout-only Web shell 之后，优先补 CLI-backed project/fs primitives、capability manifest、external swarm compatibility fixture，再接真实 Web bridge。
+1. 继续推进根目录 V4 mono app：在当前 Web shell 与 bridge 基础上，优先补 CLI-backed project/fs primitives、capability manifest、external swarm compatibility fixture，再接真实 Web bridge。
 2. 继续把 split LLM config 接入更多 import/runtime 路径。
 3. 强化 StoryGraph 关系抽取，不要只依赖简单字符串提及。
 4. 保持 browser-only acceptance，不要用 API 直调冒充完整验收。
-5. 保持 `npm run test:unit -- --run` 与 `npm run test:e2e:fullstack` 绿色；若失败，先更新 `STATE.md` 再继续相关改动。
+5. 保持根目录 V4 验证命令与 Playwright 路径绿色；若失败，先更新 `STATE.md` 再继续相关改动。

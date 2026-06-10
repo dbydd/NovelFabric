@@ -11,7 +11,7 @@ NovelFabric 是一个**文本优先**的小说创作与推演平台。
 
 V4 的方向不是继续扩大旧后端 agent runtime，而是：
 
-- V4 TypeScript 产物从旧 `backend_v2/` staging 升级为计划改名后的 `novelfabric_v4_mono/` mono app：CLI、可选 Web shell、pi agent bridge 边界同目录演进；旧 Rust 后端只作为迁移输入
+- V4 TypeScript 产物已经从旧 `backend_v2/` / `novelfabric_v4_mono/` staging 翻转到仓库根目录：CLI、可选 Web shell、pi agent bridge 边界同目录演进；旧 Rust 后端只作为迁移输入或历史参考
 - Vue 前端保留为 V4 mono app 内的可选 CLI 启动项；网页端的 agent 操作应转向 pi agent SDK / 本地 agent bridge，并仍通过 NovelFabric CLI 原语写入项目事实
 - 一切项目内可变资源继续基于文本文件
 - 角色调度、角色推理、KP/世界维护/项目审核等智能工作移交给外部 agent + skill
@@ -36,22 +36,22 @@ V4 的方向不是继续扩大旧后端 agent runtime，而是：
 | 8    | `docs/architecture/story-swarm-runtime.md`                                                             | StorySwarm / ReportAgent 轮次、结构化输出、一致性检查                       | simulation / swarm / report / interview 任务                           |
 | 9    | `docs/architecture/implementation-roadmap-story-systems.md`                                            | 文件级实现路线图、milestone、测试命令                                       | 实现 StoryGraph/RAG/Swarm/ReportAgent 时                               |
 | 10   | `docs/architecture/v3-usability-plan.md`                                                               | v3 可用性阶段入口：LLM 拆书、LLM 健康检查、技能卡调用证据、按钮反馈         | v3 / usability / 拆书 / LLM / provider / model / skill invocation 任务 |
-| 11   | `novelfabric_v4_mono/AGENTS.md`（改名前为 `backend_v2/AGENTS.md`）                                     | V4 mono app 本地约束                                                        | V4 / mono app / CLI / workspace / web shell 任务                       |
-| 12   | `novelfabric_v4_mono/docs/architecture/v4-cli-workspace-harness-plan.md`                               | V4 当前 CLI-first workspace harness 主规划                                  | V4 架构/实现任务                                                       |
-| 13   | `novelfabric_v4_mono/docs/architecture/v4-canonical-resource-materialization-gap.md`                   | V4 当前活跃 gap：canonical cards/memory/timeline/simulation/chapters 完整性 | V4 拆书/卡片/记忆/时间线/推演/写作任务                                 |
-| 14   | `novelfabric_v4_mono/docs/architecture/v4-cli-command-contract.md`                                     | V4 当前 CLI 命令契约、capability、错误码                                    | V4 CLI / bridge / Web shell 任务                                       |
-| 15   | `novelfabric_v4_mono/novelfabric_v2backend_workspace_style_backend.md`（改名前为 `backend_v2/...`）    | V4 workspace/mono app 历史规划输入                                          | V4 架构/实现任务                                                       |
-| 16   | `novelfabric_v4_mono/novelfabric_v2backend_workspace_style_backend.zh.md`（改名前为 `backend_v2/...`） | V4 历史规划输入中文版                                                       | V4 架构/实现任务                                                       |
+| 11   | `docs/architecture/archive/v4-mono-staging-agents.md`（改名前为 `backend_v2/AGENTS.md`）              | V4 staging 阶段本地约束归档                                                 | 追溯 V4 staging 约束或历史迁移语境时                                   |
+| 12   | `docs/architecture/v4-cli-workspace-harness-plan.md`                                                   | V4 当前 CLI-first workspace harness 主规划                                  | V4 架构/实现任务                                                       |
+| 13   | `docs/architecture/v4-canonical-resource-materialization-gap.md`                                       | V4 当前活跃 gap：canonical cards/memory/timeline/simulation/chapters 完整性 | V4 拆书/卡片/记忆/时间线/推演/写作任务                                 |
+| 14   | `docs/architecture/v4-cli-command-contract.md`                                                         | V4 当前 CLI 命令契约、capability、错误码                                    | V4 CLI / bridge / Web shell 任务                                       |
+| 15   | `docs/architecture/novelfabric_v2backend_workspace_style_backend.md`（改名前为 `backend_v2/...`）      | V4 workspace/mono app 历史规划输入                                          | V4 架构/实现任务                                                       |
+| 16   | `docs/architecture/novelfabric_v2backend_workspace_style_backend.zh.md`（改名前为 `backend_v2/...`）   | V4 历史规划输入中文版                                                       | V4 架构/实现任务                                                       |
 
-如果任务与 MiroFish 融合、群体智能、RAG、推演增强、报告 agent 有关，**第 6-9 份文档必读**。如果任务与 v3 可用性、LLM 拆书、provider/model 配置、技能卡调用证据或按钮反馈有关，**第 10 份文档必读**。如果任务与 V4、pi/Hermes 工作区化、CLI 拆分、XDG 模板配置、`novelfabric_v4_mono`（旧称 `backend_v2`）有关，**第 11-16 份文档必读**，其中第 12-14 份是当前 active 规划，第 15-16 份只作为历史规划输入。不要假设可以靠搜索补齐这些约束。
+如果任务与 MiroFish 融合、群体智能、RAG、推演增强、报告 agent 有关，**第 6-9 份文档必读**。如果任务与 v3 可用性、LLM 拆书、provider/model 配置、技能卡调用证据或按钮反馈有关，**第 10 份文档必读**。如果任务与 V4、pi/Hermes 工作区化、CLI 拆分、XDG 模板配置、根目录 V4 mono app（旧 staging 名 `backend_v2` / `novelfabric_v4_mono`）有关，**第 12-16 份文档必读**；第 11 份只用于追溯 staging 约束。不要假设可以靠搜索补齐这些约束。
 
 ## 3. 项目级硬约束
 
 ### 3.1 架构约束
 
-- V4 `novelfabric_v4_mono/`（旧称 `backend_v2/`）新实现必须使用 TypeScript；不得新增 Rust crate/Cargo workspace 作为 V4 mono app 主线。
+- V4 根目录 mono app（旧称 `backend_v2/` / `novelfabric_v4_mono/`）新实现必须使用 TypeScript；不得新增 Rust crate/Cargo workspace 作为 V4 mono app 主线。
 - 旧 `backend/` Rust 能力是迁移输入，未被 V4 TypeScript CLI/bridge 覆盖前不要破坏其兼容面。
-- V4 新主线不再把 CLI 与 Web shell 做成两个包；可选 Web UI、CLI、pi agent bridge 边界应同目录演进。旧 `frontend/` 在迁移完成前作为历史输入保留。
+- V4 新主线不再把 CLI 与 Web shell 做成两个包；可选 Web UI、CLI、pi agent bridge 边界应同目录演进。旧 `frontend/` 已退出主线，仅在 git 历史中保留。
 - NovelFabric 主架构必须继续遵守“文本优先、文件优先、可审计”。
 - 不允许把核心项目状态藏进不可追踪的黑盒数据库作为唯一真相源。
 - 即使引入索引/向量/图，也只能作为**派生索引**；源事实仍需落文本或结构化可审计文件。
@@ -69,9 +69,9 @@ V4 的方向不是继续扩大旧后端 agent runtime，而是：
 
 #### 当前 V4 handoff 状态
 
-已完成的 V4 foundations 已归档到 `novelfabric_v4_mono/docs/architecture/archive/`，包括 pi evidence hardening、domain artifact materialization、opt-in SDK AgentSession execution、Web-safe tools / mutation tools、structured events、async/SSE、browser runtime task UI、Web workflow orchestration + Playwright UI-only acceptance、semantic import/materialization、external swarm REST/MCP adapters、domain-specific capabilities。
+已完成的 V4 foundations 已归档到 `docs/architecture/archive/`，包括 pi evidence hardening、domain artifact materialization、opt-in SDK AgentSession execution、Web-safe tools / mutation tools、structured events、async/SSE、browser runtime task UI、Web workflow orchestration + Playwright UI-only acceptance、semantic import/materialization、external swarm REST/MCP adapters、domain-specific capabilities。
 
-上一轮 next-iteration gap ledger 已关闭。不要把这些已完成项继续列为 active gaps。任何新阶段必须先在 `novelfabric_v4_mono/docs/architecture/v4-cli-workspace-harness-plan.md` 与 `novelfabric_v4_mono/docs/qa/v4-full-usability-acceptance.md` 中新增明确 gap、测试标准与 reviewer/verifier 归档标准，再进入实现。
+上一轮 next-iteration gap ledger 已关闭。不要把这些已完成项继续列为 active gaps。任何新阶段必须先在 `docs/architecture/v4-cli-workspace-harness-plan.md` 与 `docs/qa/v4-full-usability-acceptance.md` 中新增明确 gap、测试标准与 reviewer/verifier 归档标准，再进入实现。
 
 已归档工作的回归门槛仍必须保持：Playwright UI-only workflow tests、semantic import validation、external swarm REST/MCP golden tests、domain capability success/denial/audit tests、workflow pi+domain artifact verification、hard pi content acceptance。
 

@@ -1,1 +1,0 @@
-$(cat frontend/src/lib/workspace.ts)

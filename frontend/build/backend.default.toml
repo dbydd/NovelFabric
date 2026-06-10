@@ -1,4 +1,0 @@
-data_dir = "backend/data"
-
-[server]
-bind_address = "127.0.0.1:50000"

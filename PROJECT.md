@@ -1,7 +1,7 @@
 # NovelFabric
 
 ## Overview
-NovelFabric v1 is a web-based LLM-assisted literary creation platform built with a Rust backend and a Vue frontend. It stores all mutable project resources as text files and supports project creation, txt novel import, card/memory management, TRPG-style simulation, writing workflows, and timeline branching.
+NovelFabric 当前主线是一个位于仓库根目录的 V4 TypeScript mono app。它把 `novelfabric` CLI、可选 Vue Web shell、pi agent bridge 与共享 workspace services 放在同一目录演进，并继续把所有可变项目资源落为文本或可审计结构化文件。
 
 ## Product source of truth
 - Primary specification: `PRODUCT_SPEC.md`
@@ -18,18 +18,18 @@ NovelFabric v1 is a web-based LLM-assisted literary creation platform built with
 - Canonical fixture for import and browser acceptance: `test_novel.txt`
 
 ## Locked architectural decisions
-- Frontend/backend separated web architecture.
-- V4 TypeScript construction is moving from `backend_v2/` into the mono app directory `novelfabric_v4_mono/`. The existing Rust backend is legacy migration input until V4 coverage replaces it.
-- V4 web UI remains Vue but lives in the mono app package as an optional CLI-started shell instead of a separate new package.
+- Root-level V4 mono app is the active product line; the former `novelfabric_v4_mono/` staging directory has been folded into the repository root.
+- V4 TypeScript remains the only active implementation language for the mono app; old Rust/Vue code is migration input or archived history, not the current mainline.
+- V4 web UI remains Vue but lives in the same mono app as an optional CLI-started shell instead of a separate package.
 - All mutable project resources persisted as text files on disk.
-- Backend-first delivery.
+- CLI-first delivery with optional Web/UI adapters.
 - No unchecked type-system escape hatches in new TypeScript backend code (`any`, `unknown`, wildcard types, lint suppressions, or unchecked casts).
 - TypeScript mono app gates (`npm run typecheck`, `npm run lint`, `npm test`, `npm run build`) must be clean for V4 work; optional web changes also require `npm run web:build`.
 - Final acceptance must be browser-only via Playwright when browser/UI behavior is in scope.
 
 ## Recommended stacks
 ### V4 mono app
-- TypeScript for V4 `novelfabric_v4_mono/` (old staging name: `backend_v2/`)
+- TypeScript at repository root for the active V4 mono app (old staging names: `backend_v2/`, `novelfabric_v4_mono/`)
 - Volta-managed Node/npm
 - commander for CLI entry points
 - zod for schema validation at dynamic boundaries
@@ -75,6 +75,6 @@ External callers use NovelFabric through generic HTTP APIs, scripts, and skills.
 A phase is complete only when:
 1. Relevant automated tests pass.
 2. Changed files are diagnostics-clean.
-3. Backend clippy is zero-warning.
+3. Required root-level V4 verification commands are green for the changed surface.
 4. Required manual QA for the phase is executed.
 5. State artifacts are updated with evidence.

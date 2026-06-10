@@ -156,7 +156,7 @@ This mapping is a generic inference adapter. Application-specific interpretation
 
 ## Compatibility and tests
 
-This API is already consumed by local agent profiles, including Hermes/OpenAlice/TraderAlice-style workflows for market, sentiment, public-opinion, and external-event inference. V4 must preserve this v1 shape even if the internal implementation moves from the old backend service to `backend_v2` shared services or CLI-backed adapters.
+This API is already consumed by local agent profiles, including Hermes/OpenAlice/TraderAlice-style workflows for market, sentiment, public-opinion, and external-event inference. V4 must preserve this v1 shape even if the internal implementation moves from the old backend service to the root-level TypeScript shared services or CLI-backed adapters.
 
 Compatibility rules:
 

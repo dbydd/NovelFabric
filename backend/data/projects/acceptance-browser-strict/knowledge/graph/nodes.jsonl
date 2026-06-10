@@ -1,7 +1,0 @@
-{"id":"character:entity","name":"王","labels":["Character"],"summary":"---","source_paths":["cards/characters/entity.md"]}
-{"id":"character:jiu-jiu","name":"舅舅","labels":["Character"],"summary":"---","source_paths":["cards/characters/jiu-jiu.md"]}
-{"id":"character:lao-zhang","name":"老张","labels":["Character"],"summary":"---","source_paths":["cards/characters/lao-zhang.md"]}
-{"id":"character:ye-xiao-wei","name":"叶小伟","labels":["Character"],"summary":"---","source_paths":["cards/characters/ye-xiao-wei.md"]}
-{"id":"rule:imported-narrative-rules","name":"导入叙事规则","labels":["Rule"],"summary":"---","source_paths":["cards/rules/imported-narrative-rules.md"]}
-{"id":"worldstate:import-test-novel-txt-overview","name":"Import test-novel-txt","labels":["WorldState"],"summary":"---","source_paths":["cards/world/import-test-novel-txt-overview.md"]}
-{"id":"worldstate:imported-worldview","name":"导入世界观","labels":["WorldState"],"summary":"---","source_paths":["cards/world/imported-worldview.md"]}

@@ -6,5 +6,10 @@
 .mplconfig/
 .omx
 .playwright-cli
+dist/
+dist-web/
+coverage/
 test*
+!test/
+!test/**
 .alma-snapshots

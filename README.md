@@ -2,107 +2,103 @@
 
 ![NovelFabric logo](./assets/logo/novelfabric-logo-large.svg)
 
-NovelFabric 是一个**文本优先**的小说创作与推演平台：
+NovelFabric 当前主线是一个位于仓库根目录的 **V4 TypeScript mono app**：`novelfabric` CLI、可选 Vue Web shell，以及受控 pi agent bridge 共享同一套工作区服务层。
 
-- Rust 后端负责项目资源、时间线、记忆、卡片、写作、simulation 与受限 runtime
-- Vue 前端负责网页工作区
-- Electron 负责桌面封装
-- 一切核心资源尽量落在文本文件中，便于审计、回滚与分叉
+核心约束：
 
-## 当前能力
+- 文本优先，项目事实必须落在可审计文件中
+- CLI-first，Web 只是共享服务层上的显式适配面
+- agent 推理外置，NovelFabric 负责工作区原语、校验、保护与审计
+- external swarm HTTP/MCP 兼容面保持可用
 
-### 后端
-- 项目创建与文本资源管理
-- cards / memory / timeline / writing / simulation API
-- 最小 agent runtime：`read / glob / patch`
-- LLM provider 兼容层
-  - OpenAI Responses
-  - OpenAI Chat Completions
-  - Anthropic Messages
-- 后端 CLI / config 文件支持
+## 当前能力范围
 
-### 前端
-- Vue 工作区
-- 项目页、推演、创作、项目设定、记忆管理
-- 通过 HTTP API 访问后端
+- `novelfabric` CLI 覆盖：`config`、`workspace`、`project`、`files`、`runtime`、`agents`、`agent`、`skills`、`import`、`cards`、`memory`、`knowledge`、`recall`、`context-pack`、`simulation`、`swarm`、`report`、`writing`、`workflow`、`external-swarm`、`web`
+- 工作区原语：受限读写、路径保护、workspace doctor、模板与 capability manifest、上下文包、验证与报告
+- 语义导入、canonical resource materialization、workflow 编排、domain artifact 落盘
+- external swarm REST/MCP 兼容适配
+- 可选 Vue Web shell 与 Playwright UI-only 验收
 
-### 桌面端
-- Electron 封装现有前后端
-- 自动读取桌面配置目录
-- 启动时拉起 Rust backend 子进程
+## 快速开始
+
+安装依赖：
+
+```sh
+npm install
+```
+
+根目录验证命令：
+
+```sh
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run web:build
+```
+
+常用 CLI smoke：
+
+```sh
+npm run cli -- config path --json
+npm run cli -- workspace doctor --path fixtures/workspaces/valid-basic --json
+npm run cli -- web demo --port 50021 --dry-run --json
+```
+
+Playwright 工作流验收：
+
+```sh
+npm run test:e2e
+npm run test:e2e:workflow
+```
 
 ## 配置
 
-### 后端 CLI
+NovelFabric 默认使用自己的 XDG 配置目录：
+
+- macOS / Linux: `~/.config/novelfabric/`
+- with XDG: `$XDG_CONFIG_HOME/novelfabric/`
+
+其中 V4 pi 包装运行时默认位于：
 
 ```sh
-cargo run --manifest-path backend/Cargo.toml -- \
-  --config ~/.config/novelfabric/config.toml \
-  --bind-address 127.0.0.1:50000 \
-  --data-dir backend/data
+$XDG_CONFIG_HOME/novelfabric/pi/
 ```
 
-```sh
-cargo run --manifest-path backend/Cargo.toml -- --write-default-config
-cargo run --manifest-path backend/Cargo.toml -- --print-config
+若未设置 `XDG_CONFIG_HOME`，则回退到：
+
+```text
+$HOME/.config/novelfabric/pi/
 ```
 
 配置优先级：
 
 ```text
-defaults < config file < env < CLI args
+workspace pins < XDG config < packaged defaults < env fallback < CLI flags
 ```
-
-### 桌面配置目录
-
-- Linux/macOS: `~/.config/novelfabric/`
-- Linux with XDG: `$XDG_CONFIG_HOME/novelfabric/`
-- Windows: `%APPDATA%\\novelfabric\\`
-
-桌面端会用：
-
-- `desktop.json`
-- `backend.toml`
 
 ## 开发
 
-### 后端验证
+启动 Web shell 开发服务器：
 
 ```sh
-cargo fmt --manifest-path backend/Cargo.toml --all --check
-cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path backend/Cargo.toml -q
+npm run web:dev
 ```
 
-### 前端验证
+预览构建结果：
 
 ```sh
-npm --prefix frontend run type-check
-npm --prefix frontend run test:unit -- --run
-npm --prefix frontend run build
-```
-
-### 网页开发
-
-```sh
-npm --prefix frontend run dev
-cargo run --manifest-path backend/Cargo.toml
-```
-
-### Electron
-
-```sh
-npm --prefix frontend run electron:dev
-npm --prefix frontend run electron:pack
-npm --prefix frontend run electron:dist
+npm run web:preview
 ```
 
 ## 目录概览
 
 ```text
-backend/     Rust 后端
-frontend/    Vue + Electron 前端/桌面壳
-assets/logo/ 项目 logo 与图标资源
+src/         V4 TypeScript CLI、workspace services、Web shell、bridge
+test/        Vitest 与 Playwright 验收
+fixtures/    工作区与流程 fixture
+docs/        架构、QA 与研究文档
+assets/logo/ Logo 与图标资源
 ```
 
 ## Logo 资产
@@ -113,4 +109,4 @@ assets/logo/ 项目 logo 与图标资源
 
 ## 说明
 
-当前仓库仍处于快速迭代阶段，README 以当前可运行与可验证状态为准。
+旧 `backend/`、`frontend/` 和 `novelfabric_v4_mono/` staging 目录已经退出主线。README 以当前根目录 V4 mono app 的可验证状态为准。

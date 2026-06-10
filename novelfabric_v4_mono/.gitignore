@@ -1,6 +1,0 @@
-dist/
-dist-web/
-coverage/
-node_modules/
-!test/
-!test/**
