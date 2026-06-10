@@ -1,0 +1,13 @@
+{
+  "name": "blank-root",
+  "description": "Minimal root-first workspace harness for WORKSPACE_NAME. Text-first, Git-auditable, skill-driven, and generic by default instead of product- or runtime-scaffolded.",
+  "protectList": [
+    "AGENTS.md",
+    "SOUL.md",
+    "template.json",
+    ".agents/skills/**"
+  ],
+  "variables": {
+    "WORKSPACE_NAME": "WORKSPACE_NAME"
+  }
+}

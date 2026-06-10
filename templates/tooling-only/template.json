@@ -1,0 +1,14 @@
+{
+  "name": "tooling-only",
+  "description": "Workspace template for reusable scripts, automation protocols, and operator-facing tooling with strong audit boundaries.",
+  "protectList": [
+    "AGENTS.md",
+    "SOUL.md",
+    "template.json",
+    ".agents/skills/**",
+    "tools/**"
+  ],
+  "variables": {
+    "WORKSPACE_NAME": "tooling-only"
+  }
+}

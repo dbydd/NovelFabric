@@ -1,0 +1,14 @@
+{
+  "name": "novel-basic",
+  "description": "Scope-first long-form narrative workspace harness for WORKSPACE_NAME. Canon is accepted truth; inbox is raw intake; artifacts are derived outputs.",
+  "variables": {
+    "WORKSPACE_NAME": "WORKSPACE_NAME"
+  },
+  "protectList": [
+    "AGENTS.md",
+    "SOUL.md",
+    "template.json",
+    ".agents/skills/**",
+    "canon/**"
+  ]
+}

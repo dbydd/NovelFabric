@@ -1,0 +1,14 @@
+{
+  "name": "analysis-research",
+  "description": "Workspace template for evidence collection, structured notes, and derived research artifacts with explicit provenance boundaries.",
+  "protectList": [
+    "AGENTS.md",
+    "SOUL.md",
+    "template.json",
+    ".agents/skills/**",
+    "notes/**"
+  ],
+  "variables": {
+    "WORKSPACE_NAME": "analysis-research"
+  }
+}
