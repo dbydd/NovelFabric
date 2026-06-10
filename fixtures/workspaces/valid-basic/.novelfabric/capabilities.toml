@@ -1,6 +1,0 @@
-[main_agent]
-allow = ["project.manage", "workspace.materialize", "files.write", "files.patch_protected", "import.add", "import.normalize", "cards.propose", "cards.apply", "knowledge.rebuild", "knowledge.query", "memory.recall", "memory.write_own", "memory.propose_shared", "memory.apply_shared", "simulation.create", "simulation.append_turn", "swarm.run", "external_swarm.run", "report.render", "report.apply", "writing.draft", "writing.apply", "writing.export", "runtime.manage", "runtime.extension.manage", "agent.task.run"]
-
-[role_agent]
-allow = ["memory.recall", "simulation.append_turn"]
-deny = ["files.patch_protected", "external_swarm.run", "project.manage", "workspace.materialize", "cards.apply", "memory.apply_shared", "swarm.run", "report.apply", "writing.apply", "runtime.manage", "runtime.extension.manage", "agent.task.run"]

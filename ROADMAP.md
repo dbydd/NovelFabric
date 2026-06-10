@@ -1,46 +1,35 @@
 # ROADMAP
 
-## Phase 0 — Bootstrap and planning backbone
-- Create repo skeleton for backend, frontend, docker, planning, and data roots.
-- Establish architecture and verification rules.
+## Phase 0 — Rewrite framing
 
-## Phase 1 — Backend foundation
-- Scaffold Rust backend app with axum.
-- Add config, tracing, typed errors, and safe filesystem primitives.
-- Implement project CRUD and canonical per-project bootstrap.
+- Re-read retained product, runtime, architecture, and QA documents.
+- Decide which V4 constraints remain binding for V5.
+- Write a fresh V5 architecture and acceptance entry plan before adding code.
 
-## Phase 2 — Core text-backed domain
-- Implement card CRUD for character/rule/world cards.
-- Implement layered memory CRUD and indexing.
-- Implement timeline/timepoint primitives and agent artifacts.
+## Phase 1 — Workspace contract
 
-## Phase 3 — Book import pipeline
-- Implement txt upload/import.
-- Add encoding normalization to UTF-8.
-- Split chapters and produce import reports.
-- Extract initial cards, memory, and timeline artifacts.
+- Define the V5 repository layout.
+- Re-establish the canonical project/workspace data model.
+- Specify capability boundaries for project manager, role agents, and external adapters.
 
-## Phase 4 — Simulation backend
-- Implement simulation sessions, rounds, role orchestration, possession, and text logs.
+## Phase 2 — Core execution surface
 
-## Phase 5 — Writing and branching backend
-- Implement chapter writing workflow.
-- Enforce current-chapter-only editing.
-- Implement rollback and timeline branching with git-backed project history.
+- Pick the implementation language and runtime model.
+- Rebuild the minimum trusted primitives for text-backed project operations.
+- Define how validation, audit, and protected writes work in V5.
 
-## Phase 6 — Frontend shell
-- Scaffold Vue app with router, Pinia, shared API client, and accessible project management UI.
+## Phase 3 — Story systems
 
-## Phase 7 — Feature workspace UI
-- Implement simulation, writing, settings, and memory views.
+- Reintroduce StoryGraph, StoryRAG, StorySwarm, and ReportAgent only after their V5 contracts are explicit.
+- Separate inherited ideas from inherited implementation assumptions.
 
-## Phase 8 — Integration and acceptance
-- Add Docker deployment.
-- Run final browser-only Playwright acceptance with `test_novel.txt`.
+## Phase 4 — User-facing surfaces
 
-## Phase 9 — v3 usability repair
-- Use `docs/architecture/v3-usability-plan.md` as the v3 entry plan before starting ultragoal execution.
-- Replace semantic book-splitting fallback with LLM-first / LLM-required card, agent, and skill generation.
-- Add LLM healthcheck and user-visible provider/model diagnostics.
-- Prove agent skill-card invocation through parsed skill contracts and runtime evidence.
-- Ensure settings/import/card/agent/skill buttons provide loading, success, and error feedback.
+- Decide the relationship between CLI, optional Web shell, and agent bridge.
+- Rebuild only the user surfaces justified by the V5 architecture.
+
+## Phase 5 — Verification and usability
+
+- Define V5 verification commands from scratch.
+- Rebuild acceptance around real usability instead of legacy command continuity.
+- Re-establish browser-only acceptance if a browser surface remains in scope.

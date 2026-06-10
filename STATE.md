@@ -2,55 +2,34 @@
 
 ## Current phase
 
-V4 TypeScript mono app — previous next-iteration gap ledger is closed and archived. Future work must open a fresh active gap with explicit tests before implementation.
+V5 rewrite preparation. The `dev` branch has been reduced to documentation only.
 
-## Current V4 status
+## Current branch status
 
-- The repository root is now the active V4 TypeScript mono app for the CLI-first NovelFabric workspace harness.
-- Broad CLI command families are available: `config`, `workspace`, `project`, `files`, `runtime`, `agents`, `agent`, `skills`, `import`, `cards`, `memory`, `knowledge`, `recall`, `context-pack`, `simulation`, `swarm`, `report`, `writing`, `workflow`, `external-swarm`, and `web`.
-- Completed V4 foundations are archived in `docs/architecture/archive/`:
-  - pi-backed semantic evidence loop;
-  - domain artifact materialization;
-  - opt-in SDK AgentSession execution;
-  - Web-safe SDK tools and mutation tools;
-  - structured event stream;
-  - async Web bridge run registry + persistent SSE;
-  - browser runtime task UI;
-  - Web workflow orchestration + Playwright UI-only acceptance;
-  - semantic import/materialization;
-  - external swarm REST/MCP adapters;
-  - domain-specific capabilities.
-- The previous active gap list is empty. Do not treat archived items as pending.
-- New work must add a fresh gap entry with expected artifacts, content/evidence tests, and reviewer/verifier archival criteria before implementation.
+- Active branch intent: clear the repository for a full V5 rewrite.
+- Implementation status: no active codebase is present on this branch.
+- Retained materials: root project docs, `docs/`, and the design-system master doc.
+- Historical V4 material remains only as documentation and git history.
 
-## Required V4 regression gates
+## What is intentionally absent
 
-For V4 TypeScript changes at the repository root, keep these gates green:
+- Source code
+- Tests
+- Dependency manifests
+- Build tooling
+- Runtime fixtures and generated artifacts
+- Local workflow state directories
 
-```bash
-npm run typecheck
-npm run lint
-npm test
-npm run test:runtime
-npm run test:contracts
-npm run test:acceptance
-npm run build
-npm run web:build
-npm run format:check
-npm run test:pi-acceptance
-```
+## Immediate expectation for next work
 
-For browser workflow changes, also run:
+- Define the V5 active architecture before reintroducing code.
+- Update planning docs first when changing product boundaries.
+- Treat all V4 implementation claims as historical unless re-established in V5 docs.
 
-```bash
-npm run test:e2e
-```
+## Verification for this reset state
 
-For optional Web/layout changes, also run the Web-specific dry-run/smoke commands listed in `AGENTS.md`.
+The branch should satisfy these conditions:
 
-## Known environment notes
-
-- The Hermes profile HOME points at `~/.hermes/profiles/hermes-coding/home`; Cargo/Playwright should be run with `HOME=/Users/dbydd` or explicit cache paths to avoid broken profile-local cargo registry and missing Playwright browser cache.
-- `/opt/homebrew/opt/rustup/bin/cargo` wrapper returns permission errors in this session; use `/opt/homebrew/bin/cargo` with explicit `RUSTC=/opt/homebrew/bin/rustc` and `RUSTDOC=/opt/homebrew/bin/rustdoc`.
-- NovelFabric pi runtime config is expected under NovelFabric-owned paths such as `~/.config/novelfabric/pi/` or `$XDG_CONFIG_HOME/novelfabric/pi/`.
-- `npm run test:pi-acceptance` is a hard gate and must fail rather than skip when model config or credentials are missing.
+1. No stale root-level claim that runnable V4 code still exists here.
+2. Non-document repository contents are removed.
+3. Documentation still provides enough context to start the V5 redesign from first principles.
